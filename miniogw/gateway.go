@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"net/http"
 	"strings"
 
 	minio "github.com/minio/minio/cmd"
@@ -83,6 +84,19 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectP
 	return convertError(err, bucketName, objectPath)
 }
 
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string, objectPaths []string) (errors []error, err error) {
+	// TODO: implement multiple object deletion in libuplink API
+	errors = make([]error, len(objectPaths))
+	for i, objectPath := range objectPaths {
+		deleteErr := layer.DeleteObject(ctx, bucketName, objectPath)
+		if deleteErr != nil {
+			errors[i] = convertError(deleteErr, bucketName, objectPath)
+			err = errs.Combine(err, errors[i])
+		}
+	}
+	return errors, err
+}
+
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
@@ -98,7 +112,65 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 	}, nil
 }
 
-func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string) (err error) {
+func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objectPath string, rangeSpec *minio.HTTPRangeSpec, header http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	// TODO this should be removed and implemented on satellite side
+	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	if err != nil {
+		return nil, convertError(err, bucketName, objectPath)
+	}
+
+	startOffset := int64(0)
+	length := int64(-1)
+	if rangeSpec != nil {
+		if rangeSpec.IsSuffixLength {
+			if rangeSpec.Start > 0 {
+				return nil, errs.New("Unexpected range specification case")
+			}
+			// TODO: can we avoid this additional call?
+			object, err := layer.gateway.project.StatObject(ctx, bucketName, objectPath)
+			if err != nil {
+				return nil, convertError(err, bucketName, objectPath)
+			}
+			startOffset, length, err = rangeSpec.GetOffsetLength(object.System.ContentLength)
+			if err != nil {
+				return nil, convertError(err, bucketName, objectPath)
+			}
+		} else if rangeSpec.End < -1 {
+			return nil, errs.New("Unexpected range specification case")
+		} else {
+			startOffset = rangeSpec.Start
+			if rangeSpec.End != -1 {
+				length = rangeSpec.End - rangeSpec.Start + 1
+			}
+		}
+	}
+
+	download, err := layer.gateway.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
+		Offset: startOffset,
+		Length: length,
+	})
+	if err != nil {
+		return nil, convertError(err, bucketName, objectPath)
+	}
+
+	object := download.Info()
+	if startOffset < 0 || length < -1 || startOffset+length > object.System.ContentLength {
+		return nil, minio.InvalidRange{
+			OffsetBegin:  startOffset,
+			OffsetEnd:    startOffset + length - 1,
+			ResourceSize: object.System.ContentLength,
+		}
+	}
+
+	objectInfo := minioObjectInfo(bucketName, "", object)
+	downloadCloser := func() { _ = download.Close() }
+
+	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts.CheckCopyPrecondFn, downloadCloser)
+}
+
+func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
@@ -130,7 +202,7 @@ func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath
 	return err
 }
 
-func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, objectPath string) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
@@ -310,7 +382,7 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketNam
 	return convertError(err, bucketName, "")
 }
 
-func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if srcObject == "" {
@@ -354,7 +426,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
 
-	reader, err := hash.NewReader(download, info.System.ContentLength, "", "")
+	reader, err := hash.NewReader(download, info.System.ContentLength, "", "", info.System.ContentLength, true)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -376,7 +448,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	return minioObjectInfo(destBucket, hex.EncodeToString(reader.MD5Current()), upload.Info()), nil
 }
 
-func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath string, data *hash.Reader, metadata map[string]string) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
@@ -386,10 +458,11 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 	}
 
 	if data == nil {
-		data, err = hash.NewReader(bytes.NewReader([]byte{}), 0, "", "")
+		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0, true)
 		if err != nil {
 			return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 		}
+		data = minio.NewPutObjReader(hashReader, nil, nil)
 	}
 
 	upload, err := layer.gateway.project.UploadObject(ctx, bucketName, objectPath, nil)
@@ -404,8 +477,8 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	metadata["s3:etag"] = hex.EncodeToString(data.MD5Current())
-	err = upload.SetCustomMetadata(ctx, metadata)
+	opts.UserDefined["s3:etag"] = hex.EncodeToString(data.MD5Current())
+	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -417,7 +490,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	return minioObjectInfo(bucketName, metadata["s3:etag"], upload.Info()), nil
+	return minioObjectInfo(bucketName, opts.UserDefined["s3:etag"], upload.Info()), nil
 }
 
 func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
@@ -425,7 +498,7 @@ func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 	return nil
 }
 
-func (layer *gatewayLayer) StorageInfo(context.Context) minio.StorageInfo {
+func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
 	return minio.StorageInfo{}
 }
 

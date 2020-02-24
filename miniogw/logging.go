@@ -6,14 +6,16 @@ package miniogw
 import (
 	"context"
 	"io"
+	"net/http"
 	"reflect"
-	"time"
 
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/hash"
+	bucketsse "github.com/minio/minio/pkg/bucket/encryption"
+	"github.com/minio/minio/pkg/bucket/lifecycle"
+	"github.com/minio/minio/pkg/bucket/object/tagging"
+	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/madmin"
-	"github.com/minio/minio/pkg/policy"
 	"go.uber.org/zap"
 )
 
@@ -35,6 +37,7 @@ func (lg *gatewayLogging) NewGatewayLayer(creds auth.Credentials) (minio.ObjectL
 }
 
 type layerLogging struct {
+	minio.GatewayUnsupported
 	layer  minio.ObjectLayer
 	logger *zap.Logger
 }
@@ -53,12 +56,20 @@ func (log *layerLogging) log(err error) error {
 	return err
 }
 
+func (log *layerLogging) NewNSLock(ctx context.Context, bucket string, objects ...string) minio.RWLocker {
+	return log.layer.NewNSLock(ctx, bucket, objects...)
+}
+
 func (log *layerLogging) Shutdown(ctx context.Context) error {
 	return log.log(log.layer.Shutdown(ctx))
 }
 
-func (log *layerLogging) StorageInfo(ctx context.Context) minio.StorageInfo {
-	return log.layer.StorageInfo(ctx)
+func (log *layerLogging) CrawlAndGetDataUsage(ctx context.Context, endCh <-chan struct{}) minio.DataUsageInfo {
+	return log.layer.CrawlAndGetDataUsage(ctx, endCh)
+}
+
+func (log *layerLogging) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
+	return log.layer.StorageInfo(ctx, local)
 }
 
 func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, location string) error {
@@ -90,22 +101,27 @@ func (log *layerLogging) ListObjectsV2(ctx context.Context, bucket, prefix, cont
 	return result, log.log(err)
 }
 
-func (log *layerLogging) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string) (err error) {
-	return log.log(log.layer.GetObject(ctx, bucket, object, startOffset, length, writer, etag))
+func (log *layerLogging) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
+	reader, err = log.layer.GetObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
+	return reader, log.log(err)
 }
 
-func (log *layerLogging) GetObjectInfo(ctx context.Context, bucket, object string) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = log.layer.GetObjectInfo(ctx, bucket, object)
+func (log *layerLogging) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
+	return log.log(log.layer.GetObject(ctx, bucket, object, startOffset, length, writer, etag, opts))
+}
+
+func (log *layerLogging) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.GetObjectInfo(ctx, bucket, object, opts)
 	return objInfo, log.log(err)
 }
 
-func (log *layerLogging) PutObject(ctx context.Context, bucket, object string, data *hash.Reader, metadata map[string]string) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = log.layer.PutObject(ctx, bucket, object, data, metadata)
+func (log *layerLogging) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.PutObject(ctx, bucket, object, data, opts)
 	return objInfo, log.log(err)
 }
 
-func (log *layerLogging) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = log.layer.CopyObject(ctx, srcBucket, srcObject, destBucket, destObject, srcInfo)
+func (log *layerLogging) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.CopyObject(ctx, srcBucket, srcObject, destBucket, destObject, srcInfo, srcOpts, destOpts)
 	return objInfo, log.log(err)
 }
 
@@ -113,29 +129,33 @@ func (log *layerLogging) DeleteObject(ctx context.Context, bucket, object string
 	return log.log(log.layer.DeleteObject(ctx, bucket, object))
 }
 
+func (log *layerLogging) DeleteObjects(ctx context.Context, bucket string, objects []string) (errors []error, err error) {
+	errors, err = log.layer.DeleteObjects(ctx, bucket, objects)
+	return errors, log.log(err)
+}
+
 func (log *layerLogging) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
 	result, err = log.layer.ListMultipartUploads(ctx, bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
 	return result, log.log(err)
 }
 
-func (log *layerLogging) NewMultipartUpload(ctx context.Context, bucket, object string, metadata map[string]string) (uploadID string, err error) {
-	uploadID, err = log.layer.NewMultipartUpload(ctx, bucket, object, metadata)
+func (log *layerLogging) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
+	uploadID, err = log.layer.NewMultipartUpload(ctx, bucket, object, opts)
 	return uploadID, log.log(err)
 }
 
-func (log *layerLogging) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int, startOffset int64, length int64, srcInfo minio.ObjectInfo) (info minio.PartInfo, err error) {
-	info, err = log.layer.CopyObjectPart(ctx, srcBucket, srcObject, destBucket, destObject, uploadID, partID, startOffset, length, srcInfo)
+func (log *layerLogging) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int, startOffset int64, length int64, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (info minio.PartInfo, err error) {
+	info, err = log.layer.CopyObjectPart(ctx, srcBucket, srcObject, destBucket, destObject, uploadID, partID, startOffset, length, srcInfo, srcOpts, destOpts)
 	return info, log.log(err)
 }
 
-func (log *layerLogging) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *hash.Reader) (info minio.PartInfo, err error) {
-	info, err = log.layer.PutObjectPart(ctx, bucket, object, uploadID, partID, data)
+func (log *layerLogging) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
+	info, err = log.layer.PutObjectPart(ctx, bucket, object, uploadID, partID, data, opts)
 	return info, log.log(err)
 }
 
-func (log *layerLogging) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int) (result minio.ListPartsInfo, err error) {
-	result, err = log.layer.ListObjectParts(ctx, bucket, object, uploadID,
-		partNumberMarker, maxParts)
+func (log *layerLogging) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
+	result, err = log.layer.ListObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts, opts)
 	return result, log.log(err)
 }
 
@@ -143,8 +163,8 @@ func (log *layerLogging) AbortMultipartUpload(ctx context.Context, bucket, objec
 	return log.log(log.layer.AbortMultipartUpload(ctx, bucket, object, uploadID))
 }
 
-func (log *layerLogging) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = log.layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, uploadedParts)
+func (log *layerLogging) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, uploadedParts, opts)
 	return objInfo, log.log(err)
 }
 
@@ -157,33 +177,19 @@ func (log *layerLogging) HealFormat(ctx context.Context, dryRun bool) (madmin.He
 	return rv, log.log(err)
 }
 
-func (log *layerLogging) HealBucket(ctx context.Context, bucket string, dryRun bool) ([]madmin.HealResultItem, error) {
-	rv, err := log.layer.HealBucket(ctx, bucket, dryRun)
+func (log *layerLogging) HealBucket(ctx context.Context, bucket string, dryRun, remove bool) (madmin.HealResultItem, error) {
+	rv, err := log.layer.HealBucket(ctx, bucket, dryRun, remove)
 	return rv, log.log(err)
 }
 
-func (log *layerLogging) HealObject(ctx context.Context, bucket, object string, dryRun bool) (madmin.HealResultItem, error) {
-	rv, err := log.layer.HealObject(ctx, bucket, object, dryRun)
+func (log *layerLogging) HealObject(ctx context.Context, bucket, object string, dryRun, remove bool, scanMode madmin.HealScanMode) (madmin.HealResultItem, error) {
+	rv, err := log.layer.HealObject(ctx, bucket, object, dryRun, remove, scanMode)
 	return rv, log.log(err)
 }
 
 func (log *layerLogging) ListBucketsHeal(ctx context.Context) (buckets []minio.BucketInfo, err error) {
 	buckets, err = log.layer.ListBucketsHeal(ctx)
 	return buckets, log.log(err)
-}
-
-func (log *layerLogging) ListObjectsHeal(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (minio.ListObjectsInfo, error) {
-	rv, err := log.layer.ListObjectsHeal(ctx, bucket, prefix, marker, delimiter, maxKeys)
-	return rv, log.log(err)
-}
-
-func (log *layerLogging) ListLocks(ctx context.Context, bucket, prefix string, duration time.Duration) ([]minio.VolumeLockInfo, error) {
-	rv, err := log.layer.ListLocks(ctx, bucket, prefix, duration)
-	return rv, log.log(err)
-}
-
-func (log *layerLogging) ClearLocks(ctx context.Context, lockInfos []minio.VolumeLockInfo) error {
-	return log.log(log.layer.ClearLocks(ctx, lockInfos))
 }
 
 func (log *layerLogging) SetBucketPolicy(ctx context.Context, n string, p *policy.Policy) error {
@@ -203,6 +209,62 @@ func (log *layerLogging) IsNotificationSupported() bool {
 	return log.layer.IsNotificationSupported()
 }
 
+func (log *layerLogging) IsListenBucketSupported() bool {
+	return log.layer.IsListenBucketSupported()
+}
+
 func (log *layerLogging) IsEncryptionSupported() bool {
 	return log.layer.IsEncryptionSupported()
+}
+
+func (log *layerLogging) IsCompressionSupported() bool {
+	return log.layer.IsCompressionSupported()
+}
+
+func (log *layerLogging) SetBucketLifecycle(ctx context.Context, bucket string, lifecycle *lifecycle.Lifecycle) error {
+	return log.log(log.layer.SetBucketLifecycle(ctx, bucket, lifecycle))
+}
+
+func (log *layerLogging) GetBucketLifecycle(ctx context.Context, bucket string) (*lifecycle.Lifecycle, error) {
+	lifecycle, err := log.layer.GetBucketLifecycle(ctx, bucket)
+	return lifecycle, log.log(err)
+}
+
+func (log *layerLogging) DeleteBucketLifecycle(ctx context.Context, bucket string) error {
+	return log.log(log.layer.DeleteBucketLifecycle(ctx, bucket))
+}
+
+func (log *layerLogging) SetBucketSSEConfig(ctx context.Context, bucket string, config *bucketsse.BucketSSEConfig) error {
+	return log.log(log.layer.SetBucketSSEConfig(ctx, bucket, config))
+}
+
+func (log *layerLogging) GetBucketSSEConfig(ctx context.Context, bucket string) (*bucketsse.BucketSSEConfig, error) {
+	config, err := log.layer.GetBucketSSEConfig(ctx, bucket)
+	return config, log.log(err)
+}
+
+func (log *layerLogging) DeleteBucketSSEConfig(ctx context.Context, bucket string) error {
+	return log.log(log.layer.DeleteBucketSSEConfig(ctx, bucket))
+}
+
+func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.Metrics, error) {
+	metrics, err := log.layer.GetMetrics(ctx)
+	return metrics, log.log(err)
+}
+
+func (log *layerLogging) IsReady(ctx context.Context) bool {
+	return log.layer.IsReady(ctx)
+}
+
+func (log *layerLogging) PutObjectTag(ctx context.Context, bucket, object, tags string) error {
+	return log.log(log.layer.PutObjectTag(ctx, bucket, object, tags))
+}
+
+func (log *layerLogging) GetObjectTag(ctx context.Context, bucket, object string) (tagging.Tagging, error) {
+	tags, err := log.layer.GetObjectTag(ctx, bucket, object)
+	return tags, log.log(err)
+}
+
+func (log *layerLogging) DeleteObjectTag(ctx context.Context, bucket, object string) error {
+	return log.log(log.layer.DeleteObjectTag(ctx, bucket, object))
 }

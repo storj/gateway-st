@@ -4,36 +4,24 @@
 package miniogw_test
 
 import (
-	"context"
-	"errors"
-	"flag"
 	"fmt"
-	"os"
+	"net"
+	"os/exec"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcutil/base58"
-	"github.com/minio/cli"
-	minio "github.com/minio/minio/cmd"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/internal/minioclient"
-	"storj.io/gateway/miniogw"
-	"storj.io/storj/cmd/uplink/cmd"
 	"storj.io/storj/private/s3client"
 	"storj.io/storj/private/testplanet"
-	"storj.io/uplink"
 )
-
-type config struct {
-	Server miniogw.ServerConfig
-	Minio  miniogw.MinioConfig
-}
 
 func TestUploadDownload(t *testing.T) {
 	var counter int64
@@ -41,115 +29,109 @@ func TestUploadDownload(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		var gwCfg config
-
-		index := atomic.AddInt64(&counter, 1)
-
-		// TODO: make address not hardcoded the address selection here
-		// may conflict with some automatically bound address.
-		gwCfg.Server.Address = fmt.Sprintf("127.0.0.1:1100%d", index)
-
-		gwCfg.Minio.AccessKey = base58.Encode(testrand.BytesInt(20))
-		gwCfg.Minio.SecretKey = base58.Encode(testrand.BytesInt(20))
+		log := zaptest.NewLogger(t)
 
 		uplinkCfg := planet.Uplinks[0].GetConfig(planet.Satellites[0])
+		oldAccess, err := uplinkCfg.GetAccess()
+		require.NoError(t, err)
 
-		go func() {
-			// TODO: this leaks the gateway server, however it shouldn't
-			gwCfg := gwCfg
-			uplinkCfg := uplinkCfg
-			err := runGateway(ctx, zaptest.NewLogger(t), gwCfg, uplinkCfg, planet.Satellites[0])
-			if err != nil {
-				t.Log(err)
-			}
-		}()
+		// TODO fix this in storj/storj
+		oldAccess.SatelliteAddr = planet.Satellites[0].URL().String()
 
-		time.Sleep(100 * time.Millisecond)
+		access, err := oldAccess.Serialize()
+		require.NoError(t, err)
+
+		index := atomic.AddInt64(&counter, 1)
+		// TODO: make address not hardcoded the address selection here
+		// may conflict with some automatically bound address.
+		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
+
+		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
+		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
+
+		gatewayExe := ctx.Compile("storj.io/gateway")
+		gateway := exec.Command(gatewayExe,
+			"run",
+			"--config-dir", ctx.Dir("gateway"),
+			"--access", access,
+			"--server.address", gatewayAddr,
+			"--minio.access-key", gatewayAccessKey,
+			"--minio.secret-key", gatewaySecretKey,
+		)
+		gateway.Stdout = logWriter{log.Named("gateway:stdout")}
+		gateway.Stderr = logWriter{log.Named("gateway:stderr")}
+		err = gateway.Start()
+		require.NoError(t, err)
+		defer func() { require.NoError(t, gateway.Process.Kill()) }()
+
+		err = waitForAddress(gatewayAddr, 5*time.Second)
+		require.NoError(t, err)
 
 		client, err := minioclient.NewMinio(s3client.Config{
-			S3Gateway:     gwCfg.Server.Address,
+			S3Gateway:     gatewayAddr,
 			Satellite:     planet.Satellites[0].Addr(),
-			AccessKey:     gwCfg.Minio.AccessKey,
-			SecretKey:     gwCfg.Minio.SecretKey,
+			AccessKey:     gatewayAccessKey,
+			SecretKey:     gatewaySecretKey,
 			APIKey:        uplinkCfg.Legacy.Client.APIKey,
 			EncryptionKey: "fake-encryption-key",
 			NoSSL:         true,
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		bucket := "bucket"
 
 		err = client.MakeBucket(bucket, "")
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// generate enough data for a remote segment
 		data := testrand.BytesInt(5000)
 		objectName := "testdata"
 
 		err = client.Upload(bucket, objectName, data)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		buffer := make([]byte, len(data))
 
 		bytes, err := client.Download(bucket, objectName, buffer)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
-		assert.Equal(t, string(data), string(bytes))
+		require.Equal(t, string(data), string(bytes))
 	})
 }
 
-// runGateway creates and starts a gateway
-func runGateway(ctx context.Context, log *zap.Logger, gwCfg config, uplinkCfg cmd.Config, satellite *testplanet.SatelliteSystem) (err error) {
-	// set gateway flags
-	flags := flag.NewFlagSet("gateway", flag.ExitOnError)
-	flags.String("address", gwCfg.Server.Address, "")
-	flags.String("config-dir", gwCfg.Minio.Dir, "")
-	flags.Bool("quiet", true, "")
+// waitForAddress will monitor starting when we are able to start the process.
+func waitForAddress(address string, maxStartupWait time.Duration) error {
+	start := time.Now()
+	for {
+		if tryConnect(address) {
+			return nil
+		}
 
-	// create *cli.Context with gateway flags
-	cliCtx := cli.NewContext(cli.NewApp(), flags, nil)
+		// wait a bit before retrying to reduce load
+		time.Sleep(50 * time.Millisecond)
 
-	// TODO: setting the flag on flagset and cliCtx seems redundant, but output is not quiet otherwise
-	err = cliCtx.Set("quiet", "true")
-	if err != nil {
-		return err
+		if time.Since(start) > maxStartupWait {
+			return fmt.Errorf("%s did not start in required time %v", address, maxStartupWait)
+		}
 	}
+}
 
-	err = os.Setenv("MINIO_ACCESS_KEY", gwCfg.Minio.AccessKey)
+// tryConnect will try to connect to the process public address
+func tryConnect(address string) bool {
+	conn, err := net.Dial("tcp", address)
 	if err != nil {
-		return err
+		return false
 	}
+	// write empty byte slice to trigger refresh on connection
+	_, _ = conn.Write([]byte{})
+	// ignoring errors, because we only care about being able to connect
+	_ = conn.Close()
+	return true
+}
 
-	err = os.Setenv("MINIO_SECRET_KEY", gwCfg.Minio.SecretKey)
-	if err != nil {
-		return err
-	}
+type logWriter struct{ log *zap.Logger }
 
-	oldAccess, err := uplinkCfg.GetAccess()
-	if err != nil {
-		return err
-	}
-
-	// TODO fix this in storj/storj
-	oldAccess.SatelliteAddr = satellite.URL().String()
-
-	serializedAccess, err := oldAccess.Serialize()
-	if err != nil {
-		return err
-	}
-
-	access, err := uplink.ParseAccess(serializedAccess)
-	if err != nil {
-		return err
-	}
-
-	project, err := uplink.OpenProject(ctx, access)
-	if err != nil {
-		return err
-	}
-
-	gw := miniogw.NewStorjGateway(project)
-
-	minio.StartGateway(cliCtx, miniogw.Logging(gw, log))
-	return errors.New("unexpected minio exit")
+func (log logWriter) Write(p []byte) (n int, err error) {
+	log.log.Debug(string(p))
+	return len(p), nil
 }

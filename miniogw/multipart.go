@@ -19,13 +19,13 @@ import (
 	"storj.io/storj/private/context2"
 )
 
-func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, metadata map[string]string) (uploadID string, err error) {
+func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
 	ctx = context2.WithoutCancellation(ctx)
 
 	defer mon.Task()(&ctx)(&err)
 	uploads := layer.gateway.multipart
 
-	upload, err := uploads.Create(bucket, object, metadata)
+	upload, err := uploads.Create(bucket, object, opts.UserDefined)
 	if err != nil {
 		return "", err
 	}
@@ -43,7 +43,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		// TODO: should we add prefixes to metadata?
 		// TODO: are there other fields we can extract to standard?
 
-		err = stream.SetCustomMetadata(ctx, metadata)
+		err = stream.SetCustomMetadata(ctx, opts.UserDefined)
 		if err != nil {
 			uploads.RemoveByID(upload.ID)
 			abortErr := stream.Abort()
@@ -73,7 +73,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	return upload.ID, nil
 }
 
-func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *hash.Reader) (info minio.PartInfo, err error) {
+func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	uploads := layer.gateway.multipart
@@ -83,7 +83,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 		return minio.PartInfo{}, err
 	}
 
-	part, err := upload.Stream.AddPart(partID, data)
+	part, err := upload.Stream.AddPart(partID, data.Reader)
 	if err != nil {
 		return minio.PartInfo{}, err
 	}
@@ -124,7 +124,7 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 	return nil
 }
 
-func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	uploads := layer.gateway.multipart
@@ -141,7 +141,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	return result.Info, result.Error
 }
 
-func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int) (result minio.ListPartsInfo, err error) {
+func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	uploads := layer.gateway.multipart
