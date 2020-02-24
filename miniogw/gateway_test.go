@@ -868,7 +868,7 @@ func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathC
 		return nil, nil, nil, err
 	}
 
-	gateway := miniogw.NewStorjGateway(project)
+	gateway := miniogw.NewStorjGateway(project, false)
 	layer, err := gateway.NewGatewayLayer(auth.Credentials{})
 	if err != nil {
 		return nil, nil, nil, err

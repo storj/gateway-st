@@ -7,7 +7,9 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os/exec"
 	"strings"
 	"sync/atomic"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/stretchr/testify/require"
+	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
@@ -34,8 +37,6 @@ func TestUploadDownload(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		log := zaptest.NewLogger(t)
-
 		uplinkCfg := planet.Uplinks[0].GetConfig(planet.Satellites[0])
 		oldAccess, err := uplinkCfg.GetAccess()
 		require.NoError(t, err)
@@ -55,23 +56,9 @@ func TestUploadDownload(t *testing.T) {
 		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
 
 		gatewayExe := ctx.Compile("storj.io/gateway")
-		gateway := exec.Command(gatewayExe,
-			"run",
-			"--config-dir", ctx.Dir("gateway"),
-			"--access", access,
-			"--server.address", gatewayAddr,
-			"--minio.access-key", gatewayAccessKey,
-			"--minio.secret-key", gatewaySecretKey,
-		)
-		processgroup.Setup(gateway)
-		gateway.Stdout = logWriter{log.Named("gateway:stdout")}
-		gateway.Stderr = logWriter{log.Named("gateway:stderr")}
-		err = gateway.Start()
+		gateway, err := startGateway(t, ctx, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
 		require.NoError(t, err)
 		defer func() { processgroup.Kill(gateway) }()
-
-		err = waitForAddress(gatewayAddr, 5*time.Second)
-		require.NoError(t, err)
 
 		client, err := minioclient.NewMinio(s3client.Config{
 			S3Gateway:     gatewayAddr,
@@ -103,7 +90,40 @@ func TestUploadDownload(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
+
+			{ // try to access the content as static website - expect forbidden error
+				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusForbidden, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+
+				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusForbidden, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+			}
+
+			{ // restart the gateway with the --website flag and try again - expect success
+				err = stopGateway(gateway, gatewayAddr)
+				require.NoError(t, err)
+				gateway, err = startGateway(t, ctx, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
+				require.NoError(t, err)
+
+				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+
+				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, response.StatusCode)
+				readData, err := ioutil.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.Equal(t, data, readData)
+				require.NoError(t, response.Body.Close())
+			}
 		}
+
 		{ // multipart upload
 			bucket := "bucket-multipart"
 
@@ -153,6 +173,57 @@ func TestUploadDownload(t *testing.T) {
 			require.Equal(t, data, bytes)
 		}
 	})
+}
+
+func startGateway(t *testing.T, ctx *testcontext.Context, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
+	args := append([]string{"run",
+		"--config-dir", ctx.Dir("gateway"),
+		"--access", access,
+		"--server.address", address,
+		"--minio.access-key", accessKey,
+		"--minio.secret-key", secretKey,
+	}, moreFlags...)
+
+	gateway := exec.Command(exe, args...)
+
+	log := zaptest.NewLogger(t)
+	gateway.Stdout = logWriter{log.Named("gateway:stdout")}
+	gateway.Stderr = logWriter{log.Named("gateway:stderr")}
+
+	err := gateway.Start()
+	if err != nil {
+		return nil, err
+	}
+
+	err = waitForAddress(address, 5*time.Second)
+	if err != nil {
+		killErr := gateway.Process.Kill()
+		return nil, errs.Combine(err, killErr)
+	}
+
+	return gateway, nil
+}
+
+func stopGateway(gateway *exec.Cmd, address string) error {
+	err := gateway.Process.Kill()
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+	maxStopWait := 5 * time.Second
+	for {
+		if !tryConnect(address) {
+			return nil
+		}
+
+		// wait a bit before retrying to reduce load
+		time.Sleep(50 * time.Millisecond)
+
+		if time.Since(start) > maxStopWait {
+			return fmt.Errorf("%s did not stop in required time %v", address, maxStopWait)
+		}
+	}
 }
 
 // waitForAddress will monitor starting when we are able to start the process.

@@ -13,6 +13,7 @@ import (
 
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
+	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
@@ -29,9 +30,10 @@ var (
 )
 
 // NewStorjGateway creates a new Storj S3 gateway.
-func NewStorjGateway(project *uplink.Project) *Gateway {
+func NewStorjGateway(project *uplink.Project, website bool) *Gateway {
 	return &Gateway{
 		project:   project,
+		website:   website,
 		multipart: NewMultipartUploads(),
 	}
 }
@@ -39,6 +41,7 @@ func NewStorjGateway(project *uplink.Project) *Gateway {
 // Gateway is the implementation of a minio cmd.Gateway
 type Gateway struct {
 	project   *uplink.Project
+	website   bool
 	multipart *MultipartUploads
 }
 
@@ -500,6 +503,40 @@ func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 
 func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
 	return minio.StorageInfo{}
+}
+
+func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (*policy.Policy, error) {
+	if !layer.gateway.website {
+		return &policy.Policy{}, nil
+	}
+
+	// Allow reading any file from any bucket
+	return &policy.Policy{
+		Version: "2012-10-17",
+		Statements: []policy.Statement{
+			{
+				Effect:    policy.Allow,
+				Principal: policy.NewPrincipal("*"),
+				Actions: policy.NewActionSet(
+					policy.GetBucketLocationAction,
+					policy.ListBucketAction,
+				),
+				Resources: policy.NewResourceSet(
+					policy.NewResource(bucket, ""),
+				),
+			},
+			{
+				Effect:    policy.Allow,
+				Principal: policy.NewPrincipal("*"),
+				Actions: policy.NewActionSet(
+					policy.GetObjectAction,
+				),
+				Resources: policy.NewResourceSet(
+					policy.NewResource(bucket, "*"),
+				),
+			},
+		},
+	}, nil
 }
 
 func convertError(err error, bucket, object string) error {
