@@ -47,9 +47,13 @@ pipeline {
 
                 stage('Tests') {
                     environment {
+                        STORJ_COCKROACH_TEST = 'cockroach://root@localhost:26257/testcockroach?sslmode=disable'
+                        STORJ_POSTGRES_TEST = 'postgres://postgres@localhost/teststorj?sslmode=disable'
                         COVERFLAGS = "${ env.BRANCH_NAME != 'master' ? '' : '-coverprofile=.build/coverprofile -coverpkg=./...'}"
                     }
                     steps {
+                        sh 'cockroach sql --insecure --host=localhost:26257 -e \'create database testcockroach;\''
+                        sh 'psql -U postgres -c \'create database teststorj;\''
                         sh 'go vet ./...'
                         sh 'go test -parallel 4 -p 6 -vet=off $COVERFLAGS -timeout 20m -json -race ./... 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'
                         // TODO enable this later 

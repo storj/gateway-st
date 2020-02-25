@@ -37,7 +37,7 @@ require (
 	github.com/minio/highwayhash v0.0.0-20180501080913-85fc8a2dacad // indirect
 	github.com/minio/lsync v0.0.0-20180328070428-f332c3883f63 // indirect
 	github.com/minio/mc v0.0.0-20180926130011-a215fbb71884 // indirect
-	github.com/minio/minio-go v6.0.3+incompatible // indirect
+	github.com/minio/minio-go v6.0.3+incompatible
 	github.com/minio/sio v0.0.0-20180327104954-6a41828a60f0 // indirect
 	github.com/nats-io/gnatsd v1.3.0 // indirect
 	github.com/nats-io/go-nats v1.6.0 // indirect
@@ -65,6 +65,6 @@ require (
 	gopkg.in/ini.v1 v1.38.2 // indirect
 	gopkg.in/olivere/elastic.v5 v5.0.76 // indirect
 	storj.io/common v0.0.0-20200227094229-a07042157dcb
-	storj.io/storj v0.12.1-0.20200227103337-fb2711d05e45
-	storj.io/uplink v1.0.0-rc.2.0.20200227103342-59e4e905e57d
+	storj.io/storj v0.12.1-0.20200227134922-1f7c3be8f96c
+	storj.io/uplink v1.0.0-rc.2.0.20200227141111-2f99ea0fdfe5
 )

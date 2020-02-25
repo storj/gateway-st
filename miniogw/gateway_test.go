@@ -188,7 +188,7 @@ func TestPutObject(t *testing.T) {
 			"key2":         "value2",
 		}
 
-		serMetaInfo := pb.SerializableMeta{
+		expectedMetaInfo := pb.SerializableMeta{
 			ContentType: metadata["content-type"],
 			UserDefined: map[string]string{
 				"key1": metadata["key1"],
@@ -220,9 +220,12 @@ func TestPutObject(t *testing.T) {
 			assert.False(t, info.IsDir)
 			assert.True(t, time.Since(info.ModTime) < 1*time.Minute)
 			assert.Equal(t, data.Size(), info.Size)
-			// assert.Equal(t, data.SHA256HexString(), info.ETag) TODO: when we start calculating checksums
-			assert.Equal(t, serMetaInfo.ContentType, info.ContentType)
-			assert.Equal(t, serMetaInfo.UserDefined, info.UserDefined)
+			assert.NotEmpty(t, info.ETag)
+			assert.Equal(t, expectedMetaInfo.ContentType, info.ContentType)
+
+			expectedMetaInfo.UserDefined["s3:etag"] = info.ETag
+			expectedMetaInfo.UserDefined["content-type"] = info.ContentType
+			assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
 		}
 
 		// Check that the object is uploaded using the Metainfo API
@@ -425,7 +428,7 @@ func TestCopyObject(t *testing.T) {
 			assert.WithinDuration(t, info.ModTime, obj.Modified, 1*time.Second)
 
 			assert.Equal(t, info.Size, obj.Size)
-			assert.Equal(t, info.ContentType, obj.ContentType)
+			assert.Equal(t, info.ContentType, obj.Metadata["content-type"])
 			assert.Equal(t, info.UserDefined, obj.Metadata)
 		}
 	})
@@ -691,6 +694,7 @@ func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLa
 func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func(*testing.T, context.Context, minio.ObjectLayer, *kvmetainfo.DB, streams.Store)) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
 		layer, m, strms, err := initEnv(ctx, t, planet, pathCipher)
 		require.NoError(t, err)
