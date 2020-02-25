@@ -15,8 +15,6 @@ import (
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/zeebo/errs"
-
-	"storj.io/uplink"
 )
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, metadata map[string]string) (uploadID string, err error) {
@@ -41,12 +39,8 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 
 		// TODO: should we add prefixes to metadata?
 		// TODO: are there other fields we can extract to standard?
-		contentType := metadata["content-type"]
-		delete(metadata, "content-type")
 
-		err = stream.SetMetadata(ctx, &uplink.StandardMetadata{
-			ContentType: contentType,
-		}, metadata)
+		err = stream.SetCustomMetadata(ctx, metadata)
 		if err != nil {
 			uploads.RemoveByID(upload.ID)
 			abortErr := stream.Abort()

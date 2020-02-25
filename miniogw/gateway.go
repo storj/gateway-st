@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"strings"
 
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
@@ -116,11 +117,11 @@ func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath
 	defer func() { err = errs.Combine(err, download.Close()) }()
 
 	object := download.Info()
-	if startOffset < 0 || length < -1 || startOffset+length > object.Standard.ContentLength {
+	if startOffset < 0 || length < -1 || startOffset+length > object.System.ContentLength {
 		return minio.InvalidRange{
 			OffsetBegin:  startOffset,
 			OffsetEnd:    startOffset + length,
-			ResourceSize: object.Standard.ContentLength,
+			ResourceSize: object.System.ContentLength,
 		}
 	}
 
@@ -186,9 +187,8 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		Cursor:    marker,
 		Recursive: delimiter == "",
 
-		Info:     true,
-		Standard: true,
-		Custom:   true,
+		System: true,
+		Custom: true,
 	})
 
 	startAfter := marker
@@ -261,9 +261,8 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 		Cursor:    startAfterPath,
 		Recursive: recursive,
 
-		Info:     true,
-		Standard: true,
-		Custom:   true,
+		System: true,
+		Custom: true,
 	})
 
 	limit := maxKeys
@@ -348,14 +347,14 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	info := download.Info()
-	err = upload.SetMetadata(ctx, &info.Standard, info.Custom)
+	err = upload.SetCustomMetadata(ctx, info.Custom)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
 
-	reader, err := hash.NewReader(download, info.Standard.ContentLength, "", "")
+	reader, err := hash.NewReader(download, info.System.ContentLength, "", "")
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -398,20 +397,14 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	n, err := io.Copy(upload, data)
+	_, err = io.Copy(upload, data)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	contentType := metadata["content-type"]
-	delete(metadata, "content-type")
-
-	err = upload.SetMetadata(ctx, &uplink.StandardMetadata{
-		ContentLength: n,
-		ContentType:   contentType,
-	}, metadata)
+	err = upload.SetCustomMetadata(ctx, metadata)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -464,13 +457,19 @@ func convertError(err error, bucket, object string) error {
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {
+	contentType := ""
+	for k, v := range object.Custom {
+		if strings.ToLower(k) == "content-type" {
+			contentType = v
+		}
+	}
 	return minio.ObjectInfo{
 		Bucket:      bucket,
 		Name:        object.Key,
-		Size:        object.Standard.ContentLength,
+		Size:        object.System.ContentLength,
 		ETag:        etag,
-		ModTime:     object.Info.Created,
-		ContentType: object.Standard.ContentType,
+		ModTime:     object.System.Created,
+		ContentType: contentType,
 		UserDefined: object.Custom,
 	}
 }

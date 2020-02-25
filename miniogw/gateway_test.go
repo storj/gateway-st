@@ -226,7 +226,7 @@ func TestPutObject(t *testing.T) {
 		}
 
 		// Check that the object is uploaded using the Metainfo API
-		obj, err := m.GetObjectExtended(ctx, testBucketInfo, TestFile)
+		obj, err := m.GetObject(ctx, testBucketInfo, TestFile)
 		if assert.NoError(t, err) {
 			assert.Equal(t, TestFile, obj.Path)
 			assert.Equal(t, TestBucket, obj.Bucket.Name)
@@ -237,13 +237,13 @@ func TestPutObject(t *testing.T) {
 			// about object and those values should be used with upload.Info()
 			// This should be working after final fix
 			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.Info.Created, 1*time.Second)
+			assert.WithinDuration(t, info.ModTime, obj.Created, 1*time.Second)
 
 			assert.Equal(t, info.Size, obj.Size)
 			// TODO disabled until we will store ETag with object
 			// assert.Equal(t, info.ETag, hex.EncodeToString(obj.Checksum))
-			assert.Equal(t, info.ContentType, obj.Standard.ContentType)
-			assert.Equal(t, info.UserDefined, obj.Custom)
+			assert.Equal(t, info.ContentType, obj.Metadata["content-type"])
+			assert.Equal(t, info.UserDefined, obj.Metadata)
 		}
 	})
 }
