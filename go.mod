@@ -6,6 +6,7 @@ go 1.13
 require (
 	github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60a
 	github.com/minio/minio v0.0.0-20180508161510-54cd29b51c38
+	github.com/segmentio/go-prompt v1.2.1-0.20161017233205-f0d19b6901ad
 )
 
 exclude gopkg.in/olivere/elastic.v5 v5.0.72 // buggy import, see https://github.com/olivere/elastic/pull/869

@@ -404,6 +404,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
+	metadata["s3:etag"] = hex.EncodeToString(data.MD5Current())
 	err = upload.SetCustomMetadata(ctx, metadata)
 	if err != nil {
 		abortErr := upload.Abort()
@@ -416,7 +417,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	return minioObjectInfo(bucketName, data.MD5HexString(), upload.Info()), nil
+	return minioObjectInfo(bucketName, metadata["s3:etag"], upload.Info()), nil
 }
 
 func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
@@ -461,7 +462,11 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	for k, v := range object.Custom {
 		if strings.ToLower(k) == "content-type" {
 			contentType = v
+			break
 		}
+	}
+	if etag == "" {
+		etag = object.Custom["s3:etag"]
 	}
 	return minio.ObjectInfo{
 		Bucket:      bucket,
