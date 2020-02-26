@@ -68,5 +68,5 @@ require (
 	gopkg.in/olivere/elastic.v5 v5.0.76 // indirect
 	storj.io/common v0.0.0-20200225073704-29368fd1e212
 	storj.io/storj v0.12.1-0.20200224220226-50a21de9dc71
-	storj.io/uplink v0.0.0-20200225083029-4af9b1249d76
+	storj.io/uplink v1.0.0-rc.1
 )
