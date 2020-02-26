@@ -66,7 +66,7 @@ require (
 	gopkg.in/cheggaaa/pb.v1 v1.0.25 // indirect
 	gopkg.in/ini.v1 v1.38.2 // indirect
 	gopkg.in/olivere/elastic.v5 v5.0.76 // indirect
-	storj.io/common v0.0.0-20200225073704-29368fd1e212
+	storj.io/common v0.0.0-20200226144507-3fe9f7839df5
 	storj.io/storj v0.12.1-0.20200224220226-50a21de9dc71
-	storj.io/uplink v1.0.0-rc.1
+	storj.io/uplink v1.0.0-rc.2
 )
