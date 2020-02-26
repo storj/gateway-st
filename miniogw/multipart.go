@@ -5,9 +5,12 @@ package miniogw
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,12 +20,17 @@ import (
 	"github.com/zeebo/errs"
 
 	"storj.io/storj/private/context2"
+	"storj.io/uplink"
 )
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
 	ctx = context2.WithoutCancellation(ctx)
 
 	defer mon.Task()(&ctx)(&err)
+	if err := uplink.CustomMetadata(opts.UserDefined).Verify(); err != nil {
+		return "", err
+	}
+
 	uploads := layer.gateway.multipart
 
 	upload, err := uploads.Create(bucket, object, opts.UserDefined)
@@ -31,19 +39,15 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	}
 
 	// TODO: this can now be done without this separate goroutine
+	stream, err := layer.gateway.project.UploadObject(ctx, bucket, object, nil)
+	if err != nil {
+		uploads.RemoveByID(upload.ID)
+		upload.fail(err)
+		return "", err
+	}
 
 	go func() {
-		stream, err := layer.gateway.project.UploadObject(ctx, bucket, object, nil)
-		if err != nil {
-			uploads.RemoveByID(upload.ID)
-			upload.fail(err)
-			return
-		}
-
-		// TODO: should we add prefixes to metadata?
-		// TODO: are there other fields we can extract to standard?
-
-		err = stream.SetCustomMetadata(ctx, opts.UserDefined)
+		_, err = io.Copy(stream, upload.Stream)
 		if err != nil {
 			uploads.RemoveByID(upload.ID)
 			abortErr := stream.Abort()
@@ -51,23 +55,33 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 			return
 		}
 
-		_, err = io.Copy(stream, upload.Stream)
-		uploads.RemoveByID(upload.ID)
+		etag, etagErr := upload.etag()
+		if etagErr != nil {
+			uploads.RemoveByID(upload.ID)
+			abortErr := stream.Abort()
+			upload.fail(errs.Combine(etagErr, abortErr))
+			return
+		}
 
+		metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
+		metadata["s3:etag"] = etag
+
+		err = stream.SetCustomMetadata(ctx, metadata)
 		if err != nil {
+			uploads.RemoveByID(upload.ID)
 			abortErr := stream.Abort()
 			upload.fail(errs.Combine(err, abortErr))
 			return
 		}
 
 		err = stream.Commit()
+		uploads.RemoveByID(upload.ID)
 		if err != nil {
 			upload.fail(errs.Combine(err, err))
 			return
 		}
 
-		// TODO how set ETag here
-		upload.complete(minioObjectInfo(bucket, "", stream.Info()))
+		upload.complete(minioObjectInfo(bucket, etag, stream.Info()))
 	}()
 
 	return upload.ID, nil
@@ -96,7 +110,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 	partInfo := minio.PartInfo{
 		PartNumber:   part.Number,
 		LastModified: time.Now(),
-		ETag:         data.SHA256HexString(),
+		ETag:         data.MD5CurrentHexString(),
 		Size:         atomic.LoadInt64(&part.Size),
 	}
 
@@ -322,6 +336,31 @@ func (upload *MultipartUpload) fail(err error) {
 func (upload *MultipartUpload) complete(info minio.ObjectInfo) {
 	upload.Done <- &MultipartUploadResult{Info: info}
 	close(upload.Done)
+}
+
+func (upload *MultipartUpload) etag() (string, error) {
+	var hashes []byte
+	parts := upload.getCompletedParts()
+	for _, part := range parts {
+		md5, err := hex.DecodeString(canonicalEtag(part.ETag))
+		if err != nil {
+			hashes = append(hashes, []byte(part.ETag)...)
+		} else {
+			hashes = append(hashes, md5...)
+		}
+	}
+
+	sum := md5.Sum(hashes)
+	return hex.EncodeToString(sum[:]) + "-" + strconv.Itoa(len(parts)), nil
+}
+
+func canonicalEtag(etag string) string {
+	etag = strings.Trim(etag, `"`)
+	p := strings.IndexByte(etag, '-')
+	if p >= 0 {
+		return etag[:p]
+	}
+	return etag
 }
 
 // MultipartStream serializes multiple readers into a single reader

@@ -8,7 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 
-	minio "github.com/minio/minio-go"
+	minio "github.com/minio/minio-go/v6"
 	"github.com/zeebo/errs"
 
 	"storj.io/storj/private/s3client"
@@ -19,7 +19,7 @@ var MinioError = errs.Class("minio error")
 
 // Minio implements basic S3 Client with minio
 type Minio struct {
-	api *minio.Client
+	API *minio.Client
 }
 
 // NewMinio creates new Client
@@ -33,7 +33,7 @@ func NewMinio(conf s3client.Config) (s3client.Client, error) {
 
 // MakeBucket makes a new bucket
 func (client *Minio) MakeBucket(bucket, location string) error {
-	err := client.api.MakeBucket(bucket, location)
+	err := client.API.MakeBucket(bucket, location)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -42,7 +42,7 @@ func (client *Minio) MakeBucket(bucket, location string) error {
 
 // RemoveBucket removes a bucket
 func (client *Minio) RemoveBucket(bucket string) error {
-	err := client.api.RemoveBucket(bucket)
+	err := client.API.RemoveBucket(bucket)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -51,7 +51,7 @@ func (client *Minio) RemoveBucket(bucket string) error {
 
 // ListBuckets lists all buckets
 func (client *Minio) ListBuckets() ([]string, error) {
-	buckets, err := client.api.ListBuckets()
+	buckets, err := client.API.ListBuckets()
 	if err != nil {
 		return nil, MinioError.Wrap(err)
 	}
@@ -65,7 +65,7 @@ func (client *Minio) ListBuckets() ([]string, error) {
 
 // Upload uploads object data to the specified path
 func (client *Minio) Upload(bucket, objectName string, data []byte) error {
-	_, err := client.api.PutObject(
+	_, err := client.API.PutObject(
 		bucket, objectName,
 		bytes.NewReader(data), int64(len(data)),
 		minio.PutObjectOptions{ContentType: "application/octet-stream"})
@@ -76,11 +76,14 @@ func (client *Minio) Upload(bucket, objectName string, data []byte) error {
 }
 
 // UploadMultipart uses multipart uploads, has hardcoded threshold
-func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, threshold int) error {
-	_, err := client.api.PutObject(
+func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int) error {
+	_, err := client.API.PutObject(
 		bucket, objectName,
 		bytes.NewReader(data), -1,
-		minio.PutObjectOptions{ContentType: "application/octet-stream"})
+		minio.PutObjectOptions{
+			ContentType: "application/octet-stream",
+			PartSize:    uint64(partSize),
+		})
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -89,7 +92,7 @@ func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, thr
 
 // Download downloads object data
 func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte, error) {
-	reader, err := client.api.GetObject(bucket, objectName, minio.GetObjectOptions{})
+	reader, err := client.API.GetObject(bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, MinioError.Wrap(err)
 	}
@@ -114,7 +117,7 @@ func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte,
 
 // Delete deletes object
 func (client *Minio) Delete(bucket, objectName string) error {
-	err := client.api.RemoveObject(bucket, objectName)
+	err := client.API.RemoveObject(bucket, objectName)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -127,7 +130,7 @@ func (client *Minio) ListObjects(bucket, prefix string) ([]string, error) {
 	defer close(doneCh)
 
 	names := []string{}
-	for message := range client.api.ListObjects(bucket, prefix, false, doneCh) {
+	for message := range client.API.ListObjects(bucket, prefix, false, doneCh) {
 		names = append(names, message.Key)
 	}
 

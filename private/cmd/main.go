@@ -207,7 +207,8 @@ func (flags GatewayFlags) Run(ctx context.Context) (err error) {
 	}
 
 	minio.Main([]string{"storj", "gateway", "storj",
-		"--address", flags.Server.Address, "--config-dir", flags.Minio.Dir, "--quiet"})
+		"--address", flags.Server.Address, "--config-dir", flags.Minio.Dir, "--quiet",
+		"--compat"})
 	return errs.New("unexpected minio exit")
 }
 

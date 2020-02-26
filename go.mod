@@ -4,10 +4,9 @@ go 1.13
 
 require (
 	github.com/btcsuite/btcutil v1.0.1
-	github.com/go-ini/ini v1.38.2 // indirect
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio v0.0.0-20200226232950-5d25b10f7221
-	github.com/minio/minio-go v6.0.3+incompatible
+	github.com/minio/minio-go/v6 v6.0.45
 	github.com/prometheus/procfs v0.0.0-20190517135640-51af30a78b0e // indirect
 	github.com/spacemonkeygo/monkit/v3 v3.0.2
 	github.com/spf13/cobra v0.0.5

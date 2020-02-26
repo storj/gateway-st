@@ -4,9 +4,12 @@
 package miniogw_test
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
+	"storj.io/common/memory"
 	"storj.io/common/processgroup"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
@@ -80,24 +84,74 @@ func TestUploadDownload(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		bucket := "bucket"
+		{ // normal upload
+			bucket := "bucket"
 
-		err = client.MakeBucket(bucket, "")
-		require.NoError(t, err)
+			err = client.MakeBucket(bucket, "")
+			require.NoError(t, err)
 
-		// generate enough data for a remote segment
-		data := testrand.BytesInt(5000)
-		objectName := "testdata"
+			// generate enough data for a remote segment
+			data := testrand.BytesInt(5000)
+			objectName := "testdata"
 
-		err = client.Upload(bucket, objectName, data)
-		require.NoError(t, err)
+			err = client.Upload(bucket, objectName, data)
+			require.NoError(t, err)
 
-		buffer := make([]byte, len(data))
+			buffer := make([]byte, len(data))
 
-		bytes, err := client.Download(bucket, objectName, buffer)
-		require.NoError(t, err)
+			bytes, err := client.Download(bucket, objectName, buffer)
+			require.NoError(t, err)
 
-		require.Equal(t, string(data), string(bytes))
+			require.Equal(t, data, bytes)
+		}
+		{ // multipart upload
+			bucket := "bucket-multipart"
+
+			err = client.MakeBucket(bucket, "")
+			require.NoError(t, err)
+
+			// minimum single part size is 5mib
+			size := 8 * memory.MiB
+			data := testrand.Bytes(size)
+			objectName := "testdata"
+			partSize := 5 * memory.MiB
+
+			part1MD5 := md5.Sum(data[:partSize])
+			part2MD5 := md5.Sum(data[partSize:])
+			parts := append([]byte{}, part1MD5[:]...)
+			parts = append(parts, part2MD5[:]...)
+			partsMD5 := md5.Sum(parts)
+			expectedETag := hex.EncodeToString(partsMD5[:]) + "-2"
+
+			rawClient, ok := client.(*minioclient.Minio)
+			require.True(t, ok)
+
+			err = rawClient.UploadMultipart(bucket, objectName, data, partSize.Int(), 0)
+			require.NoError(t, err)
+
+			doneCh := make(chan struct{})
+			defer close(doneCh)
+
+			// TODO find out why with prefix set its hanging test
+			for message := range rawClient.API.ListObjectsV2(bucket, "", true, doneCh) {
+				require.Equal(t, objectName, message.Key)
+				require.NotEmpty(t, message.ETag)
+
+				// Minio adds a double quote to ETag, sometimes.
+				// Remove the potential quote from either end.
+				etag := strings.TrimPrefix(message.ETag, `"`)
+				etag = strings.TrimSuffix(etag, `"`)
+
+				require.Equal(t, expectedETag, etag)
+				break
+			}
+
+			buffer := make([]byte, len(data))
+			bytes, err := client.Download(bucket, objectName, buffer)
+			require.NoError(t, err)
+
+			require.Equal(t, data, bytes)
+		}
 	})
 }
 

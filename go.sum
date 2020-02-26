@@ -203,8 +203,6 @@ github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeME
 github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 h1:Mn26/9ZMNWSw9C9ERFA1PUxfmGpolnw2v0bKOREu5ew=
 github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32/go.mod h1:GIjDIg/heH5DOkXY3YJ/wNhfHsQHoXGjl8G8amsYQ1I=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20191125211704-12ad95a8df72/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
-github.com/go-ini/ini v1.38.2 h1:6Hl/z3p3iFkA0dlDfzYxuFuUGD+kaweypF6btsR2/Q4=
-github.com/go-ini/ini v1.38.2/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-ldap/ldap v3.0.2+incompatible/go.mod h1:qfd9rJvER9Q0/D/Sqn1DfHRoBp40uXYvFoEVrNEPqRc=
 github.com/go-logfmt/logfmt v0.3.0/go.mod h1:Qt1PoO58o5twSAckw1HlFXLmHsOX5/0LbT9GBnD5lWE=
@@ -439,8 +437,6 @@ github.com/minio/lsync v1.0.1 h1:AVvILxA976xc27hstd1oR+X9PQG0sPSom1MNb1ImfUs=
 github.com/minio/lsync v1.0.1/go.mod h1:tCFzfo0dlvdGl70IT4IAK/5Wtgb0/BrTmo/jE8pArKA=
 github.com/minio/minio v0.0.0-20200226232950-5d25b10f7221 h1:zpEAkQpeumETUD3nJYGoFriKAkaGHInh7GS/x4FGguw=
 github.com/minio/minio v0.0.0-20200226232950-5d25b10f7221/go.mod h1:tXG8W3rZqJBux3Vr3EmQHoGevChHYa3BQ0SGL+B7/5E=
-github.com/minio/minio-go v6.0.3+incompatible h1:yTq5mJOcWg6ot6STkEMnrNN896L0aDDu6njDB+8Ply0=
-github.com/minio/minio-go v6.0.3+incompatible/go.mod h1:7guKYtitv8dktvNUGrhzmNlA5wrAABTQXCoesZdFQO8=
 github.com/minio/minio-go/v6 v6.0.45 h1:aY4NI/DOgSbZiwGN3fEF4NAkC9An4bhaIWuJrQrRYew=
 github.com/minio/minio-go/v6 v6.0.45/go.mod h1:qD0lajrGW49lKZLtXKtCB4X/qkMf0a5tBvN2PaZg7Gg=
 github.com/minio/parquet-go v0.0.0-20200125064549-a1e49702e174 h1:WYFHZIJ5LTWd4C3CW26jguaBLLDdX7l1/Xa3QSKGkIc=
@@ -934,8 +930,6 @@ storj.io/common v0.0.0-20200226144507-3fe9f7839df5/go.mod h1:lCc2baFO7GQlKsPTri8
 storj.io/common v0.0.0-20200226185531-a823b4a45116/go.mod h1:lCc2baFO7GQlKsPTri8xwCsCPO2LsEUUiAGeRQuXY48=
 storj.io/common v0.0.0-20200227094229-a07042157dcb h1:7WPeB9xOAdeKxtxnJKi7An8ggLyTm8bx/0TbpD6BW6I=
 storj.io/common v0.0.0-20200227094229-a07042157dcb/go.mod h1:c9228xUKEg/sqWSOiVLoKQ3DiUqm1WrUAd9autjYfQc=
-storj.io/common v0.0.0-20200302221430-fbd9e147b3ee h1:HO1864o2x96SmEb6ivb4MebXo3tYHMi8elvsivoJ+mQ=
-storj.io/common v0.0.0-20200302221430-fbd9e147b3ee/go.mod h1:c9228xUKEg/sqWSOiVLoKQ3DiUqm1WrUAd9autjYfQc=
 storj.io/common v0.0.0-20200303092706-429875361e5d h1:TNUV5+Nc77VV0nRpDWXsGEnxopsyOBknO6vMtrUiRbU=
 storj.io/common v0.0.0-20200303092706-429875361e5d/go.mod h1:c9228xUKEg/sqWSOiVLoKQ3DiUqm1WrUAd9autjYfQc=
 storj.io/drpc v0.0.7-0.20191115031725-2171c57838d2/go.mod h1:/ascUDbzNAv0A3Jj7wUIKFBH2JdJ2uJIBO/b9+2yHgQ=
