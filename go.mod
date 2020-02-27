@@ -4,17 +4,15 @@ go 1.13
 
 // force specific versions for minio
 require (
-	github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60a
 	github.com/minio/minio v0.0.0-20180508161510-54cd29b51c38
-	github.com/segmentio/go-prompt v1.2.1-0.20161017233205-f0d19b6901ad
+	github.com/segmentio/go-prompt v1.2.1-0.20161017233205-f0d19b6901ad // indirect
 )
 
 exclude gopkg.in/olivere/elastic.v5 v5.0.72 // buggy import, see https://github.com/olivere/elastic/pull/869
 
-replace google.golang.org/grpc => github.com/storj/grpc-go v1.23.1-0.20190918084400-1c4561bf5127
-
 require (
 	github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da // indirect
+	github.com/btcsuite/btcutil v1.0.1
 	github.com/cheggaaa/pb v1.0.5-0.20160713104425-73ae1d68fe0b // indirect
 	github.com/djherbis/atime v1.0.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
@@ -29,6 +27,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/go-msgpack v0.5.3 // indirect
 	github.com/hashicorp/raft v1.0.0 // indirect
+	github.com/howeyc/gopass v0.0.0-20170109162249-bf9dde6d0d2c // indirect
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf // indirect
 	github.com/jtolds/gls v4.2.1+incompatible // indirect
 	github.com/klauspost/cpuid v0.0.0-20180405133222-e7e905edc00e // indirect
@@ -52,7 +51,7 @@ require (
 	github.com/rs/cors v1.5.0 // indirect
 	github.com/smartystreets/assertions v0.0.0-20180820201707-7c9eb446e3cf // indirect
 	github.com/smartystreets/goconvey v0.0.0-20180222194500-ef6db91d284a // indirect
-	github.com/spacemonkeygo/monkit/v3 v3.0.1
+	github.com/spacemonkeygo/monkit/v3 v3.0.2
 	github.com/spf13/cobra v0.0.5
 	github.com/streadway/amqp v0.0.0-20180806233856-70e15c650864 // indirect
 	github.com/stretchr/testify v1.4.0
@@ -61,12 +60,11 @@ require (
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.10.0
 	golang.org/x/crypto v0.0.0-20200220183623-bac4c82f6975
-	google.golang.org/appengine v1.6.0 // indirect
 	gopkg.in/Shopify/sarama.v1 v1.18.0 // indirect
 	gopkg.in/cheggaaa/pb.v1 v1.0.25 // indirect
 	gopkg.in/ini.v1 v1.38.2 // indirect
 	gopkg.in/olivere/elastic.v5 v5.0.76 // indirect
-	storj.io/common v0.0.0-20200226144507-3fe9f7839df5
-	storj.io/storj v0.12.1-0.20200224220226-50a21de9dc71
-	storj.io/uplink v1.0.0-rc.2
+	storj.io/common v0.0.0-20200227094229-a07042157dcb
+	storj.io/storj v0.12.1-0.20200227103337-fb2711d05e45
+	storj.io/uplink v1.0.0-rc.2.0.20200227103342-59e4e905e57d
 )
