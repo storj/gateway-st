@@ -15,11 +15,14 @@ import (
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/zeebo/errs"
+
+	"storj.io/storj/private/context2"
 )
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, metadata map[string]string) (uploadID string, err error) {
-	defer mon.Task()(&ctx)(&err)
+	ctx = context2.WithoutCancellation(ctx)
 
+	defer mon.Task()(&ctx)(&err)
 	uploads := layer.gateway.multipart
 
 	upload, err := uploads.Create(bucket, object, metadata)
@@ -241,7 +244,10 @@ func (uploads *MultipartUploads) Remove(bucket, object, uploadID string) (*Multi
 
 	upload, ok := uploads.pending[uploadID]
 	if !ok {
-		return nil, Error.New("pending upload %q missing", uploadID)
+		// The multipart upload may have been removed automatically due to finishing.
+		// Ideally this should return an error as well, however due to the concurrent merging
+		// of parts, the implementation cannot be stateless.
+		return nil, nil
 	}
 	if upload.Bucket != bucket || upload.Object != object {
 		return nil, Error.New("pending upload %q bucket/object name mismatch", uploadID)
