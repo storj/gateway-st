@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
+	"storj.io/common/processgroup"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/internal/minioclient"
@@ -58,11 +59,12 @@ func TestUploadDownload(t *testing.T) {
 			"--minio.access-key", gatewayAccessKey,
 			"--minio.secret-key", gatewaySecretKey,
 		)
+		processgroup.Setup(gateway)
 		gateway.Stdout = logWriter{log.Named("gateway:stdout")}
 		gateway.Stderr = logWriter{log.Named("gateway:stderr")}
 		err = gateway.Start()
 		require.NoError(t, err)
-		defer func() { require.NoError(t, gateway.Process.Kill()) }()
+		defer func() { processgroup.Kill(gateway) }()
 
 		err = waitForAddress(gatewayAddr, 5*time.Second)
 		require.NoError(t, err)
