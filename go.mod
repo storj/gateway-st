@@ -7,7 +7,6 @@ require (
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio v0.0.0-20200226232950-5d25b10f7221
 	github.com/minio/minio-go/v6 v6.0.45
-	github.com/prometheus/procfs v0.0.0-20190517135640-51af30a78b0e // indirect
 	github.com/spacemonkeygo/monkit/v3 v3.0.2
 	github.com/spf13/cobra v0.0.5
 	github.com/stretchr/testify v1.4.0
@@ -16,5 +15,6 @@ require (
 	golang.org/x/crypto v0.0.0-20200220183623-bac4c82f6975
 	storj.io/common v0.0.0-20200303092706-429875361e5d
 	storj.io/storj v0.12.1-0.20200227134922-1f7c3be8f96c
+	storj.io/storj/cmd/gateway v0.0.0-20200305211125-e99e675fb139 // indirect
 	storj.io/uplink v1.0.0-rc.2.0.20200227141111-2f99ea0fdfe5
 )
