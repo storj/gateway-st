@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -ueo pipefail
 
+SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+source $SCRIPTDIR/require.sh
+
 #setup tmpdir for testfiles and cleanup
 TMPDIR=$(mktemp -d -t tmp.XXXXXXXXXX)
 cleanup(){
@@ -52,23 +56,6 @@ aws s3 --endpoint="http://$GATEWAY_0_ADDR" cp s3://bucket/big-testfile       "$D
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" cp s3://bucket/multipart-testfile "$DST_DIR/multipart-download-testfile"
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" rb s3://bucket --force
 
-if cmp "$SRC_DIR/small-upload-testfile" "$DST_DIR/small-download-testfile"
-then
-	echo "small-upload-testfile file matches uploaded file";
-else
-	echo "small-upload-testfile file does not match uploaded file";
-fi
-
-if cmp "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile"
-then
-	echo "big-upload-testfile file matches uploaded file";
-else
-	echo "big-upload-testfile file does not match uploaded file";
-fi
-
-if cmp "$SRC_DIR/multipart-upload-testfile" "$DST_DIR/multipart-download-testfile"
-then
-	echo "multipart-upload-testfile file matches uploaded file";
-else
-	echo "multipart-upload-testfile file does not match uploaded file";
-fi
+require_equal_files_content "$SRC_DIR/small-upload-testfile"     "$DST_DIR/small-download-testfile"
+require_equal_files_content "$SRC_DIR/big-upload-testfile"       "$DST_DIR/big-download-testfile"
+require_equal_files_content "$SRC_DIR/multipart-upload-testfile" "$DST_DIR/multipart-download-testfile"
