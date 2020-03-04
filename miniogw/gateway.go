@@ -13,6 +13,7 @@ import (
 
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
+	bucketsse "github.com/minio/minio/pkg/bucket/encryption"
 	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/spacemonkeygo/monkit/v3"
@@ -537,6 +538,11 @@ func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (
 			},
 		},
 	}, nil
+}
+
+// GetBucketSSEConfig returns bucket encryption config on given bucket
+func (layer *gatewayLayer) GetBucketSSEConfig(ctx context.Context, bucket string) (*bucketsse.BucketSSEConfig, error) {
+	return &bucketsse.BucketSSEConfig{}, nil
 }
 
 func convertError(err error, bucket, object string) error {
