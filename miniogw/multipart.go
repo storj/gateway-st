@@ -129,11 +129,13 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 		return err
 	}
 
-	errAbort := Error.New("abort")
-	upload.Stream.Abort(errAbort)
-	r := <-upload.Done
-	if r.Error != errAbort {
-		return r.Error
+	if upload != nil {
+		errAbort := Error.New("abort")
+		upload.Stream.Abort(errAbort)
+		r := <-upload.Done
+		if r.Error != errAbort {
+			return r.Error
+		}
 	}
 	return nil
 }
@@ -196,8 +198,42 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	return list, nil
 }
 
+// ListMultipartUploads lists all multipart uploads.
+func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket string, prefix string, keyMarker string, uploadIDMarker string, delimiter string, maxUploads int) (lmi minio.ListMultipartsInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	uploads := layer.gateway.multipart
+
+	lmi.Prefix = prefix
+	lmi.KeyMarker = keyMarker
+	lmi.UploadIDMarker = uploadIDMarker
+	lmi.Delimiter = delimiter
+	lmi.MaxUploads = maxUploads
+	lmi.IsTruncated = false
+
+	uploads.mu.Lock()
+	defer uploads.mu.Unlock()
+
+	for _, upload := range uploads.pending {
+		// TODO support markers
+		if upload.Bucket == bucket && strings.HasPrefix(upload.Object, prefix) {
+			lmi.Uploads = append(lmi.Uploads, minio.MultipartInfo{
+				UploadID: upload.ID,
+				Object:   upload.Object,
+			})
+
+			if len(lmi.Uploads) > maxUploads {
+				lmi.Uploads = lmi.Uploads[:maxUploads]
+				lmi.IsTruncated = true
+				break
+			}
+		}
+	}
+
+	return lmi, nil
+}
+
 // TODO: implement
-// func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
 // func (layer *gatewayLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int, startOffset int64, length int64, srcInfo minio.ObjectInfo) (info minio.PartInfo, err error) {
 
 // MultipartUploads manages pending multipart uploads
