@@ -925,5 +925,5 @@ storj.io/drpc v0.0.8/go.mod h1:v39uWro/EbXXk+gNnrM9FQuVVS2zUBWBfeduydgeXUA=
 storj.io/storj v0.12.1-0.20200227134922-1f7c3be8f96c h1:UKeYcFg/gcrBhcW+OpKmvw/TI//7palJkmPWYpSyA3k=
 storj.io/storj v0.12.1-0.20200227134922-1f7c3be8f96c/go.mod h1:y7+bYLGV4ybMOVuGyemr0by/TEo3rZf88TvrdxYY3CY=
 storj.io/uplink v1.0.0-rc.2/go.mod h1:WUQYQZFI7iUxqarO1zhUwlVgiHxv4PGZlsQFh8XE8yg=
-storj.io/uplink v1.0.0-rc.4 h1:HDT6A9RXNOXet4qy0oITg1VNNP79xSxtSEcb2UGaGWE=
-storj.io/uplink v1.0.0-rc.4/go.mod h1:vLSVPdd45bPN3ewdHQrfdWhCniE1YSQw++LnP9cZR2g=
+storj.io/uplink v1.0.0-rc.5 h1:HoTDrk3IsI5Fl6PivLoSqcCVELStwBY45/qmynftbuU=
+storj.io/uplink v1.0.0-rc.5/go.mod h1:vLSVPdd45bPN3ewdHQrfdWhCniE1YSQw++LnP9cZR2g=
