@@ -1,4 +1,4 @@
-# S3 Gateway
+## S3 Gateway
 
 S3-compatible gateway for Storj V3 Network, based on [MinIO](https://github.com/minio/minio).
 
