@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -546,27 +547,27 @@ func (layer *gatewayLayer) GetBucketSSEConfig(ctx context.Context, bucket string
 }
 
 func convertError(err error, bucket, object string) error {
-	if uplink.ErrBucketNameInvalid.Has(err) {
+	if errors.Is(err, uplink.ErrBucketNameInvalid) {
 		return minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	if uplink.ErrBucketAlreadyExists.Has(err) {
+	if errors.Is(err, uplink.ErrBucketAlreadyExists) {
 		return minio.BucketAlreadyExists{Bucket: bucket}
 	}
 
-	if uplink.ErrBucketNotFound.Has(err) {
+	if errors.Is(err, uplink.ErrBucketNotFound) {
 		return minio.BucketNotFound{Bucket: bucket}
 	}
 
-	if uplink.ErrBucketNotEmpty.Has(err) {
+	if errors.Is(err, uplink.ErrBucketNotEmpty) {
 		return minio.BucketNotEmpty{Bucket: bucket}
 	}
 
-	if uplink.ErrObjectKeyInvalid.Has(err) {
+	if errors.Is(err, uplink.ErrObjectKeyInvalid) {
 		return minio.ObjectNameInvalid{Bucket: bucket, Object: object}
 	}
 
-	if uplink.ErrObjectNotFound.Has(err) {
+	if errors.Is(err, uplink.ErrObjectNotFound) {
 		return minio.ObjectNotFound{Bucket: bucket, Object: object}
 	}
 
