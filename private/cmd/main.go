@@ -21,7 +21,6 @@ import (
 	"storj.io/common/fpath"
 	"storj.io/gateway/internal/wizard"
 	"storj.io/gateway/miniogw"
-	"storj.io/storj/cmd/uplink/cmd"
 	"storj.io/storj/pkg/cfgstruct"
 	"storj.io/storj/pkg/process"
 	"storj.io/uplink"
@@ -34,7 +33,7 @@ type GatewayFlags struct {
 	Server miniogw.ServerConfig
 	Minio  miniogw.MinioConfig
 
-	cmd.Config
+	Config
 
 	Website bool `help:"serve content as a static website" default:"false"`
 }
@@ -234,17 +233,7 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 }
 
 func (flags GatewayFlags) openProject(ctx context.Context) (*uplink.Project, error) {
-	oldAccess, err := flags.GetAccess()
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-
-	serializedAccess, err := oldAccess.Serialize()
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-
-	access, err := uplink.ParseAccess(serializedAccess)
+	access, err := flags.GetAccess()
 	if err != nil {
 		return nil, Error.Wrap(err)
 	}
