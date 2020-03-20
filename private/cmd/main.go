@@ -24,8 +24,6 @@ import (
 	"storj.io/storj/cmd/uplink/cmd"
 	"storj.io/storj/pkg/cfgstruct"
 	"storj.io/storj/pkg/process"
-	"storj.io/storj/private/version"
-	"storj.io/storj/private/version/checker"
 	"storj.io/uplink"
 )
 
@@ -37,8 +35,6 @@ type GatewayFlags struct {
 	Minio  miniogw.MinioConfig
 
 	cmd.Config
-
-	Version checker.Config
 
 	Website bool `help:"serve content as a static website" default:"false"`
 }
@@ -140,11 +136,6 @@ func cmdRun(cmd *cobra.Command, args []string) (err error) {
 
 	if err := process.InitMetrics(ctx, zap.L(), nil, ""); err != nil {
 		zap.S().Warn("Failed to initialize telemetry batcher: ", err)
-	}
-
-	err = checker.CheckProcessVersion(ctx, zap.L(), runCfg.Version, version.Build, "Gateway")
-	if err != nil {
-		return err
 	}
 
 	zap.S().Infof("Starting Storj S3-compatible gateway!\n\n")
