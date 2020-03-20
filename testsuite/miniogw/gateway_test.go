@@ -115,7 +115,7 @@ func TestDeleteBucket(t *testing.T) {
 		assert.Equal(t, minio.BucketNotEmpty{Bucket: TestBucket}, err)
 
 		// Delete the file using the Metainfo API, so the bucket becomes empty
-		err = m.DeleteObject(ctx, bucket, TestFile)
+		_, err = m.DeleteObject(ctx, bucket, TestFile)
 		assert.NoError(t, err)
 
 		// Delete the bucket info using the Minio API
