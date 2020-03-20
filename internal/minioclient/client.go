@@ -10,12 +10,34 @@ import (
 
 	minio "github.com/minio/minio-go/v6"
 	"github.com/zeebo/errs"
-
-	"storj.io/storj/private/s3client"
 )
 
 // MinioError is class for minio errors
 var MinioError = errs.Class("minio error")
+
+// Config is the setup for a particular client
+type Config struct {
+	S3Gateway     string
+	Satellite     string
+	AccessKey     string
+	SecretKey     string
+	APIKey        string
+	EncryptionKey string
+	NoSSL         bool
+	ConfigDir     string
+}
+
+// Client is the common interface for different implementations
+type Client interface {
+	MakeBucket(bucket, location string) error
+	RemoveBucket(bucket string) error
+	ListBuckets() ([]string, error)
+
+	Upload(bucket, objectName string, data []byte) error
+	Download(bucket, objectName string, buffer []byte) ([]byte, error)
+	Delete(bucket, objectName string) error
+	ListObjects(bucket, prefix string) ([]string, error)
+}
 
 // Minio implements basic S3 Client with minio
 type Minio struct {
@@ -23,7 +45,7 @@ type Minio struct {
 }
 
 // NewMinio creates new Client
-func NewMinio(conf s3client.Config) (s3client.Client, error) {
+func NewMinio(conf Config) (Client, error) {
 	api, err := minio.New(conf.S3Gateway, conf.AccessKey, conf.SecretKey, !conf.NoSSL)
 	if err != nil {
 		return nil, MinioError.Wrap(err)

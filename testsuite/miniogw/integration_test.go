@@ -27,7 +27,6 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/internal/minioclient"
-	"storj.io/storj/private/s3client"
 	"storj.io/storj/private/testplanet"
 )
 
@@ -60,7 +59,7 @@ func TestUploadDownload(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { processgroup.Kill(gateway) }()
 
-		client, err := minioclient.NewMinio(s3client.Config{
+		client, err := minioclient.NewMinio(minioclient.Config{
 			S3Gateway:     gatewayAddr,
 			Satellite:     planet.Satellites[0].Addr(),
 			AccessKey:     gatewayAccessKey,
