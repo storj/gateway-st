@@ -66,21 +66,18 @@ var (
 	setupCfg GatewayFlags
 	runCfg   GatewayFlags
 
-	confDir     string
-	identityDir string
+	confDir string
 )
 
 func init() {
 	defaultConfDir := fpath.ApplicationDir("storj", "gateway")
-	defaultIdentityDir := fpath.ApplicationDir("storj", "identity", "gateway")
 	cfgstruct.SetupFlag(zap.L(), rootCmd, &confDir, "config-dir", defaultConfDir, "main directory for gateway configuration")
-	cfgstruct.SetupFlag(zap.L(), rootCmd, &identityDir, "identity-dir", defaultIdentityDir, "main directory for gateway identity credentials")
 	defaults := cfgstruct.DefaultsFlag(rootCmd)
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(setupCmd)
-	process.Bind(runCmd, &runCfg, defaults, cfgstruct.ConfDir(confDir), cfgstruct.IdentityDir(identityDir))
-	process.Bind(setupCmd, &setupCfg, defaults, cfgstruct.ConfDir(confDir), cfgstruct.IdentityDir(identityDir), cfgstruct.SetupMode())
+	process.Bind(runCmd, &runCfg, defaults, cfgstruct.ConfDir(confDir))
+	process.Bind(setupCmd, &setupCfg, defaults, cfgstruct.ConfDir(confDir), cfgstruct.SetupMode())
 
 	rootCmd.PersistentFlags().BoolVar(new(bool), "advanced", false, "if used in with -h, print advanced flags help")
 	cfgstruct.SetBoolAnnotation(rootCmd.PersistentFlags(), "advanced", cfgstruct.BasicHelpAnnotationName, true)
