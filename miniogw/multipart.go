@@ -19,7 +19,7 @@ import (
 	"github.com/minio/minio/pkg/hash"
 	"github.com/zeebo/errs"
 
-	"storj.io/storj/private/context2"
+	"storj.io/common/context2"
 	"storj.io/uplink"
 )
 

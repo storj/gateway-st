@@ -25,8 +25,8 @@ import (
 	"storj.io/common/fpath"
 	"storj.io/gateway/internal/wizard"
 	"storj.io/gateway/miniogw"
-	"storj.io/storj/pkg/cfgstruct"
-	"storj.io/storj/pkg/process"
+	"storj.io/private/cfgstruct"
+	"storj.io/private/process"
 	"storj.io/uplink"
 )
 
