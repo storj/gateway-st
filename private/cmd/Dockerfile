@@ -9,6 +9,4 @@ VOLUME /root/.local/share/storj/gateway
 COPY release/${TAG}/gateway_linux_${GOARCH:-amd64} /app/gateway
 COPY private/cmd/entrypoint /entrypoint
 ENTRYPOINT ["/entrypoint"]
-ENV CONF_PATH=/root/.local/share/storj/gateway \
-    API_KEY= \
-    SATELLITE_ADDR=
+ENV CONF_PATH=/root/.local/share/storj/gateway

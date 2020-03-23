@@ -8,51 +8,12 @@ package wizard
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/zeebo/errs"
 	"golang.org/x/crypto/ssh/terminal"
 )
-
-// applyDefaultHostAndPortToAddr applies the default host and/or port if either is missing in the specified address.
-func applyDefaultHostAndPortToAddr(address, defaultAddress string) (string, error) {
-	defaultHost, defaultPort, err := net.SplitHostPort(defaultAddress)
-	if err != nil {
-		return "", err
-	}
-
-	addressParts := strings.Split(address, ":")
-	numberOfParts := len(addressParts)
-
-	if numberOfParts > 1 && len(addressParts[0]) > 0 && len(addressParts[1]) > 0 {
-		// address is host:port so skip applying any defaults.
-		return address, nil
-	}
-
-	// We are missing a host:port part. Figure out which part we are missing.
-	indexOfPortSeparator := strings.Index(address, ":")
-	lengthOfFirstPart := len(addressParts[0])
-
-	if indexOfPortSeparator < 0 {
-		if lengthOfFirstPart == 0 {
-			// address is blank.
-			return defaultAddress, nil
-		}
-		// address is host
-		return net.JoinHostPort(addressParts[0], defaultPort), nil
-	}
-
-	if indexOfPortSeparator == 0 {
-		// address is :1234
-		return net.JoinHostPort(defaultHost, addressParts[1]), nil
-	}
-
-	// address is host:
-	return net.JoinHostPort(addressParts[0], defaultPort), nil
-}
 
 // PromptForAccessName handles user input for access name to be used with wizards
 func PromptForAccessName() (string, error) {
@@ -75,7 +36,7 @@ func PromptForAccessName() (string, error) {
 
 // PromptForSatellite handles user input for a satellite address to be used with wizards
 func PromptForSatellite(cmd *cobra.Command) (string, error) {
-	satellites := []string{"us-central-1.tardigrade.io", "europe-west-1.tardigrade.io", "asia-east-1.tardigrade.io"}
+	satellites := []string{"us-central-1.tardigrade.io:7777", "europe-west-1.tardigrade.io:7777", "asia-east-1.tardigrade.io:7777"}
 
 	_, err := fmt.Print("Select your satellite:\n")
 	if err != nil {
@@ -117,11 +78,11 @@ func PromptForSatellite(cmd *cobra.Command) (string, error) {
 		case "3":
 			satelliteAddress = satellites[2]
 		default:
-			return "", errs.New("Satellite address cannot be one character")
+			return "", errs.New("satellite address cannot be one character")
 		}
 	}
 
-	return applyDefaultHostAndPortToAddr(satelliteAddress, cmd.Flags().Lookup("satellite-addr").Value.String())
+	return satelliteAddress, nil
 }
 
 // PromptForAPIKey handles user input for an API key to be used with wizards

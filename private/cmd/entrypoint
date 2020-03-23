@@ -7,12 +7,4 @@ fi
 
 RUN_PARAMS="${RUN_PARAMS:-} --config-dir ${CONF_PATH}"
 
-if [[ -n "${API_KEY:-}" ]]; then
-	RUN_PARAMS="${RUN_PARAMS} --api-key ${API_KEY}"
-fi
-
-if [ -n "${SATELLITE_ADDR:-}" ]; then
-	RUN_PARAMS="${RUN_PARAMS} --satellite-addr $SATELLITE_ADDR"
-fi
-
 exec ./gateway run $RUN_PARAMS "$@"
