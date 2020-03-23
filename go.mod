@@ -10,7 +10,7 @@ require (
 	github.com/prometheus/procfs v0.0.0-20190517135640-51af30a78b0e // indirect
 	github.com/spacemonkeygo/monkit/v3 v3.0.4
 	github.com/spf13/cobra v0.0.5
-	github.com/stretchr/testify v1.4.0
+	github.com/spf13/pflag v1.0.3
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.10.0
 	golang.org/x/crypto v0.0.0-20200220183623-bac4c82f6975

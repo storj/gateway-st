@@ -4,17 +4,21 @@
 package cmd
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/minio/cli"
 	minio "github.com/minio/minio/cmd"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 
@@ -35,7 +39,7 @@ type GatewayFlags struct {
 
 	Config
 
-	Website bool `help:"serve content as a static website" default:"false"`
+	Website bool `help:"serve content as a static website" default:"false" basic-help:"true"`
 }
 
 var (
@@ -77,6 +81,11 @@ func init() {
 	rootCmd.AddCommand(setupCmd)
 	process.Bind(runCmd, &runCfg, defaults, cfgstruct.ConfDir(confDir), cfgstruct.IdentityDir(identityDir))
 	process.Bind(setupCmd, &setupCfg, defaults, cfgstruct.ConfDir(confDir), cfgstruct.IdentityDir(identityDir), cfgstruct.SetupMode())
+
+	rootCmd.PersistentFlags().BoolVar(new(bool), "advanced", false, "if used in with -h, print advanced flags help")
+	cfgstruct.SetBoolAnnotation(rootCmd.PersistentFlags(), "advanced", cfgstruct.BasicHelpAnnotationName, true)
+	cfgstruct.SetBoolAnnotation(rootCmd.PersistentFlags(), "config-dir", cfgstruct.BasicHelpAnnotationName, true)
+	setUsageFunc(rootCmd)
 }
 
 func cmdSetup(cmd *cobra.Command, args []string) (err error) {
@@ -309,6 +318,95 @@ func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, ov
 	return Error.Wrap(process.SaveConfig(cmd, filepath.Join(setupDir, "config.yaml"),
 		process.SaveConfigWithOverrides(overrides),
 		process.SaveConfigRemovingDeprecated()))
+}
+
+/*	`setUsageFunc` is a bit unconventional but cobra didn't leave much room for
+	extensibility here. `cmd.SetUsageTemplate` is fairly useless for our case without
+	the ability to add to the template's function map (see: https://golang.org/pkg/text/template/#hdr-Functions).
+
+	Because we can't alter what `cmd.Usage` generates, we have to edit it afterwards.
+	In order to hook this function *and* get the usage string, we have to juggle the
+	`cmd.usageFunc` between our hook and `nil`, so that we can get the usage string
+	from the default usage func.
+*/
+func setUsageFunc(cmd *cobra.Command) {
+	if findBoolFlagEarly("advanced") {
+		return
+	}
+
+	reset := func() (set func()) {
+		original := cmd.UsageFunc()
+		cmd.SetUsageFunc(nil)
+
+		return func() {
+			cmd.SetUsageFunc(original)
+		}
+	}
+
+	cmd.SetUsageFunc(func(cmd *cobra.Command) error {
+		set := reset()
+		usageStr := cmd.UsageString()
+		defer set()
+
+		usageScanner := bufio.NewScanner(bytes.NewBufferString(usageStr))
+
+		var basicFlags []string
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			basic, ok := flag.Annotations[cfgstruct.BasicHelpAnnotationName]
+			if ok && len(basic) == 1 && basic[0] == "true" {
+				basicFlags = append(basicFlags, flag.Name)
+			}
+		})
+
+		for usageScanner.Scan() {
+			line := usageScanner.Text()
+			trimmedLine := strings.TrimSpace(line)
+
+			var flagName string
+			if _, err := fmt.Sscanf(trimmedLine, "--%s", &flagName); err != nil {
+				fmt.Println(line)
+				continue
+			}
+
+			// TODO: properly filter flags with short names
+			if !strings.HasPrefix(trimmedLine, "--") {
+				fmt.Println(line)
+			}
+
+			for _, basicFlag := range basicFlags {
+				if basicFlag == flagName {
+					fmt.Println(line)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func findBoolFlagEarly(flagName string) bool {
+	for i, arg := range os.Args {
+		arg := arg
+		argHasPrefix := func(format string, args ...interface{}) bool {
+			return strings.HasPrefix(arg, fmt.Sprintf(format, args...))
+		}
+
+		if !argHasPrefix("--%s", flagName) {
+			continue
+		}
+
+		// NB: covers `--<flagName> false` usage
+		if i+1 != len(os.Args) {
+			next := os.Args[i+1]
+			if next == "false" {
+				return false
+			}
+		}
+
+		if !argHasPrefix("--%s=false", flagName) {
+			return true
+		}
+	}
+	return false
 }
 
 // Main runs the main process.

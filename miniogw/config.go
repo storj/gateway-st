@@ -6,12 +6,12 @@ package miniogw
 // MinioConfig is a configuration struct that keeps details about starting
 // Minio
 type MinioConfig struct {
-	AccessKey string `help:"Minio Access Key to use" default:"insecure-dev-access-key"`
-	SecretKey string `help:"Minio Secret Key to use" default:"insecure-dev-secret-key"`
+	AccessKey string `help:"Minio Access Key to use" default:"insecure-dev-access-key" basic-help:"true"`
+	SecretKey string `help:"Minio Secret Key to use" default:"insecure-dev-secret-key" basic-help:"true"`
 	Dir       string `help:"Minio generic server config path" default:"$CONFDIR/minio"`
 }
 
 // ServerConfig determines how minio listens for requests
 type ServerConfig struct {
-	Address string `help:"address to serve S3 api over" default:"127.0.0.1:7777"`
+	Address string `help:"address to serve S3 api over" default:"127.0.0.1:7777" basic-help:"true"`
 }
