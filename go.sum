@@ -806,3 +806,5 @@ storj.io/private v0.0.0-20200323154727-e555cfbe576d h1:g3Fdl20ZUqKYig4dNUBH6sIst
 storj.io/private v0.0.0-20200323154727-e555cfbe576d/go.mod h1:I09FR2ZU1Dy1vaQ2SkUbfGpwVtJrwafjYWGw8W808WE=
 storj.io/uplink v1.0.0 h1:2tj09e88/2CuGMguS9qyVIEPX2NDE4W/1vMf4bdUCyA=
 storj.io/uplink v1.0.0/go.mod h1:2VBdNnx7zZoCx91ETUVM56mDRIFDToRyKBWxH/Usrek=
+storj.io/uplink v1.0.1-0.20200323130507-0da0c95f0eda h1:COfJo37L2EDfFpId7jySH/LFiNSG9v0K1/b5bLHhE4M=
+storj.io/uplink v1.0.1-0.20200323130507-0da0c95f0eda/go.mod h1:2VBdNnx7zZoCx91ETUVM56mDRIFDToRyKBWxH/Usrek=

@@ -547,15 +547,6 @@ func (layer *gatewayLayer) GetBucketSSEConfig(ctx context.Context, bucket string
 }
 
 func convertError(err error, bucket, object string) error {
-	// TODO fix this in storj/uplink
-	if storj.ErrNoBucket.Has(err) {
-		return minio.BucketNameInvalid{Bucket: bucket}
-	}
-	// TODO fix this in storj/uplink
-	if storj.ErrNoPath.Has(err) {
-		return minio.ObjectNameInvalid{Bucket: bucket}
-	}
-
 	if errors.Is(err, uplink.ErrBucketNameInvalid) {
 		return minio.BucketNameInvalid{Bucket: bucket}
 	}

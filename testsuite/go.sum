@@ -965,3 +965,5 @@ storj.io/uplink v1.0.0-rc.5.0.20200311190324-aee82d3f05aa/go.mod h1:jfS0ET7V9w5D
 storj.io/uplink v1.0.0-rc.5.0.20200313120955-2efccb9df462/go.mod h1:pRxJqEZUUfhtvh+zkzaMvQ1uc0c5lcXk9Hb6PmbhfwA=
 storj.io/uplink v1.0.0 h1:2tj09e88/2CuGMguS9qyVIEPX2NDE4W/1vMf4bdUCyA=
 storj.io/uplink v1.0.0/go.mod h1:2VBdNnx7zZoCx91ETUVM56mDRIFDToRyKBWxH/Usrek=
+storj.io/uplink v1.0.1-0.20200323130507-0da0c95f0eda h1:COfJo37L2EDfFpId7jySH/LFiNSG9v0K1/b5bLHhE4M=
+storj.io/uplink v1.0.1-0.20200323130507-0da0c95f0eda/go.mod h1:2VBdNnx7zZoCx91ETUVM56mDRIFDToRyKBWxH/Usrek=
