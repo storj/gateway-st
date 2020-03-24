@@ -5,7 +5,7 @@ package miniogw
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" /* #nosec G501 */ // Is only used for calculating a hash of the ETags of the all the parts of a multipart upload.
 	"encoding/hex"
 	"io"
 	"sort"
@@ -386,6 +386,7 @@ func (upload *MultipartUpload) etag() (string, error) {
 		}
 	}
 
+	/* #nosec G401 */ // ETags aren't security sensitive
 	sum := md5.Sum(hashes)
 	return hex.EncodeToString(sum[:]) + "-" + strconv.Itoa(len(parts)), nil
 }
