@@ -67,8 +67,12 @@ type gatewayLayer struct {
 	gateway *Gateway
 }
 
-func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string) (err error) {
+func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, forceDelete bool) (err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	if forceDelete {
+		return errors.New("force delete is not supported")
+	}
 
 	_, err = layer.gateway.project.DeleteBucket(ctx, bucketName)
 
