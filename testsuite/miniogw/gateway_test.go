@@ -96,11 +96,11 @@ func TestGetBucketInfo(t *testing.T) {
 func TestDeleteBucket(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, m *kvmetainfo.DB, strms streams.Store) {
 		// Check the error when deleting bucket with empty name
-		err := layer.DeleteBucket(ctx, "")
+		err := layer.DeleteBucket(ctx, "", false)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when deleting non-existing bucket
-		err = layer.DeleteBucket(ctx, TestBucket)
+		err = layer.DeleteBucket(ctx, TestBucket, false)
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create a bucket with a file using the Metainfo API
@@ -111,7 +111,7 @@ func TestDeleteBucket(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Check the error when deleting non-empty bucket
-		err = layer.DeleteBucket(ctx, TestBucket)
+		err = layer.DeleteBucket(ctx, TestBucket, false)
 		assert.Equal(t, minio.BucketNotEmpty{Bucket: TestBucket}, err)
 
 		// Delete the file using the Metainfo API, so the bucket becomes empty
@@ -119,7 +119,7 @@ func TestDeleteBucket(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Delete the bucket info using the Minio API
-		err = layer.DeleteBucket(ctx, TestBucket)
+		err = layer.DeleteBucket(ctx, TestBucket, false)
 		assert.NoError(t, err)
 
 		// Check that the bucket is deleted using the Metainfo API
