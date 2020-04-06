@@ -64,8 +64,8 @@ func (log *layerLogging) Shutdown(ctx context.Context) error {
 	return log.log(log.layer.Shutdown(ctx))
 }
 
-func (log *layerLogging) CrawlAndGetDataUsage(ctx context.Context, endCh <-chan struct{}) minio.DataUsageInfo {
-	return log.layer.CrawlAndGetDataUsage(ctx, endCh)
+func (log *layerLogging) CrawlAndGetDataUsage(ctx context.Context, updates chan<- minio.DataUsageInfo) error {
+	return log.layer.CrawlAndGetDataUsage(ctx, updates)
 }
 
 func (log *layerLogging) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
@@ -86,8 +86,8 @@ func (log *layerLogging) ListBuckets(ctx context.Context) (buckets []minio.Bucke
 	return buckets, log.log(err)
 }
 
-func (log *layerLogging) DeleteBucket(ctx context.Context, bucket string) error {
-	return log.log(log.layer.DeleteBucket(ctx, bucket))
+func (log *layerLogging) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error {
+	return log.log(log.layer.DeleteBucket(ctx, bucket, forceDelete))
 }
 
 func (log *layerLogging) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
@@ -182,8 +182,8 @@ func (log *layerLogging) HealBucket(ctx context.Context, bucket string, dryRun, 
 	return rv, log.log(err)
 }
 
-func (log *layerLogging) HealObject(ctx context.Context, bucket, object string, dryRun, remove bool, scanMode madmin.HealScanMode) (madmin.HealResultItem, error) {
-	rv, err := log.layer.HealObject(ctx, bucket, object, dryRun, remove, scanMode)
+func (log *layerLogging) HealObject(ctx context.Context, bucket, object string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
+	rv, err := log.layer.HealObject(ctx, bucket, object, opts)
 	return rv, log.log(err)
 }
 
