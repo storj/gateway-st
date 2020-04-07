@@ -1,0 +1,41 @@
+# This is a SystemD unit file for the Gateway
+# To configure:
+# - Update the user and group that the service will run as (User & Group below) or create one with:
+#   'sudo adduser --system --no-create-home --group --disabled-login storj'
+# - Ensure that the gateway binary is in /usr/local/bin and is named gateway (or edit the ExecStart line
+#   below to reflect the name and location of your binary
+# - Ensure that you've run setup and have edited the configuration appropriately prior to starting the
+#   service with this script and adjust the --config-dir option in the ExecSart line if necessary
+#   'sudo mkdir -p /etc/storj/gateway/'
+#   'sudo chown -R storj:storj /etc/storj/gateway'
+#   'sudo -u storj gateway setup --config-dir /etc/storj/gateway/'
+#   'sudo chmod -R 0600 /etc/storj/gateway'
+# To use:
+# - Place this file in /etc/systemd/system/ or wherever your SystemD unit files are stored
+# - Run 'sudo systemctl daemon-reload'
+# - To start run 'sudo systemctl start gateway'
+
+[Unit]
+Description  = Gateway service
+After        = syslog.target network.target
+Wants        = network-online.target
+
+[Service]
+User         = storj
+Group        = storj
+ExecStart    = /usr/local/bin/gateway run --config-dir=/etc/storj/gateway
+Restart      = always
+RestartSec   = 5s
+Type         = simple
+NotifyAccess = main
+AmbientCapabilities = CAP_NET_BIND_SERVICE
+NoNewPrivileges = yes
+LimitMEMLOCK = infinity
+LimitNOFILE = 65535
+
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=gateway
+
+[Install]
+WantedBy     = multi-user.target
