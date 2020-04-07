@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	miniov6 "github.com/minio/minio-go/v6"
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/hash"
@@ -613,6 +614,10 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 		// Check the error when listing objects in a non-existing bucket
 		_, err = layer.ListObjects(ctx, TestBucket, "", "", "", 0)
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+
+		// Check the error when listing objects without prefix at the end
+		_, err = layer.ListObjects(ctx, TestBucket, "no-slash", "", "", 0)
+		assert.Equal(t, miniov6.ErrInvalidArgument("prefix should end with slash"), err)
 
 		// Create the bucket and files using the Metainfo API
 		testBucketInfo, err := m.CreateBucket(ctx, TestBucket, nil)

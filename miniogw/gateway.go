@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	miniov6 "github.com/minio/minio-go/v6"
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
 	bucketsse "github.com/minio/minio/pkg/bucket/encryption"
@@ -253,6 +254,10 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{}
 	}
 
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		return result, miniov6.ErrInvalidArgument("prefix should end with slash")
+	}
+
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
 	}
@@ -313,6 +318,10 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 
 func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		return result, miniov6.ErrInvalidArgument("prefix should end with slash")
+	}
 
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, minio.UnsupportedDelimiter{Delimiter: delimiter}
