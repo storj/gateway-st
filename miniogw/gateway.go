@@ -254,10 +254,6 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{}
 	}
 
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		return result, miniov6.ErrInvalidArgument("prefix should end with slash")
-	}
-
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
 	}
