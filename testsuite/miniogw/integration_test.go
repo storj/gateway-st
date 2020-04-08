@@ -41,7 +41,7 @@ func TestUploadDownload(t *testing.T) {
 		require.NoError(t, err)
 
 		// TODO fix this in storj/storj
-		oldAccess.SatelliteAddr = planet.Satellites[0].URL().String()
+		oldAccess.SatelliteAddr = planet.Satellites[0].URL()
 
 		access, err := oldAccess.Serialize()
 		require.NoError(t, err)
@@ -171,6 +171,13 @@ func TestUploadDownload(t *testing.T) {
 
 			require.Equal(t, data, bytes)
 		}
+		{
+			uplink := planet.Uplinks[0]
+			satellite := planet.Satellites[0]
+			info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
+			require.NoError(t, err)
+			require.False(t, info.PartnerID.IsZero())
+		}
 	})
 }
 
@@ -181,6 +188,7 @@ func startGateway(t *testing.T, ctx *testcontext.Context, exe, access, address, 
 		"--server.address", address,
 		"--minio.access-key", accessKey,
 		"--minio.secret-key", secretKey,
+		"--client.user-agent", "Zenko",
 	}, moreFlags...)
 
 	gateway := exec.Command(exe, args...)

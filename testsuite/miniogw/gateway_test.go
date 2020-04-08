@@ -823,7 +823,7 @@ func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathC
 	}
 	// TODO(leak): close m metainfo.Client somehow
 
-	access, err := uplink.RequestAccessWithPassphrase(ctx, planet.Satellites[0].URL().String(), apiKey.Serialize(), "passphrase")
+	access, err := uplink.RequestAccessWithPassphrase(ctx, planet.Satellites[0].URL(), apiKey.Serialize(), "passphrase")
 	if err != nil {
 		return nil, nil, nil, err
 	}

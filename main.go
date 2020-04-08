@@ -233,9 +233,10 @@ func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err
 
 func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 	// Transform the gateway config flags to the uplink config object
-	uplinkCfg := uplink.Config{}
-	uplinkCfg.DialTimeout = flags.Client.DialTimeout
-	return uplinkCfg
+	config := uplink.Config{}
+	config.DialTimeout = flags.Client.DialTimeout
+	config.UserAgent = flags.Client.UserAgent
+	return config
 }
 
 func (flags GatewayFlags) openProject(ctx context.Context) (*uplink.Project, error) {
