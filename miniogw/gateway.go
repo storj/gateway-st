@@ -417,9 +417,18 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, destBucket)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, destBucket, "")
+	if srcBucket != destBucket {
+		_, err = layer.gateway.project.StatBucket(ctx, destBucket)
+		if err != nil {
+			return minio.ObjectInfo{}, convertError(err, destBucket, "")
+		}
+	}
+
+	if srcBucket == destBucket && srcObject == destObject {
+		// Source and destination are the same. Do nothing, otherwise copying
+		// the same object over itself may destroy it, especially if it is a
+		// larger one.
+		return srcInfo, nil
 	}
 
 	download, err := layer.gateway.project.DownloadObject(ctx, srcBucket, srcObject, nil)
