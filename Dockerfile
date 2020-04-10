@@ -7,6 +7,6 @@ EXPOSE 7777
 WORKDIR /app
 VOLUME /root/.local/share/storj/gateway
 COPY release/${TAG}/gateway_linux_${GOARCH:-amd64} /app/gateway
-COPY private/cmd/entrypoint /entrypoint
+COPY entrypoint /entrypoint
 ENTRYPOINT ["/entrypoint"]
 ENV CONF_PATH=/root/.local/share/storj/gateway
