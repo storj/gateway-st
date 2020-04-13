@@ -177,7 +177,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 	objectInfo := minioObjectInfo(bucketName, "", object)
 	downloadCloser := func() { _ = download.Close() }
 
-	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts.CheckCopyPrecondFn, downloadCloser)
+	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
 }
 
 func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
