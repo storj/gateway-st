@@ -18,6 +18,21 @@ import (
 	"storj.io/common/storj"
 )
 
+var (
+	satellites = []string{
+		"12EayRS2V1kEsWESU9QMRseFhdxYxKicsiFmxrsLZHeLUtdps3S@us-central-1.tardigrade.io:7777",
+		"12L9ZFwhzVpuEKMUNUqkaTLGzwY9G24tbiigLiXpmZWKwmcNDDs@europe-west-1.tardigrade.io:7777",
+		"121RTSDpyNZVcEU84Ticf2L1ntiuUimbWgfATz21tuvgk3vzoA6@asia-east-1.tardigrade.io:7777",
+	}
+
+	// SatelliesURL mapping host to satellite URL
+	SatelliesURL = map[string]string{
+		"us-central-1.tardigrade.io":  satellites[0],
+		"europe-west-1.tardigrade.io": satellites[1],
+		"asia-east-1.tardigrade.io":   satellites[2],
+	}
+)
+
 // PromptForAccessName handles user input for access name to be used with wizards
 func PromptForAccessName() (string, error) {
 	_, err := fmt.Printf("Choose an access name [\"default\"]: ")
@@ -39,12 +54,6 @@ func PromptForAccessName() (string, error) {
 
 // PromptForSatellite handles user input for a satellite address to be used with wizards
 func PromptForSatellite(cmd *cobra.Command) (string, error) {
-	satellites := []string{
-		"12EayRS2V1kEsWESU9QMRseFhdxYxKicsiFmxrsLZHeLUtdps3S@us-central-1.tardigrade.io:7777",
-		"12L9ZFwhzVpuEKMUNUqkaTLGzwY9G24tbiigLiXpmZWKwmcNDDs@europe-west-1.tardigrade.io:7777",
-		"121RTSDpyNZVcEU84Ticf2L1ntiuUimbWgfATz21tuvgk3vzoA6@asia-east-1.tardigrade.io:7777",
-	}
-
 	_, err := fmt.Print("Select your satellite:\n")
 	if err != nil {
 		return "", err

@@ -32,7 +32,10 @@ import (
 
 // GatewayFlags configuration flags
 type GatewayFlags struct {
-	NonInteractive bool `help:"disable interactive mode" default:"false" setup:"true"`
+	NonInteractive   bool   `help:"disable interactive mode" default:"false" setup:"true"`
+	SatelliteAddress string `help:"satellite address (<nodeid>@<address>:<port>)" default:"" setup:"true"`
+	APIKey           string `help:"API key" default:"" setup:"true"`
+	Passphrase       string `help:"encryption passphrase" default:"" setup:"true"`
 
 	Server miniogw.ServerConfig
 	Minio  miniogw.MinioConfig
@@ -301,12 +304,27 @@ Some things to try next:
 }
 
 // nonInteractive creates the configuration of the gateway non-interactively.
-func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, overrides map[string]interface{}) error {
-	// ensure we're using the access for the setup
-	access, err := setupCfg.GetAccess()
+func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, overrides map[string]interface{}) (err error) {
+	ctx, _ := process.Ctx(cmd)
+
+	var access *uplink.Access
+	accessString := setupCfg.Access
+
+	if accessString != "" {
+		access, err = uplink.ParseAccess(accessString)
+	} else if setupCfg.SatelliteAddress != "" && setupCfg.APIKey != "" && setupCfg.Passphrase != "" {
+		satellite := setupCfg.SatelliteAddress
+		if fullAddress, ok := wizard.SatelliesURL[satellite]; ok {
+			satellite = fullAddress
+		}
+		access, err = uplink.RequestAccessWithPassphrase(ctx, satellite, setupCfg.APIKey, setupCfg.Passphrase)
+	} else {
+		err = errs.New("non interactive setup requires '--access' flag or all '--satellite-address', '--api-key', '--pasphrase' flags")
+	}
 	if err != nil {
 		return err
 	}
+
 	accessData, err := access.Serialize()
 	if err != nil {
 		return err
