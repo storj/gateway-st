@@ -1,10 +1,8 @@
 #!/bin/sh
 set -euo pipefail
 
-if [[ ! -f "${CONF_PATH}/config.yaml" ]]; then
-	./gateway setup --config-dir "${CONF_PATH}"
+if [[ ! -f "${STORJ_CONFIG_DIR}/config.yaml" ]]; then
+	./gateway setup
 fi
-
-RUN_PARAMS="${RUN_PARAMS:-} --config-dir ${CONF_PATH}"
 
 exec ./gateway run $RUN_PARAMS "$@"
