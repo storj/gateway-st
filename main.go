@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/minio/cli"
@@ -285,6 +286,16 @@ func (flags GatewayFlags) interactive(cmd *cobra.Command, setupDir string, overr
 		return Error.Wrap(err)
 	}
 	overrides["access"] = accessData
+
+	tracingEnabled, err := wizard.PromptForTracing()
+	if err != nil {
+		return Error.Wrap(err)
+	}
+	if tracingEnabled {
+		overrides["tracing.enabled"] = true
+		overrides["tracing.sample"] = 1
+		overrides["tracing.interval"] = 30 * time.Second
+	}
 
 	err = process.SaveConfig(cmd, filepath.Join(setupDir, "config.yaml"),
 		process.SaveConfigWithOverrides(overrides),
