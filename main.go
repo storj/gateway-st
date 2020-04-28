@@ -293,7 +293,7 @@ func (flags GatewayFlags) interactive(cmd *cobra.Command, setupDir string, overr
 	}
 	if tracingEnabled {
 		overrides["tracing.enabled"] = true
-		overrides["tracing.sample"] = 1
+		overrides["tracing.sample"] = 0.1
 		overrides["tracing.interval"] = 30 * time.Second
 	}
 
