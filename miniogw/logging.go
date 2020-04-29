@@ -64,10 +64,6 @@ func (log *layerLogging) Shutdown(ctx context.Context) error {
 	return log.log(log.layer.Shutdown(ctx))
 }
 
-func (log *layerLogging) CrawlAndGetDataUsage(ctx context.Context, updates chan<- minio.DataUsageInfo) error {
-	return log.layer.CrawlAndGetDataUsage(ctx, updates)
-}
-
 func (log *layerLogging) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
 	return log.layer.StorageInfo(ctx, local)
 }
