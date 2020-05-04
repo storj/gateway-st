@@ -31,7 +31,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		return "", err
 	}
 
-	uploads := layer.gateway.multipart
+	uploads := layer.multipart
 
 	upload, err := uploads.Create(bucket, object, opts.UserDefined)
 	if err != nil {
@@ -39,7 +39,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	}
 
 	// TODO: this can now be done without this separate goroutine
-	stream, err := layer.gateway.project.UploadObject(ctx, bucket, object, nil)
+	stream, err := layer.project.UploadObject(ctx, bucket, object, nil)
 	if err != nil {
 		uploads.RemoveByID(upload.ID)
 		upload.fail(err)
@@ -90,7 +90,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.gateway.multipart
+	uploads := layer.multipart
 
 	upload, err := uploads.Get(bucket, object, uploadID)
 	if err != nil {
@@ -122,7 +122,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.gateway.multipart
+	uploads := layer.multipart
 
 	upload, err := uploads.Remove(bucket, object, uploadID)
 	if err != nil {
@@ -143,7 +143,7 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.gateway.multipart
+	uploads := layer.multipart
 	upload, err := uploads.Remove(bucket, object, uploadID)
 	if err != nil {
 		return minio.ObjectInfo{}, err
@@ -160,7 +160,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.gateway.multipart
+	uploads := layer.multipart
 	upload, err := uploads.Get(bucket, object, uploadID)
 	if err != nil {
 		return minio.ListPartsInfo{}, err
@@ -202,7 +202,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket string, prefix string, keyMarker string, uploadIDMarker string, delimiter string, maxUploads int) (lmi minio.ListMultipartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.gateway.multipart
+	uploads := layer.multipart
 
 	lmi.Prefix = prefix
 	lmi.KeyMarker = keyMarker

@@ -171,9 +171,16 @@ func generateKey() (key string, err error) {
 }
 
 func checkCfg(ctx context.Context) (err error) {
-	project, err := runCfg.openProject(ctx)
+	access, err := runCfg.GetAccess()
 	if err != nil {
-		return err
+		return Error.Wrap(err)
+	}
+
+	config := runCfg.newUplinkConfig(ctx)
+
+	project, err := config.OpenProject(ctx, access)
+	if err != nil {
+		return Error.Wrap(err)
 	}
 	defer func() { err = errs.Combine(err, project.Close()) }()
 
@@ -224,15 +231,14 @@ func (flags GatewayFlags) action(ctx context.Context, cliCtx *cli.Context) (err 
 
 // NewGateway creates a new minio Gateway
 func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err error) {
-	project, err := flags.openProject(ctx)
+	access, err := flags.GetAccess()
 	if err != nil {
-		return nil, err
+		return nil, Error.Wrap(err)
 	}
 
-	return miniogw.NewStorjGateway(
-		project,
-		flags.Website,
-	), nil
+	config := flags.newUplinkConfig(ctx)
+
+	return miniogw.NewStorjGateway(access, config, flags.Website), nil
 }
 
 func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
@@ -241,20 +247,6 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 	config.DialTimeout = flags.Client.DialTimeout
 	config.UserAgent = flags.Client.UserAgent
 	return config
-}
-
-func (flags GatewayFlags) openProject(ctx context.Context) (*uplink.Project, error) {
-	access, err := flags.GetAccess()
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-
-	config := flags.newUplinkConfig(ctx)
-	project, err := config.OpenProject(ctx, access)
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-	return project, nil
 }
 
 // interactive creates the configuration of the gateway interactively.

@@ -34,19 +34,19 @@ var (
 )
 
 // NewStorjGateway creates a new Storj S3 gateway.
-func NewStorjGateway(project *uplink.Project, website bool) *Gateway {
+func NewStorjGateway(access *uplink.Access, config uplink.Config, website bool) *Gateway {
 	return &Gateway{
-		project:   project,
-		website:   website,
-		multipart: NewMultipartUploads(),
+		access:  access,
+		config:  config,
+		website: website,
 	}
 }
 
 // Gateway is the implementation of a minio cmd.Gateway
 type Gateway struct {
-	project   *uplink.Project
-	website   bool
-	multipart *MultipartUploads
+	access  *uplink.Access
+	config  uplink.Config
+	website bool
 }
 
 // Name implements cmd.Gateway
@@ -56,7 +56,18 @@ func (gateway *Gateway) Name() string {
 
 // NewGatewayLayer implements cmd.Gateway
 func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
-	return &gatewayLayer{gateway: gateway}, nil
+	ctx := minio.GlobalContext
+
+	project, err := gateway.config.OpenProject(ctx, gateway.access)
+	if err != nil {
+		return nil, Error.Wrap(err)
+	}
+
+	return &gatewayLayer{
+		gateway:   gateway,
+		project:   project,
+		multipart: NewMultipartUploads(),
+	}, nil
 }
 
 // Production implements cmd.Gateway
@@ -66,7 +77,9 @@ func (gateway *Gateway) Production() bool {
 
 type gatewayLayer struct {
 	minio.GatewayUnsupported
-	gateway *Gateway
+	gateway   *Gateway
+	project   *uplink.Project
+	multipart *MultipartUploads
 }
 
 func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, forceDelete bool) (err error) {
@@ -76,7 +89,7 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, 
 		return errors.New("force delete is not supported")
 	}
 
-	_, err = layer.gateway.project.DeleteBucket(ctx, bucketName)
+	_, err = layer.project.DeleteBucket(ctx, bucketName)
 
 	return convertError(err, bucketName, "")
 }
@@ -85,12 +98,12 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectP
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return convertError(err, bucketName, objectPath)
 	}
 
-	_, err = layer.gateway.project.DeleteObject(ctx, bucketName, objectPath)
+	_, err = layer.project.DeleteObject(ctx, bucketName, objectPath)
 
 	return convertError(err, bucketName, objectPath)
 }
@@ -111,7 +124,7 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string,
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	bucket, err := layer.gateway.project.StatBucket(ctx, bucketName)
+	bucket, err := layer.project.StatBucket(ctx, bucketName)
 
 	if err != nil {
 		return minio.BucketInfo{}, convertError(err, bucketName, "")
@@ -127,7 +140,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return nil, convertError(err, bucketName, objectPath)
 	}
@@ -140,7 +153,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 				return nil, errs.New("Unexpected range specification case")
 			}
 			// TODO: can we avoid this additional call?
-			object, err := layer.gateway.project.StatObject(ctx, bucketName, objectPath)
+			object, err := layer.project.StatObject(ctx, bucketName, objectPath)
 			if err != nil {
 				return nil, convertError(err, bucketName, objectPath)
 			}
@@ -158,7 +171,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 		}
 	}
 
-	download, err := layer.gateway.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
+	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
 		Offset: startOffset,
 		Length: length,
 	})
@@ -185,12 +198,12 @@ func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return convertError(err, bucketName, objectPath)
 	}
 
-	download, err := layer.gateway.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
+	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
 		Offset: startOffset,
 		Length: length,
 	})
@@ -217,12 +230,12 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, object
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	object, err := layer.gateway.project.StatObject(ctx, bucketName, objectPath)
+	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
@@ -233,7 +246,7 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, object
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	buckets := layer.gateway.project.ListBuckets(ctx, nil)
+	buckets := layer.project.ListBuckets(ctx, nil)
 	for buckets.Next() {
 		info := buckets.Item()
 		items = append(items, minio.BucketInfo{
@@ -264,12 +277,12 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return result, convertError(err, bucketName, "")
 	}
 
-	list := layer.gateway.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
 		Cursor:    marker,
 		Recursive: delimiter == "",
@@ -329,7 +342,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, convertError(err, bucketName, "")
 	}
@@ -347,7 +360,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	var objects []minio.ObjectInfo
 	var prefixes []string
 
-	list := layer.gateway.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
 		Cursor:    startAfterPath,
 		Recursive: recursive,
@@ -396,7 +409,7 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketNam
 
 	// TODO: maybe this should return an error since we don't support locations
 
-	_, err = layer.gateway.project.CreateBucket(ctx, bucketName)
+	_, err = layer.project.CreateBucket(ctx, bucketName)
 
 	return convertError(err, bucketName, "")
 }
@@ -412,14 +425,14 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, srcBucket)
+	_, err = layer.project.StatBucket(ctx, srcBucket)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, srcBucket, "")
 	}
 
 	// TODO this should be removed and implemented on satellite side
 	if srcBucket != destBucket {
-		_, err = layer.gateway.project.StatBucket(ctx, destBucket)
+		_, err = layer.project.StatBucket(ctx, destBucket)
 		if err != nil {
 			return minio.ObjectInfo{}, convertError(err, destBucket, "")
 		}
@@ -432,7 +445,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return srcInfo, nil
 	}
 
-	download, err := layer.gateway.project.DownloadObject(ctx, srcBucket, srcObject, nil)
+	download, err := layer.project.DownloadObject(ctx, srcBucket, srcObject, nil)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
 	}
@@ -441,7 +454,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		err = errs.Combine(err, download.Close())
 	}()
 
-	upload, err := layer.gateway.project.UploadObject(ctx, destBucket, destObject, nil)
+	upload, err := layer.project.UploadObject(ctx, destBucket, destObject, nil)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
@@ -480,7 +493,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.gateway.project.StatBucket(ctx, bucketName)
+	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
@@ -493,7 +506,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		data = minio.NewPutObjReader(hashReader, nil, nil)
 	}
 
-	upload, err := layer.gateway.project.UploadObject(ctx, bucketName, objectPath, nil)
+	upload, err := layer.project.UploadObject(ctx, bucketName, objectPath, nil)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
@@ -523,11 +536,14 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 
 func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 	defer mon.Task()(&ctx)(&err)
-	return nil
+	return layer.project.Close()
 }
 
 func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
-	return minio.StorageInfo{}
+	info := minio.StorageInfo{}
+	info.Backend.Type = minio.BackendGateway
+	info.Backend.GatewayOnline = layer.isSatelliteOnline(ctx)
+	return info
 }
 
 func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (*policy.Policy, error) {
@@ -567,6 +583,21 @@ func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (
 // GetBucketSSEConfig returns bucket encryption config on given bucket
 func (layer *gatewayLayer) GetBucketSSEConfig(ctx context.Context, bucket string) (*bucketsse.BucketSSEConfig, error) {
 	return &bucketsse.BucketSSEConfig{}, nil
+}
+
+// IsReady returns whether the layer is ready to take requests.
+func (layer *gatewayLayer) IsReady(ctx context.Context) bool {
+	return layer.isSatelliteOnline(ctx)
+}
+
+func (layer *gatewayLayer) isSatelliteOnline(ctx context.Context) bool {
+	project, err := layer.gateway.config.OpenProject(ctx, layer.gateway.access)
+	if err != nil {
+		return false
+	}
+
+	err = project.Close()
+	return err == nil
 }
 
 func convertError(err error, bucket, object string) error {

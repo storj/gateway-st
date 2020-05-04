@@ -868,12 +868,7 @@ func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathC
 	}
 	kvm := kvmetainfo.New(p, m, strms, segments, encStore)
 
-	project, err := uplink.OpenProject(ctx, access)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	gateway := miniogw.NewStorjGateway(project, false)
+	gateway := miniogw.NewStorjGateway(access, uplink.Config{}, false)
 	layer, err := gateway.NewGatewayLayer(auth.Credentials{})
 	if err != nil {
 		return nil, nil, nil, err
