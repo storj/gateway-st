@@ -22,6 +22,7 @@ import (
 	"github.com/zeebo/errs"
 
 	"storj.io/common/storj"
+	"storj.io/private/version"
 	"storj.io/uplink"
 )
 
@@ -60,7 +61,7 @@ func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLay
 
 // Production implements cmd.Gateway
 func (gateway *Gateway) Production() bool {
-	return false
+	return version.Build.Release
 }
 
 type gatewayLayer struct {
