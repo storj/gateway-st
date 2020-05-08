@@ -639,6 +639,12 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	if etag == "" {
 		etag = object.Custom["s3:etag"]
 	}
+	// Set Headers to properly return videofiles
+	if needsVideoHeaders(object.Key) {
+		contentType = "application/octet-stream"
+		object.Custom["Content-Disposition"] = "attachment"
+	}
+
 	return minio.ObjectInfo{
 		Bucket:      bucket,
 		Name:        object.Key,
@@ -648,4 +654,15 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 		ContentType: contentType,
 		UserDefined: object.Custom,
 	}
+}
+
+var videoExtensions = []string{".avi", ".mov", ".mp4"}
+
+func needsVideoHeaders(filename string) bool {
+	for _, ext := range videoExtensions {
+		if strings.Contains(filename, ext) {
+			return true
+		}
+	}
+	return false
 }
