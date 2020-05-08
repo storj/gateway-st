@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -642,7 +643,7 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	// Set Headers to properly return videofiles
 	if needsVideoHeaders(object.Key) {
 		contentType = "application/octet-stream"
-		object.Custom["Content-Disposition"] = "attachment"
+		object.Custom["Content-Disposition"] = fmt.Sprintf("attachment; filename=%s", object.Key)
 	}
 
 	return minio.ObjectInfo{
