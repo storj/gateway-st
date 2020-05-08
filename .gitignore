@@ -1,3 +1,6 @@
 release/
 
 *.log
+
+# Jetbrains
+.idea/
