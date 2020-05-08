@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 
 	miniov6 "github.com/minio/minio-go/v6"
@@ -642,7 +643,7 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 		etag = object.Custom["s3:etag"]
 	}
 	// Set Headers to properly return videofiles
-	if needsVideoHeaders(object.Key) {
+	if needsVideoHeaders(bucket, object.Key) {
 		contentType = "application/octet-stream"
 		object.Custom["Content-Disposition"] = fmt.Sprintf("attachment; filename=%s", path.Base(object.Key))
 	}
@@ -660,11 +661,8 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 
 var videoExtensions = []string{".avi", ".mov", ".mp4"}
 
-func needsVideoHeaders(filename string) bool {
-	for _, ext := range videoExtensions {
-		if strings.Contains(filename, ext) {
-			return true
-		}
-	}
-	return false
+var videoRegexp = regexp.MustCompile(`provideofactory\d*\/[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}-(1080p|1080p-h264|1080p-mjpeg|1080p-prores|1080p-r3d|4k-h264|4k-mjpeg|4k-prores|4k-r3d|5k-r3d|6k-h265|6k-prores|6k-r3d|8k-r3d)\.(mov|avi|mp4|m4v|zip)`)
+
+func needsVideoHeaders(bucket, filename string) bool {
+	return videoRegexp.MatchString(bucket + "/" + filename)
 }
