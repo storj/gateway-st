@@ -5,4 +5,4 @@ if [[ ! -f "${STORJ_CONFIG_DIR}/config.yaml" ]]; then
 	./gateway setup
 fi
 
-exec ./gateway run $RUN_PARAMS "$@"
+exec ./gateway run "$@"
