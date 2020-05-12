@@ -1,8 +1,4 @@
 #!/bin/sh
 set -euo pipefail
 
-if [[ ! -f "${STORJ_CONFIG_DIR}/config.yaml" ]]; then
-	./gateway setup
-fi
-
-exec ./gateway run "$@"
+exec ./gateway $@
