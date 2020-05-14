@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"strings"
 
-	miniov6 "github.com/minio/minio-go/v6"
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/bucket/policy"
@@ -267,10 +266,6 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{}
 	}
 
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		return result, miniov6.ErrInvalidArgument("prefix should end with slash")
-	}
-
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
 	}
@@ -281,10 +276,35 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		return result, convertError(err, bucketName, "")
 	}
 
+	recursive := delimiter == ""
+
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		// N.B.: in this case, the most S3-compatible thing we could do
+		// is ask the satellite to list all siblings of this prefix that
+		// share the same parent encryption key, decrypt all of them,
+		// then only return the ones that have this same unencrypted
+		// prefix.
+		// this is terrible from a performance perspective, and it turns
+		// out, many of the usages of listing without a /-suffix are
+		// simply to provide a sort of StatObject like feature. in fact,
+		// for example, duplicity never calls list without a /-suffix
+		// in a case where it expects to get back more than one result.
+		// so, we could either
+		// 1) return an error here, guaranteeing nothing works
+		// 2) do the full S3 compatible thing, which has terrible
+		//    performance for a really common case (StatObject-like
+		//		functionality)
+		// 3) handle strictly more of the use cases than #1 without
+		//    loss of performance by turning this into a StatObject.
+		// so we do #3 here. it's great!
+
+		return layer.listSingleObject(ctx, bucketName, prefix, recursive)
+	}
+
 	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
 		Cursor:    marker,
-		Recursive: delimiter == "",
+		Recursive: recursive,
 
 		System: true,
 		Custom: true,
@@ -329,12 +349,43 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 	return result, nil
 }
 
-func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
+func (layer *gatewayLayer) listSingleObject(ctx context.Context, bucketName, key string, recursive bool) (result minio.ListObjectsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		return result, miniov6.ErrInvalidArgument("prefix should end with slash")
+	var prefixes []string
+	if !recursive {
+		list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+			Prefix:    key + "/",
+			Recursive: true,
+			// Limit: 1, would be nice to set here
+		})
+		if list.Next() {
+			prefixes = append(prefixes, key+"/")
+		}
+		if err := list.Err(); err != nil {
+			return minio.ListObjectsInfo{}, convertError(err, bucketName, key)
+		}
 	}
+
+	var objects []minio.ObjectInfo
+	object, err := layer.project.StatObject(ctx, bucketName, key)
+	if err != nil {
+		if !errors.Is(err, uplink.ErrObjectNotFound) {
+			return minio.ListObjectsInfo{}, convertError(err, bucketName, key)
+		}
+	} else {
+		objects = append(objects, minioObjectInfo(bucketName, "", object))
+	}
+
+	return minio.ListObjectsInfo{
+		IsTruncated: false,
+		Prefixes:    prefixes,
+		Objects:     objects,
+	}, nil
+}
+
+func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
+	defer mon.Task()(&ctx)(&err)
 
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, minio.UnsupportedDelimiter{Delimiter: delimiter}
@@ -347,6 +398,29 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	}
 
 	recursive := delimiter == ""
+
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		// N.B.: in this case, the most S3-compatible thing we could do
+		// is ask the satellite to list all siblings of this prefix that
+		// share the same parent encryption key, decrypt all of them,
+		// then only return the ones that have this same unencrypted
+		// prefix.
+		// this is terrible from a performance perspective, and it turns
+		// out, many of the usages of listing without a /-suffix are
+		// simply to provide a sort of StatObject like feature. in fact,
+		// for example, duplicity never calls list without a /-suffix
+		// in a case where it expects to get back more than one result.
+		// so, we could either
+		// 1) return an error here, guaranteeing nothing works
+		// 2) do the full S3 compatible thing, which has terrible
+		//    performance for a really common case (StatObject-like
+		//		functionality)
+		// 3) handle strictly more of the use cases than #1 without
+		//    loss of performance by turning this into a StatObject.
+		// so we do #3 here. it's great!
+
+		return layer.listSingleObjectV2(ctx, bucketName, prefix, recursive, fetchOwner)
+	}
 
 	var startAfterPath storj.Path
 	if continuationToken != "" {
@@ -401,6 +475,41 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	}
 
 	return result, nil
+}
+
+func (layer *gatewayLayer) listSingleObjectV2(ctx context.Context, bucketName, key string, recursive, fetchOwner bool) (result minio.ListObjectsV2Info, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	var prefixes []string
+	if !recursive {
+		list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+			Prefix:    key + "/",
+			Recursive: true,
+			// Limit: 1, would be nice to set here
+		})
+		if list.Next() {
+			prefixes = append(prefixes, key+"/")
+		}
+		if err := list.Err(); err != nil {
+			return minio.ListObjectsV2Info{}, convertError(err, bucketName, key)
+		}
+	}
+
+	var objects []minio.ObjectInfo
+	object, err := layer.project.StatObject(ctx, bucketName, key)
+	if err != nil {
+		if !errors.Is(err, uplink.ErrObjectNotFound) {
+			return minio.ListObjectsV2Info{}, convertError(err, bucketName, key)
+		}
+	} else {
+		objects = append(objects, minioObjectInfo(bucketName, "", object))
+	}
+
+	return minio.ListObjectsV2Info{
+		IsTruncated: false,
+		Prefixes:    prefixes,
+		Objects:     objects,
+	}, nil
 }
 
 func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketName string, location string, lockEnabled bool) (err error) {

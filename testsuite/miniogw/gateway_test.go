@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	miniov6 "github.com/minio/minio-go/v6"
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/hash"
@@ -615,10 +615,6 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 		_, err = layer.ListObjects(ctx, TestBucket, "", "", "", 0)
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
-		// Check the error when listing objects without prefix at the end
-		_, err = layer.ListObjects(ctx, TestBucket, "no-slash", "", "", 0)
-		assert.Equal(t, miniov6.ErrInvalidArgument("prefix should end with slash"), err)
-
 		// Create the bucket and files using the Metainfo API
 		testBucketInfo, err := m.CreateBucket(ctx, TestBucket, nil)
 		assert.NoError(t, err)
@@ -627,6 +623,8 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			"a", "aa", "b", "bb", "c",
 			"a/xa", "a/xaa", "a/xb", "a/xbb", "a/xc",
 			"b/ya", "b/yaa", "b/yb", "b/ybb", "b/yc",
+			"i", "i/i", "ii", "j", "j/i", "k", "kk", "l",
+			"m/i", "mm", "n/i", "oo",
 		}
 
 		type expected struct {
@@ -650,7 +648,10 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			assert.NoError(t, err)
 		}
 
+		sort.Strings(filePaths)
+
 		for i, tt := range []struct {
+			name      string
 			prefix    string
 			marker    string
 			delimiter string
@@ -660,57 +661,69 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			objects   []string
 		}{
 			{
+				name:      "Basic non-recursive",
 				delimiter: "/",
-				prefixes:  []string{"a/", "b/"},
-				objects:   []string{"a", "aa", "b", "bb", "c"},
+				prefixes:  []string{"a/", "b/", "i/", "j/", "m/", "n/"},
+				objects:   []string{"a", "aa", "b", "bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
 			}, {
+				name:      "Basic non-recursive with non-existing mark",
 				marker:    "`",
 				delimiter: "/",
-				prefixes:  []string{"a/", "b/"},
-				objects:   []string{"a", "aa", "b", "bb", "c"},
+				prefixes:  []string{"a/", "b/", "i/", "j/", "m/", "n/"},
+				objects:   []string{"a", "aa", "b", "bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
 			}, {
+				name:      "Basic non-recursive with existing mark",
 				marker:    "b",
 				delimiter: "/",
-				prefixes:  []string{"b/"},
-				objects:   []string{"bb", "c"},
+				prefixes:  []string{"b/", "i/", "j/", "m/", "n/"},
+				objects:   []string{"bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
 			}, {
-				marker:    "c",
+				name:      "Basic non-recursive with last mark",
+				marker:    "oo",
 				delimiter: "/",
 			}, {
-				marker:    "ca",
+				name:      "Basic non-recursive with past last mark",
+				marker:    "ooa",
 				delimiter: "/",
 			}, {
+				name:      "Basic non-recursive with max key limit of 1",
 				delimiter: "/",
 				maxKeys:   1,
 				more:      true,
 				objects:   []string{"a"},
 			}, {
+				name:      "Basic non-recursive with max key limit of 1 with non-existing mark",
 				marker:    "`",
 				delimiter: "/",
 				maxKeys:   1,
 				more:      true,
 				objects:   []string{"a"},
 			}, {
+				name:      "Basic non-recursive with max key limit of 1 with existing mark",
 				marker:    "aa",
 				delimiter: "/",
 				maxKeys:   1,
 				more:      true,
 				objects:   []string{"b"},
 			}, {
-				marker:    "c",
+				name:      "Basic non-recursive with max key limit of 1 with last mark",
+				marker:    "oo",
 				delimiter: "/",
 				maxKeys:   1,
 			}, {
-				marker:    "ca",
+				name:      "Basic non-recursive with max key limit of 1 past last mark",
+				marker:    "ooa",
 				delimiter: "/",
 				maxKeys:   1,
 			}, {
+				name:      "Basic non-recursive with max key limit of 2",
 				delimiter: "/",
 				maxKeys:   2,
 				more:      true,
 				prefixes:  []string{"a/"},
 				objects:   []string{"a"},
 			}, {
+				name:      "Basic non-recursive with max key limit of 2 with non-existing mark",
 				marker:    "`",
 				delimiter: "/",
 				maxKeys:   2,
@@ -718,6 +731,7 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 				prefixes:  []string{"a/"},
 				objects:   []string{"a"},
 			}, {
+				name:      "Basic non-recursive with max key limit of 2 with existing mark",
 				marker:    "aa",
 				delimiter: "/",
 				maxKeys:   2,
@@ -725,45 +739,137 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 				prefixes:  []string{"b/"},
 				objects:   []string{"b"},
 			}, {
-				marker:    "bb",
+				name:      "Basic non-recursive with max key limit of 2 with mark right before the end",
+				marker:    "nm",
 				delimiter: "/",
 				maxKeys:   2,
-				objects:   []string{"c"},
+				objects:   []string{"oo"},
 			}, {
-				marker:    "c",
+				name:      "Basic non-recursive with max key limit of 2 with last mark",
+				marker:    "oo",
 				delimiter: "/",
 				maxKeys:   2,
 			}, {
-				marker:    "ca",
+				name:      "Basic non-recursive with max key limit of 2 past last mark",
+				marker:    "ooa",
 				delimiter: "/",
 				maxKeys:   2,
 			}, {
-				objects: []string{"a", "a/xa", "a/xaa", "a/xb", "a/xbb", "a/xc", "aa", "b", "b/ya", "b/yaa", "b/yb", "b/ybb", "b/yc", "bb", "c"},
-			}, {
+				name:      "Prefix non-recursive",
 				prefix:    "a/",
 				delimiter: "/",
 				objects:   []string{"xa", "xaa", "xb", "xbb", "xc"},
 			}, {
-				prefix:    "a/",
-				delimiter: "/",
-				objects:   []string{"xa", "xaa", "xb", "xbb", "xc"},
-			}, {
+				name:      "Prefix non-recursive with mark",
 				prefix:    "a/",
 				marker:    "xb",
 				delimiter: "/",
 				objects:   []string{"xbb", "xc"},
 			}, {
-				marker:  "a/xbb",
-				maxKeys: 5,
-				more:    true,
-				objects: []string{"a/xc", "aa", "b", "b/ya", "b/yaa"},
-			}, {
+				name:      "Prefix non-recursive with mark and max keys",
 				prefix:    "a/",
 				marker:    "xaa",
 				delimiter: "/",
 				maxKeys:   2,
 				more:      true,
 				objects:   []string{"xb", "xbb"},
+			}, {
+				name:    "Basic recursive",
+				objects: filePaths,
+			}, {
+				name:    "Basic recursive with mark and max keys",
+				marker:  "a/xbb",
+				maxKeys: 5,
+				more:    true,
+				objects: []string{"a/xc", "aa", "b", "b/ya", "b/yaa"},
+			}, {
+				name:     "list as stat, recursive, object, prefix, and object-with-prefix exist",
+				prefix:   "i",
+				prefixes: nil,
+				objects:  []string{"i"},
+			}, {
+				name:      "list as stat, nonrecursive, object, prefix, and object-with-prefix exist",
+				prefix:    "i",
+				delimiter: "/",
+				prefixes:  []string{"i/"},
+				objects:   []string{"i"},
+			}, {
+				name:     "list as stat, recursive, object and prefix exist, no object-with-prefix",
+				prefix:   "j",
+				prefixes: nil,
+				objects:  []string{"j"},
+			}, {
+				name:      "list as stat, nonrecursive, object and prefix exist, no object-with-prefix",
+				prefix:    "j",
+				delimiter: "/",
+				prefixes:  []string{"j/"},
+				objects:   []string{"j"},
+			}, {
+				name:     "list as stat, recursive, object and object-with-prefix exist, no prefix",
+				prefix:   "k",
+				prefixes: nil,
+				objects:  []string{"k"},
+			}, {
+				name:      "list as stat, nonrecursive, object and object-with-prefix exist, no prefix",
+				prefix:    "k",
+				delimiter: "/",
+				prefixes:  nil,
+				objects:   []string{"k"},
+			}, {
+				name:     "list as stat, recursive, object exists, no object-with-prefix or prefix",
+				prefix:   "l",
+				prefixes: nil,
+				objects:  []string{"l"},
+			}, {
+				name:      "list as stat, nonrecursive, object exists, no object-with-prefix or prefix",
+				prefix:    "l",
+				delimiter: "/",
+				prefixes:  nil,
+				objects:   []string{"l"},
+			}, {
+				name:     "list as stat, recursive, prefix, and object-with-prefix exist, no object",
+				prefix:   "m",
+				prefixes: nil,
+				objects:  nil,
+			}, {
+				name:      "list as stat, nonrecursive, prefix, and object-with-prefix exist, no object",
+				prefix:    "m",
+				delimiter: "/",
+				prefixes:  []string{"m/"},
+				objects:   nil,
+			}, {
+				name:     "list as stat, recursive, prefix exists, no object-with-prefix, no object",
+				prefix:   "n",
+				prefixes: nil,
+				objects:  nil,
+			}, {
+				name:      "list as stat, nonrecursive, prefix exists, no object-with-prefix, no object",
+				prefix:    "n",
+				delimiter: "/",
+				prefixes:  []string{"n/"},
+				objects:   nil,
+			}, {
+				name:     "list as stat, recursive, object-with-prefix exists, no prefix, no object",
+				prefix:   "o",
+				prefixes: nil,
+				objects:  nil,
+			}, {
+				name:      "list as stat, nonrecursive, object-with-prefix exists, no prefix, no object",
+				prefix:    "o",
+				delimiter: "/",
+				prefixes:  nil,
+				objects:   nil,
+			}, {
+				name:     "list as stat, recursive, no object-with-prefix or prefix or object",
+				prefix:   "p",
+				prefixes: nil,
+				objects:  nil,
+			}, {
+				name:      "list as stat, nonrecursive, no object-with-prefix or prefix or object",
+				prefix:    "p",
+				delimiter: "/",
+				prefixes:  nil,
+				objects:   nil,
 			},
 		} {
 			errTag := fmt.Sprintf("%d. %+v", i, tt)
@@ -773,14 +879,14 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			if assert.NoError(t, err, errTag) {
 				assert.Equal(t, tt.more, isTruncated, errTag)
 				assert.Equal(t, tt.prefixes, prefixes, errTag)
-				assert.Equal(t, len(tt.objects), len(objects), errTag)
+				require.Equal(t, len(tt.objects), len(objects), errTag)
 				for i, objectInfo := range objects {
 					path := objectInfo.Name
 					expected, found := files[path]
 
 					if assert.True(t, found) {
-						if tt.prefix != "" {
-							assert.Equal(t, storj.JoinPaths(strings.TrimSuffix(tt.prefix, "/"), tt.objects[i]), objectInfo.Name, errTag)
+						if tt.prefix != "" && strings.HasSuffix(tt.prefix, "/") {
+							assert.Equal(t, tt.prefix+tt.objects[i], objectInfo.Name, errTag)
 						} else {
 							assert.Equal(t, tt.objects[i], objectInfo.Name, errTag)
 						}
