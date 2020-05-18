@@ -211,8 +211,8 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	lmi.MaxUploads = maxUploads
 	lmi.IsTruncated = false
 
-	uploads.mu.Lock()
-	defer uploads.mu.Unlock()
+	uploads.mu.RLock()
+	defer uploads.mu.RUnlock()
 
 	for _, upload := range uploads.pending {
 		// TODO support markers
@@ -273,8 +273,8 @@ func (uploads *MultipartUploads) Create(bucket, object string, metadata map[stri
 
 // Get finds a pending upload
 func (uploads *MultipartUploads) Get(bucket, object, uploadID string) (*MultipartUpload, error) {
-	uploads.mu.Lock()
-	defer uploads.mu.Unlock()
+	uploads.mu.RLock()
+	defer uploads.mu.RUnlock()
 
 	upload, ok := uploads.pending[uploadID]
 	if !ok {
@@ -289,8 +289,8 @@ func (uploads *MultipartUploads) Get(bucket, object, uploadID string) (*Multipar
 
 // Remove returns and removes a pending upload
 func (uploads *MultipartUploads) Remove(bucket, object, uploadID string) (*MultipartUpload, error) {
-	uploads.mu.RLock()
-	defer uploads.mu.RUnlock()
+	uploads.mu.Lock()
+	defer uploads.mu.Unlock()
 
 	upload, ok := uploads.pending[uploadID]
 	if !ok {
@@ -310,8 +310,9 @@ func (uploads *MultipartUploads) Remove(bucket, object, uploadID string) (*Multi
 
 // RemoveByID removes pending upload by id
 func (uploads *MultipartUploads) RemoveByID(uploadID string) {
-	uploads.mu.RLock()
-	defer uploads.mu.RUnlock()
+	uploads.mu.Lock()
+	defer uploads.mu.Unlock()
+
 	delete(uploads.pending, uploadID)
 }
 
