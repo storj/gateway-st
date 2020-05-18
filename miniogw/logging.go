@@ -11,9 +11,6 @@ import (
 
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
-	bucketsse "github.com/minio/minio/pkg/bucket/encryption"
-	"github.com/minio/minio/pkg/bucket/lifecycle"
-	"github.com/minio/minio/pkg/bucket/object/tagging"
 	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/madmin"
 	"go.uber.org/zap"
@@ -64,12 +61,12 @@ func (log *layerLogging) Shutdown(ctx context.Context) error {
 	return log.log(log.layer.Shutdown(ctx))
 }
 
-func (log *layerLogging) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
+func (log *layerLogging) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
 	return log.layer.StorageInfo(ctx, local)
 }
 
-func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, location string) error {
-	return log.log(log.layer.MakeBucketWithLocation(ctx, bucket, location))
+func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, location string, lockEnabled bool) error {
+	return log.log(log.layer.MakeBucketWithLocation(ctx, bucket, location, lockEnabled))
 }
 
 func (log *layerLogging) GetBucketInfo(ctx context.Context, bucket string) (bucketInfo minio.BucketInfo, err error) {
@@ -150,6 +147,11 @@ func (log *layerLogging) PutObjectPart(ctx context.Context, bucket, object, uplo
 	return info, log.log(err)
 }
 
+func (log *layerLogging) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
+	info, err = log.layer.GetMultipartInfo(ctx, bucket, object, uploadID, opts)
+	return info, log.log(err)
+}
+
 func (log *layerLogging) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	result, err = log.layer.ListObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts, opts)
 	return result, log.log(err)
@@ -217,32 +219,6 @@ func (log *layerLogging) IsCompressionSupported() bool {
 	return log.layer.IsCompressionSupported()
 }
 
-func (log *layerLogging) SetBucketLifecycle(ctx context.Context, bucket string, lifecycle *lifecycle.Lifecycle) error {
-	return log.log(log.layer.SetBucketLifecycle(ctx, bucket, lifecycle))
-}
-
-func (log *layerLogging) GetBucketLifecycle(ctx context.Context, bucket string) (*lifecycle.Lifecycle, error) {
-	lifecycle, err := log.layer.GetBucketLifecycle(ctx, bucket)
-	return lifecycle, log.log(err)
-}
-
-func (log *layerLogging) DeleteBucketLifecycle(ctx context.Context, bucket string) error {
-	return log.log(log.layer.DeleteBucketLifecycle(ctx, bucket))
-}
-
-func (log *layerLogging) SetBucketSSEConfig(ctx context.Context, bucket string, config *bucketsse.BucketSSEConfig) error {
-	return log.log(log.layer.SetBucketSSEConfig(ctx, bucket, config))
-}
-
-func (log *layerLogging) GetBucketSSEConfig(ctx context.Context, bucket string) (*bucketsse.BucketSSEConfig, error) {
-	config, err := log.layer.GetBucketSSEConfig(ctx, bucket)
-	return config, log.log(err)
-}
-
-func (log *layerLogging) DeleteBucketSSEConfig(ctx context.Context, bucket string) error {
-	return log.log(log.layer.DeleteBucketSSEConfig(ctx, bucket))
-}
-
 func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.Metrics, error) {
 	metrics, err := log.layer.GetMetrics(ctx)
 	return metrics, log.log(err)
@@ -250,17 +226,4 @@ func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.Metrics, error)
 
 func (log *layerLogging) IsReady(ctx context.Context) bool {
 	return log.layer.IsReady(ctx)
-}
-
-func (log *layerLogging) PutObjectTag(ctx context.Context, bucket, object, tags string) error {
-	return log.log(log.layer.PutObjectTag(ctx, bucket, object, tags))
-}
-
-func (log *layerLogging) GetObjectTag(ctx context.Context, bucket, object string) (tagging.Tagging, error) {
-	tags, err := log.layer.GetObjectTag(ctx, bucket, object)
-	return tags, log.log(err)
-}
-
-func (log *layerLogging) DeleteObjectTag(ctx context.Context, bucket, object string) error {
-	return log.log(log.layer.DeleteObjectTag(ctx, bucket, object))
 }

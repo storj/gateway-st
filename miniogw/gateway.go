@@ -15,7 +15,6 @@ import (
 	miniov6 "github.com/minio/minio-go/v6"
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
-	bucketsse "github.com/minio/minio/pkg/bucket/encryption"
 	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/spacemonkeygo/monkit/v3"
@@ -404,7 +403,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	return result, nil
 }
 
-func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketName string, location string) (err error) {
+func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketName string, location string, lockEnabled bool) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO: maybe this should return an error since we don't support locations
@@ -539,11 +538,11 @@ func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 	return layer.project.Close()
 }
 
-func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) minio.StorageInfo {
+func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
 	info := minio.StorageInfo{}
 	info.Backend.Type = minio.BackendGateway
 	info.Backend.GatewayOnline = layer.isSatelliteOnline(ctx)
-	return info
+	return info, nil
 }
 
 func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (*policy.Policy, error) {
@@ -578,11 +577,6 @@ func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (
 			},
 		},
 	}, nil
-}
-
-// GetBucketSSEConfig returns bucket encryption config on given bucket
-func (layer *gatewayLayer) GetBucketSSEConfig(ctx context.Context, bucket string) (*bucketsse.BucketSSEConfig, error) {
-	return &bucketsse.BucketSSEConfig{}, nil
 }
 
 // IsReady returns whether the layer is ready to take requests.

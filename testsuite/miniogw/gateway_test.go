@@ -51,11 +51,11 @@ const (
 func TestMakeBucketWithLocation(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, m *kvmetainfo.DB, strms streams.Store) {
 		// Check the error when creating bucket with empty name
-		err := layer.MakeBucketWithLocation(ctx, "", "")
+		err := layer.MakeBucketWithLocation(ctx, "", "", false)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Create a bucket with the Minio API
-		err = layer.MakeBucketWithLocation(ctx, TestBucket, "")
+		err = layer.MakeBucketWithLocation(ctx, TestBucket, "", false)
 		assert.NoError(t, err)
 
 		// Check that the bucket is created using the Metainfo API
@@ -66,7 +66,7 @@ func TestMakeBucketWithLocation(t *testing.T) {
 		assert.Equal(t, storj.EncAESGCM, bucket.PathCipher)
 
 		// Check the error when trying to create an existing bucket
-		err = layer.MakeBucketWithLocation(ctx, TestBucket, "")
+		err = layer.MakeBucketWithLocation(ctx, TestBucket, "", false)
 		assert.Equal(t, minio.BucketAlreadyExists{Bucket: TestBucket}, err)
 	})
 }

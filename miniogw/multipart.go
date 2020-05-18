@@ -87,6 +87,13 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	return upload.ID, nil
 }
 
+func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
+	info.Bucket = bucket
+	info.Object = object
+	info.UploadID = uploadID
+	return info, nil
+}
+
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
