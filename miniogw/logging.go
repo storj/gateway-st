@@ -14,6 +14,8 @@ import (
 	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/madmin"
 	"go.uber.org/zap"
+
+	"storj.io/common/errs2"
 )
 
 type gatewayLogging struct {
@@ -47,6 +49,13 @@ func minioError(err error) bool {
 // log unexpected errors, i.e. non-minio errors. It will return the given error
 // to allow method chaining.
 func (log *layerLogging) log(err error) error {
+	// most of the time context canceled is intentionally caused by the client
+	// to keep log message clean, we will only log it on debug level
+	if errs2.IsCanceled(err) {
+		log.logger.Debug("gateway error:", zap.Error(err))
+		return err
+	}
+
 	if err != nil && !minioError(err) {
 		log.logger.Error("gateway error:", zap.Error(err))
 	}
