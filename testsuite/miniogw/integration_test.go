@@ -36,12 +36,7 @@ func TestUploadDownload(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		uplinkCfg := planet.Uplinks[0].GetConfig(planet.Satellites[0])
-		oldAccess, err := uplinkCfg.GetAccess()
-		require.NoError(t, err)
-
-		// TODO fix this in storj/storj
-		oldAccess.SatelliteAddr = planet.Satellites[0].URL()
+		oldAccess := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
 
 		access, err := oldAccess.Serialize()
 		require.NoError(t, err)
@@ -64,7 +59,7 @@ func TestUploadDownload(t *testing.T) {
 			Satellite:     planet.Satellites[0].Addr(),
 			AccessKey:     gatewayAccessKey,
 			SecretKey:     gatewaySecretKey,
-			APIKey:        uplinkCfg.Legacy.Client.APIKey,
+			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
 			EncryptionKey: "fake-encryption-key",
 			NoSSL:         true,
 		})
