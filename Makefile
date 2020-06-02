@@ -6,16 +6,12 @@ COMPOSE_PROJECT_NAME := ${TAG}-$(shell git rev-parse --abbrev-ref HEAD)
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 ifeq (${BRANCH_NAME},master)
 TAG    := $(shell git rev-parse --short HEAD)-go${GO_VERSION}
-TRACKED_BRANCH := true
-LATEST_TAG := latest
 else
 TAG    := $(shell git rev-parse --short HEAD)-${BRANCH_NAME}-go${GO_VERSION}
-ifneq (,$(findstring release-,$(BRANCH_NAME)))
-TRACKED_BRANCH := true
-LATEST_TAG := ${BRANCH_NAME}-latest
+ifneq (,$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*"))
+LATEST_TAG := latest
 endif
 endif
-CUSTOMTAG ?=
 
 FILEEXT :=
 ifeq (${GOOS},windows)
@@ -81,17 +77,16 @@ images: gateway-image ## Build gateway Docker images
 
 .PHONY: gateway-image
 gateway-image: gateway_linux_arm64 gateway_linux_amd64 ## Build gateway Docker image
-	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}${CUSTOMTAG}-amd64 \
+	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-amd64 \
 		-f Dockerfile .
-	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}${CUSTOMTAG}-arm32v6 \
+	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-arm32v6 \
 		--build-arg=GOARCH=arm --build-arg=DOCKER_ARCH=arm32v6 \
 		-f Dockerfile .
-	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}${CUSTOMTAG}-aarch64 \
+	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-aarch64 \
 		--build-arg=GOARCH=arm64 --build-arg=DOCKER_ARCH=aarch64 \
 		-f Dockerfile .
 
 .PHONY: binary
-binary: CUSTOMTAG = -${GOOS}-${GOARCH}
 binary:
 	@if [ -z "${COMPONENT}" ]; then echo "Try one of the following targets instead:" \
 		&& for b in binaries ${BINARIES}; do echo "- $$b"; done && exit 1; fi
@@ -145,19 +140,18 @@ binaries: ${BINARIES} ## Build gateway binaries (jenkins)
 .PHONY: push-images
 push-images: ## Push Docker images to Docker Hub (jenkins)
 	# images have to be pushed before a manifest can be created
-	# satellite
 	for c in gateway; do \
-		docker push storjlabs/$$c:${TAG}${CUSTOMTAG}-amd64 \
-		&& docker push storjlabs/$$c:${TAG}${CUSTOMTAG}-arm32v6 \
-		&& docker push storjlabs/$$c:${TAG}${CUSTOMTAG}-aarch64 \
-		&& for t in ${TAG}${CUSTOMTAG} ${LATEST_TAG}; do \
+		docker push storjlabs/$$c:${TAG}-amd64 \
+		&& docker push storjlabs/$$c:${TAG}-arm32v6 \
+		&& docker push storjlabs/$$c:${TAG}-aarch64 \
+		&& for t in ${TAG} ${LATEST_TAG}; do \
 			docker manifest create storjlabs/$$c:$$t \
-			storjlabs/$$c:${TAG}${CUSTOMTAG}-amd64 \
-			storjlabs/$$c:${TAG}${CUSTOMTAG}-arm32v6 \
-			storjlabs/$$c:${TAG}${CUSTOMTAG}-aarch64 \
-			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}${CUSTOMTAG}-amd64 --os linux --arch amd64 \
-			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}${CUSTOMTAG}-arm32v6 --os linux --arch arm --variant v6 \
-			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}${CUSTOMTAG}-aarch64 --os linux --arch arm64 \
+			storjlabs/$$c:${TAG}-amd64 \
+			storjlabs/$$c:${TAG}-arm32v6 \
+			storjlabs/$$c:${TAG}-aarch64 \
+			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-amd64 --os linux --arch amd64 \
+			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-arm32v6 --os linux --arch arm --variant v6 \
+			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-aarch64 --os linux --arch arm64 \
 			&& docker manifest push --purge storjlabs/$$c:$$t \
 		; done \
 	; done
@@ -189,7 +183,7 @@ binaries-clean: ## Remove all local release binaries (jenkins)
 
 .PHONY: clean-images
 clean-images:
-	-docker rmi storjlabs/gateway:${TAG}${CUSTOMTAG}
+	-docker rmi storjlabs/gateway:${TAG}
 
 .PHONY: test-docker-clean
 test-docker-clean: ## Clean up Docker environment used in test-docker target
