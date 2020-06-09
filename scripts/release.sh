@@ -26,6 +26,12 @@ else
   RELEASE=false
 fi
 
+if [[ -v RELEASE_BUILD_REQUIRED ]] && $RELEASE_BUILD_REQUIRED && ! $RELEASE; then
+  echo "ERROR: A release build is required, but a release build wasn't possible." 1>&2
+
+  exit 1
+fi
+
 echo Running "go $@"
 exec go "$1" -ldflags \
 	"-s -w -X storj.io/private/version.buildTimestamp=$TIMESTAMP
