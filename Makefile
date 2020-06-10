@@ -188,3 +188,11 @@ clean-images:
 .PHONY: test-docker-clean
 test-docker-clean: ## Clean up Docker environment used in test-docker target
 	-docker-compose down --rmi all
+
+.PHONY: bump-dependencies
+bump-dependencies:
+	go get storj.io/common@master storj.io/private@master storj.io/uplink@master
+	go mod tidy
+	cd testsuite;\
+		go get storj.io/common@master storj.io/storj@master storj.io/uplink@master;\
+		go mod tidy
