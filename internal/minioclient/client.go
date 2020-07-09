@@ -12,10 +12,10 @@ import (
 	"github.com/zeebo/errs"
 )
 
-// MinioError is class for minio errors
+// MinioError is class for minio errors.
 var MinioError = errs.Class("minio error")
 
-// Config is the setup for a particular client
+// Config is the setup for a particular client.
 type Config struct {
 	S3Gateway     string
 	Satellite     string
@@ -27,7 +27,7 @@ type Config struct {
 	ConfigDir     string
 }
 
-// Client is the common interface for different implementations
+// Client is the common interface for different implementations.
 type Client interface {
 	MakeBucket(bucket, location string) error
 	RemoveBucket(bucket string) error
@@ -39,12 +39,12 @@ type Client interface {
 	ListObjects(bucket, prefix string) ([]string, error)
 }
 
-// Minio implements basic S3 Client with minio
+// Minio implements basic S3 Client with minio.
 type Minio struct {
 	API *minio.Client
 }
 
-// NewMinio creates new Client
+// NewMinio creates new Client.
 func NewMinio(conf Config) (Client, error) {
 	api, err := minio.New(conf.S3Gateway, conf.AccessKey, conf.SecretKey, !conf.NoSSL)
 	if err != nil {
@@ -53,7 +53,7 @@ func NewMinio(conf Config) (Client, error) {
 	return &Minio{api}, nil
 }
 
-// MakeBucket makes a new bucket
+// MakeBucket makes a new bucket.
 func (client *Minio) MakeBucket(bucket, location string) error {
 	err := client.API.MakeBucket(bucket, location)
 	if err != nil {
@@ -62,7 +62,7 @@ func (client *Minio) MakeBucket(bucket, location string) error {
 	return nil
 }
 
-// RemoveBucket removes a bucket
+// RemoveBucket removes a bucket.
 func (client *Minio) RemoveBucket(bucket string) error {
 	err := client.API.RemoveBucket(bucket)
 	if err != nil {
@@ -71,7 +71,7 @@ func (client *Minio) RemoveBucket(bucket string) error {
 	return nil
 }
 
-// ListBuckets lists all buckets
+// ListBuckets lists all buckets.
 func (client *Minio) ListBuckets() ([]string, error) {
 	buckets, err := client.API.ListBuckets()
 	if err != nil {
@@ -85,7 +85,7 @@ func (client *Minio) ListBuckets() ([]string, error) {
 	return names, nil
 }
 
-// Upload uploads object data to the specified path
+// Upload uploads object data to the specified path.
 func (client *Minio) Upload(bucket, objectName string, data []byte) error {
 	_, err := client.API.PutObject(
 		bucket, objectName,
@@ -97,7 +97,7 @@ func (client *Minio) Upload(bucket, objectName string, data []byte) error {
 	return nil
 }
 
-// UploadMultipart uses multipart uploads, has hardcoded threshold
+// UploadMultipart uses multipart uploads, has hardcoded threshold.
 func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int) error {
 	_, err := client.API.PutObject(
 		bucket, objectName,
@@ -112,7 +112,7 @@ func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, par
 	return nil
 }
 
-// Download downloads object data
+// Download downloads object data.
 func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte, error) {
 	reader, err := client.API.GetObject(bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
@@ -137,7 +137,7 @@ func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte,
 	return buffer, nil
 }
 
-// Delete deletes object
+// Delete deletes object.
 func (client *Minio) Delete(bucket, objectName string) error {
 	err := client.API.RemoveObject(bucket, objectName)
 	if err != nil {
@@ -146,7 +146,7 @@ func (client *Minio) Delete(bucket, objectName string) error {
 	return nil
 }
 
-// ListObjects lists objects
+// ListObjects lists objects.
 func (client *Minio) ListObjects(bucket, prefix string) ([]string, error) {
 	doneCh := make(chan struct{})
 	defer close(doneCh)

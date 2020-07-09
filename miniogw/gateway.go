@@ -27,7 +27,7 @@ import (
 var (
 	mon = monkit.Package()
 
-	// Error is the errs class of standard End User Client errors
+	// Error is the errs class of standard End User Client errors.
 	Error = errs.Class("Storj Gateway error")
 )
 
@@ -40,19 +40,19 @@ func NewStorjGateway(access *uplink.Access, config uplink.Config, website bool) 
 	}
 }
 
-// Gateway is the implementation of a minio cmd.Gateway
+// Gateway is the implementation of a minio cmd.Gateway.
 type Gateway struct {
 	access  *uplink.Access
 	config  uplink.Config
 	website bool
 }
 
-// Name implements cmd.Gateway
+// Name implements cmd.Gateway.
 func (gateway *Gateway) Name() string {
 	return "storj"
 }
 
-// NewGatewayLayer implements cmd.Gateway
+// NewGatewayLayer implements cmd.Gateway.
 func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
 	ctx := minio.GlobalContext
 
@@ -68,7 +68,7 @@ func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLay
 	}, nil
 }
 
-// Production implements cmd.Gateway
+// Production implements cmd.Gateway.
 func (gateway *Gateway) Production() bool {
 	return version.Build.Release
 }

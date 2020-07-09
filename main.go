@@ -31,7 +31,7 @@ import (
 	"storj.io/uplink"
 )
 
-// GatewayFlags configuration flags
+// GatewayFlags configuration flags.
 type GatewayFlags struct {
 	NonInteractive   bool   `help:"disable interactive mode" default:"false" setup:"true"`
 	SatelliteAddress string `help:"satellite address (<nodeid>@<address>:<port>)" default:"" setup:"true"`
@@ -189,7 +189,7 @@ func checkCfg(ctx context.Context) (err error) {
 	return buckets.Err()
 }
 
-// Run starts a Minio Gateway given proper config
+// Run starts a Minio Gateway given proper config.
 func (flags GatewayFlags) Run(ctx context.Context) (err error) {
 	err = minio.RegisterGatewayCommand(cli.Command{
 		Name:  "storj",
@@ -229,7 +229,7 @@ func (flags GatewayFlags) action(ctx context.Context, cliCtx *cli.Context) (err 
 	return errs.New("unexpected minio exit")
 }
 
-// NewGateway creates a new minio Gateway
+// NewGateway creates a new minio Gateway.
 func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err error) {
 	access, err := flags.GetAccess()
 	if err != nil {

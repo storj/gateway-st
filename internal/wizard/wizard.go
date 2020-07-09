@@ -33,7 +33,7 @@ var (
 	}
 )
 
-// PromptForAccessName handles user input for access name to be used with wizards
+// PromptForAccessName handles user input for access name to be used with wizards.
 func PromptForAccessName() (string, error) {
 	_, err := fmt.Printf("Choose an access name [\"default\"]: ")
 	if err != nil {
@@ -52,7 +52,7 @@ func PromptForAccessName() (string, error) {
 	return accessName, nil
 }
 
-// PromptForSatellite handles user input for a satellite address to be used with wizards
+// PromptForSatellite handles user input for a satellite address to be used with wizards.
 func PromptForSatellite(cmd *cobra.Command) (string, error) {
 	_, err := fmt.Print("Select your satellite:\n")
 	if err != nil {
@@ -120,7 +120,7 @@ func PromptForSatellite(cmd *cobra.Command) (string, error) {
 	return satelliteAddress, nil
 }
 
-// PromptForAPIKey handles user input for an API key to be used with wizards
+// PromptForAPIKey handles user input for an API key to be used with wizards.
 func PromptForAPIKey() (string, error) {
 	_, err := fmt.Print("Enter your API key: ")
 	if err != nil {
@@ -139,7 +139,7 @@ func PromptForAPIKey() (string, error) {
 	return apiKey, nil
 }
 
-// PromptForEncryptionPassphrase handles user input for an encryption passphrase to be used with wizards
+// PromptForEncryptionPassphrase handles user input for an encryption passphrase to be used with wizards.
 func PromptForEncryptionPassphrase() (string, error) {
 	_, err := fmt.Print("Enter your encryption passphrase: ")
 	if err != nil {

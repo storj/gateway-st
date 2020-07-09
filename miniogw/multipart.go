@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/md5" /* #nosec G501 */ // Is only used for calculating a hash of the ETags of the all the parts of a multipart upload.
 	"encoding/hex"
+	"errors"
 	"io"
 	"sort"
 	"strconv"
@@ -140,7 +141,7 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 		errAbort := Error.New("abort")
 		upload.Stream.Abort(errAbort)
 		r := <-upload.Done
-		if r.Error != errAbort {
+		if !errors.Is(r.Error, errAbort) {
 			return r.Error
 		}
 	}
@@ -243,21 +244,21 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 // TODO: implement
 // func (layer *gatewayLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int, startOffset int64, length int64, srcInfo minio.ObjectInfo) (info minio.PartInfo, err error) {
 
-// MultipartUploads manages pending multipart uploads
+// MultipartUploads manages pending multipart uploads.
 type MultipartUploads struct {
 	mu      sync.RWMutex
 	lastID  int
 	pending map[string]*MultipartUpload
 }
 
-// NewMultipartUploads creates new MultipartUploads
+// NewMultipartUploads creates new MultipartUploads.
 func NewMultipartUploads() *MultipartUploads {
 	return &MultipartUploads{
 		pending: map[string]*MultipartUpload{},
 	}
 }
 
-// Create creates a new upload
+// Create creates a new upload.
 func (uploads *MultipartUploads) Create(bucket, object string, metadata map[string]string) (*MultipartUpload, error) {
 	uploads.mu.Lock()
 	defer uploads.mu.Unlock()
@@ -278,7 +279,7 @@ func (uploads *MultipartUploads) Create(bucket, object string, metadata map[stri
 	return upload, nil
 }
 
-// Get finds a pending upload
+// Get finds a pending upload.
 func (uploads *MultipartUploads) Get(bucket, object, uploadID string) (*MultipartUpload, error) {
 	uploads.mu.RLock()
 	defer uploads.mu.RUnlock()
@@ -294,7 +295,7 @@ func (uploads *MultipartUploads) Get(bucket, object, uploadID string) (*Multipar
 	return upload, nil
 }
 
-// Remove returns and removes a pending upload
+// Remove returns and removes a pending upload.
 func (uploads *MultipartUploads) Remove(bucket, object, uploadID string) (*MultipartUpload, error) {
 	uploads.mu.Lock()
 	defer uploads.mu.Unlock()
@@ -315,7 +316,7 @@ func (uploads *MultipartUploads) Remove(bucket, object, uploadID string) (*Multi
 	return upload, nil
 }
 
-// RemoveByID removes pending upload by id
+// RemoveByID removes pending upload by id.
 func (uploads *MultipartUploads) RemoveByID(uploadID string) {
 	uploads.mu.Lock()
 	defer uploads.mu.Unlock()
@@ -323,7 +324,7 @@ func (uploads *MultipartUploads) RemoveByID(uploadID string) {
 	delete(uploads.pending, uploadID)
 }
 
-// MultipartUpload is partial info about a pending upload
+// MultipartUpload is partial info about a pending upload.
 type MultipartUpload struct {
 	ID       string
 	Bucket   string
@@ -336,13 +337,13 @@ type MultipartUpload struct {
 	completed []minio.PartInfo
 }
 
-// MultipartUploadResult contains either an Error or the uploaded ObjectInfo
+// MultipartUploadResult contains either an Error or the uploaded ObjectInfo.
 type MultipartUploadResult struct {
 	Error error
 	Info  minio.ObjectInfo
 }
 
-// NewMultipartUpload creates a new MultipartUpload
+// NewMultipartUpload creates a new MultipartUpload.
 func NewMultipartUpload(uploadID string, bucket, object string, metadata map[string]string) *MultipartUpload {
 	upload := &MultipartUpload{
 		ID:       uploadID,
@@ -355,7 +356,7 @@ func NewMultipartUpload(uploadID string, bucket, object string, metadata map[str
 	return upload
 }
 
-// addCompletedPart adds a completed part to the list
+// addCompletedPart adds a completed part to the list.
 func (upload *MultipartUpload) addCompletedPart(part minio.PartInfo) {
 	upload.mu.Lock()
 	defer upload.mu.Unlock()
@@ -370,13 +371,13 @@ func (upload *MultipartUpload) getCompletedParts() []minio.PartInfo {
 	return append([]minio.PartInfo{}, upload.completed...)
 }
 
-// fail aborts the upload with an error
+// fail aborts the upload with an error.
 func (upload *MultipartUpload) fail(err error) {
 	upload.Done <- &MultipartUploadResult{Error: err}
 	close(upload.Done)
 }
 
-// complete completes the upload
+// complete completes the upload.
 func (upload *MultipartUpload) complete(info minio.ObjectInfo) {
 	upload.Done <- &MultipartUploadResult{Info: info}
 	close(upload.Done)
@@ -408,7 +409,7 @@ func canonicalEtag(etag string) string {
 	return etag
 }
 
-// MultipartStream serializes multiple readers into a single reader
+// MultipartStream serializes multiple readers into a single reader.
 type MultipartStream struct {
 	mu          sync.Mutex
 	moreParts   sync.Cond
@@ -421,7 +422,7 @@ type MultipartStream struct {
 	parts       []*StreamPart
 }
 
-// StreamPart is a reader waiting in MultipartStream
+// StreamPart is a reader waiting in MultipartStream.
 type StreamPart struct {
 	Number int
 	ID     int
@@ -430,7 +431,7 @@ type StreamPart struct {
 	Done   chan error
 }
 
-// NewMultipartStream creates a new MultipartStream
+// NewMultipartStream creates a new MultipartStream.
 func NewMultipartStream() *MultipartStream {
 	stream := &MultipartStream{}
 	stream.moreParts.L = &stream.mu
@@ -438,7 +439,7 @@ func NewMultipartStream() *MultipartStream {
 	return stream
 }
 
-// Abort aborts the stream reading
+// Abort aborts the stream reading.
 func (stream *MultipartStream) Abort(err error) {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
@@ -462,7 +463,7 @@ func (stream *MultipartStream) Abort(err error) {
 	stream.moreParts.Broadcast()
 }
 
-// Close closes the stream, but lets it complete
+// Close closes the stream, but lets it complete.
 func (stream *MultipartStream) Close() {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
@@ -471,7 +472,7 @@ func (stream *MultipartStream) Close() {
 	stream.moreParts.Broadcast()
 }
 
-// Read implements io.Reader interface, blocking when there's no part
+// Read implements io.Reader interface, blocking when there's no part.
 func (stream *MultipartStream) Read(data []byte) (n int, err error) {
 	stream.mu.Lock()
 	for {
@@ -520,7 +521,7 @@ func (stream *MultipartStream) Read(data []byte) (n int, err error) {
 	return n, err
 }
 
-// AddPart adds a new part to the stream to wait
+// AddPart adds a new part to the stream to wait.
 func (stream *MultipartStream) AddPart(partID int, data *hash.Reader) (*StreamPart, error) {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
