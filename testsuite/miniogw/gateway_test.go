@@ -45,11 +45,11 @@ const (
 func TestMakeBucketWithLocation(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when creating bucket with empty name
-		err := layer.MakeBucketWithLocation(ctx, "", "", false)
+		err := layer.MakeBucketWithLocation(ctx, "", minio.BucketOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Create a bucket with the Minio API
-		err = layer.MakeBucketWithLocation(ctx, TestBucket, "", false)
+		err = layer.MakeBucketWithLocation(ctx, TestBucket, minio.BucketOptions{})
 		assert.NoError(t, err)
 
 		// Check that the bucket is created using the Uplink API
@@ -59,7 +59,7 @@ func TestMakeBucketWithLocation(t *testing.T) {
 		assert.True(t, time.Since(bucket.Created) < 1*time.Minute)
 
 		// Check the error when trying to create an existing bucket
-		err = layer.MakeBucketWithLocation(ctx, TestBucket, "", false)
+		err = layer.MakeBucketWithLocation(ctx, TestBucket, minio.BucketOptions{})
 		assert.Equal(t, minio.BucketAlreadyExists{Bucket: TestBucket}, err)
 	})
 }
@@ -506,32 +506,38 @@ func TestCopyObject(t *testing.T) {
 func TestDeleteObject(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting an object from a bucket with empty name
-		err := layer.DeleteObject(ctx, "", "")
+		deleted, err := layer.DeleteObject(ctx, "", "", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
+		assert.Empty(t, deleted)
 
 		// Check the error when deleting an object from non-existing bucket
-		err = layer.DeleteObject(ctx, TestBucket, TestFile)
+		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		assert.Empty(t, deleted)
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
 		assert.NoError(t, err)
 
 		// Check the error when deleting an object with empty name
-		err = layer.DeleteObject(ctx, TestBucket, "")
+		deleted, err = layer.DeleteObject(ctx, TestBucket, "", minio.ObjectOptions{})
 		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		assert.Empty(t, deleted)
 
 		// Check the error when deleting a non-existing object
-		err = layer.DeleteObject(ctx, TestBucket, TestFile)
+		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		assert.Empty(t, deleted)
 
 		// Create the object using the Uplink API
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
 		assert.NoError(t, err)
 
 		// Delete the object info using the Minio API
-		err = layer.DeleteObject(ctx, TestBucket, TestFile)
+		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		assert.NoError(t, err)
+		assert.Equal(t, TestBucket, deleted.Bucket)
+		assert.Equal(t, TestFile, deleted.Name)
 
 		// Check that the object is deleted using the Uplink API
 		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
@@ -542,28 +548,36 @@ func TestDeleteObject(t *testing.T) {
 func TestDeleteObjects(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting an object from a bucket with empty name
-		deleteErrors, err := layer.DeleteObjects(ctx, "", []string{TestFile})
-		assert.Equal(t, minio.BucketNameInvalid{}, err)
+		deletedObjects, deleteErrors := layer.DeleteObjects(ctx, "", []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		require.Len(t, deleteErrors, 1)
 		assert.Equal(t, minio.BucketNameInvalid{}, deleteErrors[0])
+		require.Len(t, deletedObjects, 1)
+		assert.Empty(t, deletedObjects[0])
 
 		// Check the error when deleting an object from non-existing bucket
-		deleteErrors, err = layer.DeleteObjects(ctx, TestBucket, []string{TestFile})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		require.Len(t, deleteErrors, 1)
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, deleteErrors[0])
+		require.Len(t, deletedObjects, 1)
+		assert.Empty(t, deletedObjects[0])
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
 		assert.NoError(t, err)
 
 		// Check the error when deleting an object with empty name
-		deleteErrors, err = layer.DeleteObjects(ctx, TestBucket, []string{""})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: ""}}, minio.ObjectOptions{})
+		require.Len(t, deleteErrors, 1)
 		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, deleteErrors[0])
+		require.Len(t, deletedObjects, 1)
+		assert.Empty(t, deletedObjects[0])
 
 		// Check the error when deleting a non-existing object
-		deleteErrors, err = layer.DeleteObjects(ctx, TestBucket, []string{TestFile})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		require.Len(t, deleteErrors, 1)
 		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, deleteErrors[0])
+		require.Len(t, deletedObjects, 1)
+		assert.Empty(t, deletedObjects[0])
 
 		// Create the 3 objects using the Uplink API
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
@@ -574,11 +588,13 @@ func TestDeleteObjects(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Delete the 1st and the 3rd object using the Minio API
-		deleteErrors, err = layer.DeleteObjects(ctx, TestBucket, []string{TestFile, TestFile3})
-		assert.NoError(t, err)
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}, {ObjectName: TestFile3}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 2)
 		assert.NoError(t, deleteErrors[0])
 		assert.NoError(t, deleteErrors[1])
+		require.Len(t, deletedObjects, 2)
+		assert.NotEmpty(t, deletedObjects[0])
+		assert.NotEmpty(t, deletedObjects[1])
 
 		// Check using the Uplink API that the 1st and the 3rd objects are deleted, but the 2nd is still there
 		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)

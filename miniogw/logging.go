@@ -74,8 +74,8 @@ func (log *layerLogging) StorageInfo(ctx context.Context, local bool) (minio.Sto
 	return log.layer.StorageInfo(ctx, local)
 }
 
-func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, location string, lockEnabled bool) error {
-	return log.log(log.layer.MakeBucketWithLocation(ctx, bucket, location, lockEnabled))
+func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) error {
+	return log.log(log.layer.MakeBucketWithLocation(ctx, bucket, opts))
 }
 
 func (log *layerLogging) GetBucketInfo(ctx context.Context, bucket string) (bucketInfo minio.BucketInfo, err error) {
@@ -127,13 +127,17 @@ func (log *layerLogging) CopyObject(ctx context.Context, srcBucket, srcObject, d
 	return objInfo, log.log(err)
 }
 
-func (log *layerLogging) DeleteObject(ctx context.Context, bucket, object string) (err error) {
-	return log.log(log.layer.DeleteObject(ctx, bucket, object))
+func (log *layerLogging) DeleteObject(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.DeleteObject(ctx, bucket, object, opts)
+	return objInfo, log.log(err)
 }
 
-func (log *layerLogging) DeleteObjects(ctx context.Context, bucket string, objects []string) (errors []error, err error) {
-	errors, err = log.layer.DeleteObjects(ctx, bucket, objects)
-	return errors, log.log(err)
+func (log *layerLogging) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, errors []error) {
+	deleted, errors = log.layer.DeleteObjects(ctx, bucket, objects, opts)
+	for _, err := range errors {
+		_ = log.log(err)
+	}
+	return deleted, errors
 }
 
 func (log *layerLogging) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
@@ -189,8 +193,8 @@ func (log *layerLogging) HealBucket(ctx context.Context, bucket string, dryRun, 
 	return rv, log.log(err)
 }
 
-func (log *layerLogging) HealObject(ctx context.Context, bucket, object string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
-	rv, err := log.layer.HealObject(ctx, bucket, object, opts)
+func (log *layerLogging) HealObject(ctx context.Context, bucket, object, versionID string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
+	rv, err := log.layer.HealObject(ctx, bucket, object, versionID, opts)
 	return rv, log.log(err)
 }
 

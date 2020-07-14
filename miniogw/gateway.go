@@ -92,31 +92,36 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, 
 	return convertError(err, bucketName, "")
 }
 
-func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectPath string) (err error) {
+func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
 	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
-		return convertError(err, bucketName, objectPath)
+		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
-	_, err = layer.project.DeleteObject(ctx, bucketName, objectPath)
+	object, err := layer.project.DeleteObject(ctx, bucketName, objectPath)
+	if err != nil {
+		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
+	}
 
-	return convertError(err, bucketName, objectPath)
+	return minioObjectInfo(bucketName, "", object), nil
 }
 
-func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string, objectPaths []string) (errors []error, err error) {
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, errors []error) {
 	// TODO: implement multiple object deletion in libuplink API
-	errors = make([]error, len(objectPaths))
-	for i, objectPath := range objectPaths {
-		deleteErr := layer.DeleteObject(ctx, bucketName, objectPath)
+	errors = make([]error, len(objects))
+	deleted = make([]minio.DeletedObject, len(objects))
+	for i, object := range objects {
+		deletedObject, deleteErr := layer.DeleteObject(ctx, bucketName, object.ObjectName, opts)
 		if deleteErr != nil {
-			errors[i] = convertError(deleteErr, bucketName, objectPath)
-			err = errs.Combine(err, errors[i])
+			errors[i] = convertError(deleteErr, bucketName, object.ObjectName)
+			continue
 		}
+		deleted[i].ObjectName = deletedObject.Name
 	}
-	return errors, err
+	return deleted, errors
 }
 
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {
@@ -512,7 +517,7 @@ func (layer *gatewayLayer) listSingleObjectV2(ctx context.Context, bucketName, k
 	}, nil
 }
 
-func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketName string, location string, lockEnabled bool) (err error) {
+func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketName string, opts minio.BucketOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO: maybe this should return an error since we don't support locations
