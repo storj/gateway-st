@@ -109,19 +109,19 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectP
 	return minioObjectInfo(bucketName, "", object), nil
 }
 
-func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, errors []error) {
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, errs []error) {
 	// TODO: implement multiple object deletion in libuplink API
-	errors = make([]error, len(objects))
+	errs = make([]error, len(objects))
 	deleted = make([]minio.DeletedObject, len(objects))
 	for i, object := range objects {
-		deletedObject, deleteErr := layer.DeleteObject(ctx, bucketName, object.ObjectName, opts)
-		if deleteErr != nil {
-			errors[i] = convertError(deleteErr, bucketName, object.ObjectName)
+		_, deleteErr := layer.DeleteObject(ctx, bucketName, object.ObjectName, opts)
+		if deleteErr != nil && !errors.As(deleteErr, &minio.ObjectNotFound{}) {
+			errs[i] = convertError(deleteErr, bucketName, object.ObjectName)
 			continue
 		}
-		deleted[i].ObjectName = deletedObject.Name
+		deleted[i].ObjectName = object.ObjectName
 	}
-	return deleted, errors
+	return deleted, errs
 }
 
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {

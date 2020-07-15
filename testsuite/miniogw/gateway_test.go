@@ -572,12 +572,12 @@ func TestDeleteObjects(t *testing.T) {
 		require.Len(t, deletedObjects, 1)
 		assert.Empty(t, deletedObjects[0])
 
-		// Check the error when deleting a non-existing object
+		// Check that there is NO error when deleting a non-existing object
 		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, deleteErrors[0])
+		assert.Empty(t, deleteErrors[0])
 		require.Len(t, deletedObjects, 1)
-		assert.Empty(t, deletedObjects[0])
+		assert.Equal(t, deletedObjects, []minio.DeletedObject{{ObjectName: TestFile}})
 
 		// Create the 3 objects using the Uplink API
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
