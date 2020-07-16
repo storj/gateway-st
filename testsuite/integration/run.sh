@@ -35,7 +35,7 @@ else
 fi
 
 # run aws-cli tests
-storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/script.sh
+storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/awscli.sh
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/duplicity.sh
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/duplicati.sh
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network destroy

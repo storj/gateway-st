@@ -83,7 +83,7 @@ pipeline {
 
                     steps {
                         sh 'psql -U postgres -c \'create database teststorj2;\''
-                        sh 'cd ./testsuite/integration/aws-cli && ./run.sh'
+                        sh 'cd ./testsuite/integration && ./run.sh'
                     }
                 }
             }
