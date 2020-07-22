@@ -156,6 +156,9 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
+	if upload == nil {
+		return minio.ObjectInfo{}, nil
+	}
 
 	// notify stream that there aren't more parts coming
 	upload.Stream.Close()

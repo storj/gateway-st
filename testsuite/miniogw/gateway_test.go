@@ -936,6 +936,14 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 	})
 }
 
+func TestCompleteMultipartUpload(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		object, err := layer.CompleteMultipartUpload(ctx, "bucket", "object", "invalid-upload", nil, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, minio.ObjectInfo{}, object)
+	})
+}
+
 func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	runTestWithPathCipher(t, storj.EncNull, test)
 }
