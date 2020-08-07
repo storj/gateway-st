@@ -12,6 +12,7 @@ ifneq (,$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9
 LATEST_TAG := latest
 endif
 endif
+RELEASE_BUILD_REQUIRED ?= false
 
 FILEEXT :=
 ifeq (${GOOS},windows)
@@ -108,7 +109,7 @@ binary:
 	resources/versioninfo.json || echo "goversioninfo is not installed, metadata will not be created"
 	docker run --rm -i -v "${PWD}":/go/src/storj.io/storj -e GO111MODULE=on \
 	-e GOOS=${GOOS} -e GOARCH=${GOARCH} -e GOARM=6 -e CGO_ENABLED=1 \
-	-e RELEASE_BUILD_REQUIRED=${RELEASE_BUILD_REQUIRED:-false} \
+	-e RELEASE_BUILD_REQUIRED=${RELEASE_BUILD_REQUIRED} \
 	-v /tmp/go-cache:/tmp/.cache/go-build -v /tmp/go-pkg:/go/pkg \
 	-w /go/src/storj.io/storj -e GOPROXY -u $(shell id -u):$(shell id -g) storjlabs/golang:${GO_VERSION} \
 	scripts/release.sh build $(EXTRA_ARGS) -o release/${TAG}/$(COMPONENT)_${GOOS}_${GOARCH}${FILEEXT}
