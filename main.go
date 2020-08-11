@@ -47,9 +47,9 @@ type GatewayFlags struct {
 }
 
 var (
-	// Error is the default gateway setup errs class
+	// Error is the default gateway setup errs class.
 	Error = errs.Class("gateway setup error")
-	// rootCmd represents the base gateway command when called without any subcommands
+	// rootCmd represents the base gateway command when called without any subcommands.
 	rootCmd = &cobra.Command{
 		Use:   "gateway",
 		Short: "The Storj client-side S3 gateway",

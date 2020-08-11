@@ -245,7 +245,7 @@ func waitForAddress(address string, maxStartupWait time.Duration) error {
 	}
 }
 
-// tryConnect will try to connect to the process public address
+// tryConnect will try to connect to the process public address.
 func tryConnect(address string) bool {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {

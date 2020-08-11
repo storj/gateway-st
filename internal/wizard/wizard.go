@@ -25,7 +25,7 @@ var (
 		"121RTSDpyNZVcEU84Ticf2L1ntiuUimbWgfATz21tuvgk3vzoA6@asia-east-1.tardigrade.io:7777",
 	}
 
-	// SatelliesURL mapping host to satellite URL
+	// SatelliesURL mapping host to satellite URL.
 	SatelliesURL = map[string]string{
 		"us-central-1.tardigrade.io":  satellites[0],
 		"europe-west-1.tardigrade.io": satellites[1],
