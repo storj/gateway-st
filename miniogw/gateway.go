@@ -693,11 +693,6 @@ func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (
 	}, nil
 }
 
-// IsReady returns whether the layer is ready to take requests.
-func (layer *gatewayLayer) IsReady(ctx context.Context) bool {
-	return layer.isSatelliteOnline(ctx)
-}
-
 func (layer *gatewayLayer) isSatelliteOnline(ctx context.Context) bool {
 	project, err := layer.gateway.config.OpenProject(ctx, layer.gateway.access)
 	if err != nil {

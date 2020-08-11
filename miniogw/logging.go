@@ -220,10 +220,6 @@ func (log *layerLogging) IsNotificationSupported() bool {
 	return log.layer.IsNotificationSupported()
 }
 
-func (log *layerLogging) IsListenBucketSupported() bool {
-	return log.layer.IsListenBucketSupported()
-}
-
 func (log *layerLogging) IsEncryptionSupported() bool {
 	return log.layer.IsEncryptionSupported()
 }
@@ -235,8 +231,4 @@ func (log *layerLogging) IsCompressionSupported() bool {
 func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.Metrics, error) {
 	metrics, err := log.layer.GetMetrics(ctx)
 	return metrics, log.log(err)
-}
-
-func (log *layerLogging) IsReady(ctx context.Context) bool {
-	return log.layer.IsReady(ctx)
 }
