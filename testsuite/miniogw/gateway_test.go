@@ -524,10 +524,9 @@ func TestDeleteObject(t *testing.T) {
 		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
 		assert.Empty(t, deleted)
 
-		// Check the error when deleting a non-existing object
-		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
-		assert.Empty(t, deleted)
+		// Check that no error being returned when deleting a non-existing object
+		_, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
 
 		// Create the object using the Uplink API
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
@@ -944,6 +943,44 @@ func TestCompleteMultipartUpload(t *testing.T) {
 	})
 }
 
+func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		NonParallel: true,
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		_, project, err := initEnv(ctx, t, planet, storj.EncNull)
+		require.NoError(t, err)
+
+		// Create the bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		require.NoError(t, err)
+
+		// Create the object using the Uplink API
+		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
+		require.NoError(t, err)
+
+		// Create an access grant that only has delete permission
+		restrictedAccess, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.Permission{AllowDelete: true})
+		require.NoError(t, err)
+
+		// Create a new gateway with the restrictedAccess
+		gateway := miniogw.NewStorjGateway(restrictedAccess, uplink.Config{}, false)
+		restrictedLayer, err := gateway.NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		// Delete the object info using the Minio API
+		deleted, err := restrictedLayer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, TestBucket, deleted.Bucket)
+		require.Empty(t, deleted.Name)
+
+		// Check that the object is deleted using the Uplink API
+		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
+		require.True(t, errors.Is(err, uplink.ErrObjectNotFound))
+
+	})
+}
+
 func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	runTestWithPathCipher(t, storj.EncNull, test)
 }
@@ -961,32 +998,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 }
 
 func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite) (minio.ObjectLayer, *uplink.Project, error) {
-	access := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
-
-	serializedAccess, err := access.Serialize()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	data, version, err := base58.CheckDecode(serializedAccess)
-	if err != nil || version != 0 {
-		return nil, nil, errors.New("invalid access grant format")
-	}
-	p := new(pb.Scope)
-	if err := pb.Unmarshal(data, p); err != nil {
-		return nil, nil, err
-
-	}
-
-	p.EncryptionAccess.DefaultPathCipher = pb.CipherSuite(pathCipher)
-	accessData, err := pb.Marshal(p)
-	if err != nil {
-		return nil, nil, err
-	}
-	serializedAccess = base58.CheckEncode(accessData, 0)
-
-	// workaround to set proper path cipher for uplink.Access
-	access, err = uplink.ParseAccess(serializedAccess)
+	access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1002,6 +1014,40 @@ func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathC
 		return nil, nil, err
 	}
 	return layer, project, err
+}
+
+func setupAccess(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite, permission uplink.Permission) (*uplink.Access, error) {
+	access := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
+
+	access, err := access.Share(permission)
+	if err != nil {
+		return nil, err
+	}
+
+	serializedAccess, err := access.Serialize()
+	if err != nil {
+		return nil, err
+	}
+
+	data, version, err := base58.CheckDecode(serializedAccess)
+	if err != nil || version != 0 {
+		return nil, errors.New("invalid access grant format")
+	}
+	p := new(pb.Scope)
+	if err := pb.Unmarshal(data, p); err != nil {
+		return nil, err
+
+	}
+
+	p.EncryptionAccess.DefaultPathCipher = pb.CipherSuite(pathCipher)
+	accessData, err := pb.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	serializedAccess = base58.CheckEncode(accessData, 0)
+
+	// workaround to set proper path cipher for uplink.Access
+	return uplink.ParseAccess(serializedAccess)
 }
 
 func createFile(ctx context.Context, project *uplink.Project, bucket, key string, data []byte, metadata map[string]string) (*uplink.Object, error) {
