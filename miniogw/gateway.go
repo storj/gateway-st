@@ -732,6 +732,10 @@ func convertError(err error, bucket, object string) error {
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {
+	if object == nil {
+		object = &uplink.Object{}
+	}
+
 	contentType := ""
 	for k, v := range object.Custom {
 		if strings.ToLower(k) == "content-type" {
