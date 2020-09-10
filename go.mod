@@ -3,7 +3,7 @@ module storj.io/gateway
 go 1.13
 
 require (
-	github.com/btcsuite/btcutil v1.0.2
+	github.com/btcsuite/btcutil v1.0.2 // indirect
 	github.com/calebcase/tmpfile v1.0.2 // indirect
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio v0.0.0-20200808024306-2a9819aff876
@@ -19,4 +19,4 @@ require (
 	storj.io/uplink v1.3.0
 )
 
-replace github.com/minio/minio => github.com/storj/minio v0.0.0-20200926023647-bebcf4f004ca
+replace github.com/minio/minio => github.com/storj/minio v0.0.0-20201005142930-0b1e648a8dee

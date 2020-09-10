@@ -93,8 +93,7 @@ func (log *layerLogging) DeleteBucket(ctx context.Context, bucket string, forceD
 }
 
 func (log *layerLogging) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
-	result, err = log.layer.ListObjects(ctx, bucket, prefix, marker, delimiter,
-		maxKeys)
+	result, err = log.layer.ListObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
 	return result, log.log(err)
 }
 

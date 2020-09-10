@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"fmt"
 	"net"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/minio/cli"
 	minio "github.com/minio/minio/cmd"
 	"github.com/spf13/cobra"
@@ -33,17 +31,14 @@ import (
 
 // GatewayFlags configuration flags.
 type GatewayFlags struct {
-	NonInteractive   bool   `help:"disable interactive mode" default:"false" setup:"true"`
-	SatelliteAddress string `help:"satellite address (<nodeid>@<address>:<port>)" default:"" setup:"true"`
-	APIKey           string `help:"API key" default:"" setup:"true"`
-	Passphrase       string `help:"encryption passphrase" default:"" setup:"true"`
+	// TODO: We need to temporarily keep these two to run integration tests successfully. They will be removed later
+	NonInteractive bool   `help:"ignore, required for integration tests only" default:"false" setup:"true"`
+	Access         string `help:"ignore, required for integration tests only" default:"" basic-help:"true"`
 
 	Server miniogw.ServerConfig
 	Minio  miniogw.MinioConfig
 
 	Config
-
-	Website bool `help:"serve content as a static website" default:"false" basic-help:"true"`
 }
 
 var (
@@ -105,30 +100,7 @@ func cmdSetup(cmd *cobra.Command, args []string) (err error) {
 		return Error.Wrap(err)
 	}
 
-	overrides := map[string]interface{}{}
-
-	accessKeyFlag := cmd.Flag("minio.access-key")
-	if !accessKeyFlag.Changed {
-		accessKey, err := generateKey()
-		if err != nil {
-			return err
-		}
-		overrides[accessKeyFlag.Name] = accessKey
-	}
-
-	secretKeyFlag := cmd.Flag("minio.secret-key")
-	if !secretKeyFlag.Changed {
-		secretKey, err := generateKey()
-		if err != nil {
-			return err
-		}
-		overrides[secretKeyFlag.Name] = secretKey
-	}
-
-	if setupCfg.NonInteractive {
-		return setupCfg.nonInteractive(cmd, setupDir, overrides)
-	}
-	return setupCfg.interactive(cmd, setupDir, overrides)
+	return setupCfg.interactive(cmd, setupDir)
 }
 
 func cmdRun(cmd *cobra.Command, args []string) (err error) {
@@ -147,46 +119,12 @@ func cmdRun(cmd *cobra.Command, args []string) (err error) {
 		zap.S().Warn("Failed to initialize telemetry batcher: ", err)
 	}
 
-	zap.S().Infof("Starting Tardigrade S3 Gateway\n\n")
+	zap.S().Info("Starting Tardigrade S3 Gateway\n\n")
 	zap.S().Infof("Endpoint: %s\n", address)
-	zap.S().Infof("Access key: %s\n", runCfg.Minio.AccessKey)
-	zap.S().Infof("Secret key: %s\n", runCfg.Minio.SecretKey)
-
-	err = checkCfg(ctx)
-	if err != nil {
-		zap.S().Warn("Failed to contact Satellite. Perhaps your configuration is invalid?")
-		return err
-	}
+	zap.S().Info("Access key: use your Tardigrade Access Grant\n")
+	zap.S().Info("Secret key: anything would work\n")
 
 	return runCfg.Run(ctx)
-}
-
-func generateKey() (key string, err error) {
-	var buf [20]byte
-	_, err = rand.Read(buf[:])
-	if err != nil {
-		return "", Error.Wrap(err)
-	}
-	return base58.Encode(buf[:]), nil
-}
-
-func checkCfg(ctx context.Context) (err error) {
-	access, err := runCfg.GetAccess()
-	if err != nil {
-		return Error.Wrap(err)
-	}
-
-	config := runCfg.newUplinkConfig(ctx)
-
-	project, err := config.OpenProject(ctx, access)
-	if err != nil {
-		return Error.Wrap(err)
-	}
-	defer func() { err = errs.Combine(err, project.Close()) }()
-
-	buckets := project.ListBuckets(ctx, nil)
-	_ = buckets.Next()
-	return buckets.Err()
 }
 
 // Run starts a Minio Gateway given proper config.
@@ -204,11 +142,11 @@ func (flags GatewayFlags) Run(ctx context.Context) (err error) {
 	}
 
 	// TODO(jt): Surely there is a better way. This is so upsetting
-	err = os.Setenv("MINIO_ACCESS_KEY", flags.Minio.AccessKey)
+	err = os.Setenv("MINIO_ACCESS_KEY", "dummy-key-to-satisfy-minio")
 	if err != nil {
 		return err
 	}
-	err = os.Setenv("MINIO_SECRET_KEY", flags.Minio.SecretKey)
+	err = os.Setenv("MINIO_SECRET_KEY", "dummy-key-to-satisfy-minio")
 	if err != nil {
 		return err
 	}
@@ -231,14 +169,9 @@ func (flags GatewayFlags) action(ctx context.Context, cliCtx *cli.Context) (err 
 
 // NewGateway creates a new minio Gateway.
 func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err error) {
-	access, err := flags.GetAccess()
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-
 	config := flags.newUplinkConfig(ctx)
 
-	return miniogw.NewStorjGateway(access, config, flags.Website), nil
+	return miniogw.NewStorjGateway(config), nil
 }
 
 func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
@@ -250,34 +183,8 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 }
 
 // interactive creates the configuration of the gateway interactively.
-func (flags GatewayFlags) interactive(cmd *cobra.Command, setupDir string, overrides map[string]interface{}) error {
-	ctx, _ := process.Ctx(cmd)
-
-	satelliteAddress, err := wizard.PromptForSatellite(cmd)
-	if err != nil {
-		return Error.Wrap(err)
-	}
-
-	apiKey, err := wizard.PromptForAPIKey()
-	if err != nil {
-		return Error.Wrap(err)
-	}
-
-	passphrase, err := wizard.PromptForEncryptionPassphrase()
-	if err != nil {
-		return Error.Wrap(err)
-	}
-
-	access, err := uplink.RequestAccessWithPassphrase(ctx, satelliteAddress, apiKey, passphrase)
-	if err != nil {
-		return Error.Wrap(err)
-	}
-
-	accessData, err := access.Serialize()
-	if err != nil {
-		return Error.Wrap(err)
-	}
-	overrides["access"] = accessData
+func (flags GatewayFlags) interactive(cmd *cobra.Command, setupDir string) error {
+	overrides := make(map[string]interface{})
 
 	tracingEnabled, err := wizard.PromptForTracing()
 	if err != nil {
@@ -304,39 +211,6 @@ Some things to try next:
 * See https://documentation.tardigrade.io/api-reference/s3-gateway for some example commands`)
 
 	return nil
-}
-
-// nonInteractive creates the configuration of the gateway non-interactively.
-func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, overrides map[string]interface{}) (err error) {
-	ctx, _ := process.Ctx(cmd)
-
-	var access *uplink.Access
-	accessString := setupCfg.Access
-
-	if accessString != "" {
-		access, err = uplink.ParseAccess(accessString)
-	} else if setupCfg.SatelliteAddress != "" && setupCfg.APIKey != "" && setupCfg.Passphrase != "" {
-		satellite := setupCfg.SatelliteAddress
-		if fullAddress, ok := wizard.SatelliesURL[satellite]; ok {
-			satellite = fullAddress
-		}
-		access, err = uplink.RequestAccessWithPassphrase(ctx, satellite, setupCfg.APIKey, setupCfg.Passphrase)
-	} else {
-		err = errs.New("non-interactive setup requires '--access' flag or all '--satellite-address', '--api-key', '--passphrase' flags")
-	}
-	if err != nil {
-		return err
-	}
-
-	accessData, err := access.Serialize()
-	if err != nil {
-		return err
-	}
-	overrides["access"] = accessData
-
-	return Error.Wrap(process.SaveConfig(cmd, filepath.Join(setupDir, "config.yaml"),
-		process.SaveConfigWithOverrides(overrides),
-		process.SaveConfigRemovingDeprecated()))
 }
 
 /*	`setUsageFunc` is a bit unconventional but cobra didn't leave much room for

@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcutil/base58"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func TestMakeBucketWithLocation(t *testing.T) {
 
 		// Check that the bucket is created using the Uplink API
 		bucket, err := project.StatBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, TestBucket, bucket.Name)
 		assert.True(t, time.Since(bucket.Created) < 1*time.Minute)
 
@@ -966,13 +967,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 }
 
 func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
-	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
-		NonParallel: true,
-	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		_, project, err := initEnv(ctx, t, planet, storj.EncNull)
-		require.NoError(t, err)
-
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
 		require.NoError(t, err)
@@ -981,17 +976,21 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
 		require.NoError(t, err)
 
-		// Create an access grant that only has delete permission
-		restrictedAccess, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.Permission{AllowDelete: true})
+		access, err := uplink.ParseAccess(logger.GetReqInfo(ctx).AccessKey)
 		require.NoError(t, err)
 
-		// Create a new gateway with the restrictedAccess
-		gateway := miniogw.NewStorjGateway(restrictedAccess, uplink.Config{}, false)
-		restrictedLayer, err := gateway.NewGatewayLayer(auth.Credentials{})
+		// Restrict the access grant to deletes only
+		restrictedAccess, err := access.Share(uplink.Permission{AllowDelete: true})
 		require.NoError(t, err)
+
+		restrictedAccessString, err := restrictedAccess.Serialize()
+		require.NoError(t, err)
+
+		// Set the restricted Access Grant as the S3 Access Key in the Context
+		ctx = logger.SetReqInfo(ctx, &logger.ReqInfo{AccessKey: restrictedAccessString})
 
 		// Delete the object info using the Minio API
-		deleted, err := restrictedLayer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		deleted, err := layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		require.Equal(t, TestBucket, deleted.Bucket)
 		require.Empty(t, deleted.Name)
@@ -999,7 +998,6 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		// Check that the object is deleted using the Uplink API
 		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
 		require.True(t, errors.Is(err, uplink.ErrObjectNotFound))
-
 	})
 }
 
@@ -1012,30 +1010,24 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		layer, project, err := initEnv(ctx, t, planet, pathCipher)
+		gateway := miniogw.NewStorjGateway(uplink.Config{})
+		layer, err := gateway.NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
+		require.NoError(t, err)
+
+		accessString, err := access.Serialize()
+		require.NoError(t, err)
+
+		// Set the Access Grant as the S3 Access Key in the Context
+		ctx.Context = logger.SetReqInfo(ctx.Context, &logger.ReqInfo{AccessKey: accessString})
+
+		project, err := uplink.OpenProject(ctx, access)
 		require.NoError(t, err)
 
 		test(t, ctx, layer, project)
 	})
-}
-
-func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite) (minio.ObjectLayer, *uplink.Project, error) {
-	access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	project, err := uplink.OpenProject(ctx, access)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	gateway := miniogw.NewStorjGateway(access, uplink.Config{}, false)
-	layer, err := gateway.NewGatewayLayer(auth.Credentials{})
-	if err != nil {
-		return nil, nil, err
-	}
-	return layer, project, err
 }
 
 func setupAccess(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite, permission uplink.Permission) (*uplink.Access, error) {

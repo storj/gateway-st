@@ -32,6 +32,11 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		return "", err
 	}
 
+	project, err := layer.openProject(ctx, getAccessKey(ctx))
+	if err != nil {
+		return "", err
+	}
+
 	uploads := layer.multipart
 
 	upload, err := uploads.Create(bucket, object, opts.UserDefined)
@@ -40,7 +45,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	}
 
 	// TODO: this can now be done without this separate goroutine
-	stream, err := layer.project.UploadObject(ctx, bucket, object, nil)
+	stream, err := project.UploadObject(ctx, bucket, object, nil)
 	if err != nil {
 		uploads.RemoveByID(upload.ID)
 		upload.fail(err)

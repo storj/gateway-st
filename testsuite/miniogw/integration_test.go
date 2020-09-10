@@ -7,16 +7,13 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"net"
-	"net/http"
 	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
@@ -46,23 +43,20 @@ func TestUploadDownload(t *testing.T) {
 		// may conflict with some automatically bound address.
 		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
 
-		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
-		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
-
 		gatewayExe := ctx.Compile("storj.io/gateway")
 
 		client, err := minioclient.NewMinio(minioclient.Config{
 			S3Gateway:     gatewayAddr,
 			Satellite:     planet.Satellites[0].Addr(),
-			AccessKey:     gatewayAccessKey,
-			SecretKey:     gatewaySecretKey,
+			AccessKey:     access,
+			SecretKey:     "anything-would-work",
 			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
 			EncryptionKey: "fake-encryption-key",
 			NoSSL:         true,
 		})
 		require.NoError(t, err)
 
-		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
+		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr)
 		require.NoError(t, err)
 		defer func() { processgroup.Kill(gateway) }()
 
@@ -85,38 +79,6 @@ func TestUploadDownload(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
-
-			{ // try to access the content as static website - expect forbidden error
-				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusForbidden, response.StatusCode)
-				require.NoError(t, response.Body.Close())
-
-				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusForbidden, response.StatusCode)
-				require.NoError(t, response.Body.Close())
-			}
-
-			{ // restart the gateway with the --website flag and try again - expect success
-				err = stopGateway(gateway, gatewayAddr)
-				require.NoError(t, err)
-				gateway, err = startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
-				require.NoError(t, err)
-
-				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusOK, response.StatusCode)
-				require.NoError(t, response.Body.Close())
-
-				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusOK, response.StatusCode)
-				readData, err := ioutil.ReadAll(response.Body)
-				require.NoError(t, err)
-				require.Equal(t, data, readData)
-				require.NoError(t, response.Body.Close())
-			}
 		}
 
 		{ // multipart upload
@@ -167,23 +129,20 @@ func TestUploadDownload(t *testing.T) {
 
 			require.Equal(t, data, bytes)
 		}
-		{
-			uplink := planet.Uplinks[0]
-			satellite := planet.Satellites[0]
-			info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
-			require.NoError(t, err)
-			require.False(t, info.PartnerID.IsZero())
+		{ // TODO: we need to support user agent in Stargate
+			// uplink := planet.Uplinks[0]
+			// satellite := planet.Satellites[0]
+			// info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
+			// require.NoError(t, err)
+			// require.False(t, info.PartnerID.IsZero())
 		}
 	})
 }
 
-func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
+func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address string, moreFlags ...string) (*exec.Cmd, error) {
 	args := append([]string{"run",
 		"--config-dir", ctx.Dir("gateway"),
-		"--access", access,
 		"--server.address", address,
-		"--minio.access-key", accessKey,
-		"--minio.secret-key", secretKey,
 		"--client.user-agent", "Zenko",
 	}, moreFlags...)
 
