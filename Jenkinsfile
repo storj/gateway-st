@@ -1,3 +1,12 @@
+def withDockerNetwork(Closure inner) {
+    try {
+        networkId = UUID.randomUUID().toString()
+        sh "docker network create ${networkId}"
+        inner.call(networkId)
+    } finally {
+        sh "docker network rm ${networkId}"
+    }
+}
 
 timeout(time: 26, unit: 'MINUTES') {
 	node {
@@ -79,16 +88,54 @@ timeout(time: 26, unit: 'MINUTES') {
 							}
 						}
 					}
-					parallel branchedStages
+		    		parallel branchedStages
+				}
+	    	}
+	    	catch(err) {
+	     		throw err
+	    	}
+	    	finally {
+	     		sh "chmod -R 777 ." // ensure Jenkins agent can delete the working directory
+	     		deleteDir()
+	    	}
+
+		}
+
+		stage('Mint') {
+	    	checkout scm
+			gwContainerName = UUID.randomUUID().toString()
+			withDockerNetwork{n ->
+				dockerImage.withRun("--network ${n} --name ${gwContainerName} -p 11000:11000 -u root:root -v '/tmp/gomod':/go/pkg/mod -v `pwd`:/go/gateway --entrypoint /go/gateway/testsuite/miniogw/mint/run.sh") { c->
+					try {
+            			docker.image('curlimages/curl').inside("--network ${n}") {
+							sh (
+								script: "while ! curl --output /dev/null --silent http://${gwContainerName}:11000/minio/health/live; do sleep 1; done",
+								label: "Wait for the gateway to be ready"
+							)
+						}
+						ACCESS_KEY = sh (
+							script: "docker exec ${gwContainerName} storj-sim network env GATEWAY_0_ACCESS",
+							returnStdout: true
+						).trim()
+
+						docker.image('minio/mint').inside("--network ${n} --entrypoint='' -u root:root -e SERVER_ENDPOINT=${gwContainerName}:11000 -e MINT_MODE=full -e ACCESS_KEY=${ACCESS_KEY} -e SECRET_KEY=doesnotmatter -e ENABLE_HTTPS=0") {
+							sh "cp testsuite/miniogw/mint/mint.sh /mint/mint.sh"
+							sh "cd /mint && ./entrypoint.sh /mint/run/core/aws-sdk-go /mint/run/core/aws-sdk-java /mint/run/core/s3select /mint/run/core/security"
+							// failing tests:  /mint/run/core/healthcheck /mint/run/core/minio-py /mint/run/core/aws-sdk-ruby /mint/run/core/awscli /mint/run/core/aws-sdk-php /mint/run/core/minio-dotnet
+							// /mint/run/core/minio-go /mint/run/core/minio-java /mint/run/core/mc /mint/run/core/minio-js /mint/run/core/s3cmd
+						}
+					}
+					catch(err) {
+						sh "docker logs ${gwContainerName}"
+						throw err
+					}
+					finally {
+						sh "chmod -R 777 ." // ensure Jenkins agent can delete the working directory
+						deleteDir()
+					}
 				}
 			}
-			catch(err) {
-				throw err
-			}
-			finally {
-				sh "chmod -R 777 ." // ensure Jenkins agent can delete the working directory
-				deleteDir()
-			}
 		}
-	}
+    }
 }
+
