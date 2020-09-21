@@ -50,9 +50,6 @@ func TestUploadDownload(t *testing.T) {
 		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
 
 		gatewayExe := ctx.Compile("storj.io/gateway")
-		gateway, err := startGateway(t, ctx, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
-		require.NoError(t, err)
-		defer func() { processgroup.Kill(gateway) }()
 
 		client, err := minioclient.NewMinio(minioclient.Config{
 			S3Gateway:     gatewayAddr,
@@ -64,6 +61,10 @@ func TestUploadDownload(t *testing.T) {
 			NoSSL:         true,
 		})
 		require.NoError(t, err)
+
+		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
+		require.NoError(t, err)
+		defer func() { processgroup.Kill(gateway) }()
 
 		{ // normal upload
 			bucket := "bucket"
@@ -100,7 +101,7 @@ func TestUploadDownload(t *testing.T) {
 			{ // restart the gateway with the --website flag and try again - expect success
 				err = stopGateway(gateway, gatewayAddr)
 				require.NoError(t, err)
-				gateway, err = startGateway(t, ctx, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
+				gateway, err = startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
 				require.NoError(t, err)
 
 				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
@@ -176,7 +177,7 @@ func TestUploadDownload(t *testing.T) {
 	})
 }
 
-func startGateway(t *testing.T, ctx *testcontext.Context, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
+func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
 	args := append([]string{"run",
 		"--config-dir", ctx.Dir("gateway"),
 		"--access", access,
@@ -197,7 +198,7 @@ func startGateway(t *testing.T, ctx *testcontext.Context, exe, access, address, 
 		return nil, err
 	}
 
-	err = waitForAddress(address, 5*time.Second)
+	err = waitToStart(client, address, 5*time.Second)
 	if err != nil {
 		killErr := gateway.Process.Kill()
 		return nil, errs.Combine(err, killErr)
@@ -228,11 +229,12 @@ func stopGateway(gateway *exec.Cmd, address string) error {
 	}
 }
 
-// waitForAddress will monitor starting when we are able to start the process.
-func waitForAddress(address string, maxStartupWait time.Duration) error {
+// waitToStart will monitor starting when we are able to start the process.
+func waitToStart(client minioclient.Client, address string, maxStartupWait time.Duration) error {
 	start := time.Now()
 	for {
-		if tryConnect(address) {
+		_, err := client.ListBuckets()
+		if err == nil {
 			return nil
 		}
 
