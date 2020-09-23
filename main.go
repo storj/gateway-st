@@ -322,7 +322,7 @@ func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, ov
 		}
 		access, err = uplink.RequestAccessWithPassphrase(ctx, satellite, setupCfg.APIKey, setupCfg.Passphrase)
 	} else {
-		err = errs.New("non interactive setup requires '--access' flag or all '--satellite-address', '--api-key', '--pasphrase' flags")
+		err = errs.New("non interactive setup requires '--access' flag or all '--satellite-address', '--api-key', '--passphrase' flags")
 	}
 	if err != nil {
 		return err
