@@ -89,36 +89,58 @@ func TestGetBucketInfo(t *testing.T) {
 
 func TestDeleteBucket(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		// Check the error when deleting bucket with empty name
-		err := layer.DeleteBucket(ctx, "", false)
-		assert.Equal(t, minio.BucketNameInvalid{}, err)
+		{
+			// Check the error when deleting bucket with empty name
+			err := layer.DeleteBucket(ctx, "", false)
+			assert.Equal(t, minio.BucketNameInvalid{}, err)
 
-		// Check the error when deleting non-existing bucket
-		err = layer.DeleteBucket(ctx, TestBucket, false)
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+			// Check the error when deleting non-existing bucket
+			err = layer.DeleteBucket(ctx, TestBucket, false)
+			assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
-		// Create a bucket with a file using the Uplink API
-		bucket, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+			// Create a bucket with a file using the Uplink API
+			bucket, err := project.CreateBucket(ctx, TestBucket)
+			assert.NoError(t, err)
 
-		_, err = createFile(ctx, project, bucket.Name, TestFile, nil, nil)
-		assert.NoError(t, err)
+			_, err = createFile(ctx, project, bucket.Name, TestFile, nil, nil)
+			assert.NoError(t, err)
 
-		// Check the error when deleting non-empty bucket
-		err = layer.DeleteBucket(ctx, TestBucket, false)
-		assert.Equal(t, minio.BucketNotEmpty{Bucket: TestBucket}, err)
+			// Check the error when deleting non-empty bucket
+			err = layer.DeleteBucket(ctx, TestBucket, false)
+			assert.Equal(t, minio.BucketNotEmpty{Bucket: TestBucket}, err)
 
-		// Delete the file using the Uplink API, so the bucket becomes empty
-		_, err = project.DeleteObject(ctx, bucket.Name, TestFile)
-		assert.NoError(t, err)
+			// Delete the file using the Uplink API, so the bucket becomes empty
+			_, err = project.DeleteObject(ctx, bucket.Name, TestFile)
+			assert.NoError(t, err)
 
-		// Delete the bucket info using the Minio API
-		err = layer.DeleteBucket(ctx, TestBucket, false)
-		assert.NoError(t, err)
+			// Delete the bucket info using the Minio API
+			err = layer.DeleteBucket(ctx, TestBucket, false)
+			assert.NoError(t, err)
 
-		// Check that the bucket is deleted using the Uplink API
-		_, err = project.StatBucket(ctx, TestBucket)
-		assert.True(t, errors.Is(err, uplink.ErrBucketNotFound))
+			// Check that the bucket is deleted using the Uplink API
+			_, err = project.StatBucket(ctx, TestBucket)
+			assert.True(t, errors.Is(err, uplink.ErrBucketNotFound))
+		}
+		{
+			// Create a bucket with a file using the Uplink API
+			bucket, err := project.CreateBucket(ctx, TestBucket)
+			assert.NoError(t, err)
+
+			_, err = createFile(ctx, project, bucket.Name, TestFile, nil, nil)
+			assert.NoError(t, err)
+
+			// Check deleting bucket with force flag
+			err = layer.DeleteBucket(ctx, TestBucket, true)
+			assert.NoError(t, err)
+
+			// Check that the bucket is deleted using the Uplink API
+			_, err = project.StatBucket(ctx, TestBucket)
+			assert.True(t, errors.Is(err, uplink.ErrBucketNotFound))
+
+			// Check the error when deleting non-existing bucket
+			err = layer.DeleteBucket(ctx, TestBucket, true)
+			assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		}
 	})
 }
 

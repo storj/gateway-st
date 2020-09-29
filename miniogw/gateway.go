@@ -84,7 +84,8 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, 
 	defer mon.Task()(&ctx)(&err)
 
 	if forceDelete {
-		return errors.New("force delete is not supported")
+		_, err = layer.project.DeleteBucketWithObjects(ctx, bucketName)
+		return convertError(err, bucketName, "")
 	}
 
 	_, err = layer.project.DeleteBucket(ctx, bucketName)
