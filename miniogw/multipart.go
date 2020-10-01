@@ -127,7 +127,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 	return partInfo, nil
 }
 
-func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string) (err error) {
+func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	uploads := layer.multipart

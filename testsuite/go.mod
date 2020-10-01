@@ -15,3 +15,5 @@ require (
 	storj.io/storj v0.12.1-0.20200904110948-8649a0055710
 	storj.io/uplink v1.3.0
 )
+
+replace github.com/minio/minio => github.com/storj/minio v0.0.0-20200926023647-bebcf4f004ca

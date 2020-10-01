@@ -13,9 +13,10 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.15.0
-	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
-	golang.org/x/sys v0.0.0-20200808120158-1030fc2bf1d9 // indirect
+	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 	storj.io/common v0.0.0-20200903093850-858d8a4eccde
 	storj.io/private v0.0.0-20200818170340-c2963305092f
 	storj.io/uplink v1.3.0
 )
+
+replace github.com/minio/minio => github.com/storj/minio v0.0.0-20200926023647-bebcf4f004ca
