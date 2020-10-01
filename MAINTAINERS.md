@@ -42,11 +42,11 @@ Examples of Release Candidates:
   - Go to https://github.com/storj/gateway/releases.
   - Cick the `Edit` button on the release.
   - Upload all binaries as release artifacts.
-  - Add the following line to the description: 
+  - Add the following line to the description:
 ```
 Docker image for this release: `storjlabs/gateway:<build-tag>`
 ```
   - If this is an official release, deselect the `This is a pre-release` checkbox.
   - Click the `Update release` button.
-8. _Optional, but recommended_: Update the MinIO dependency to latest official release in master as a preparation for the next release. The idea is to do this early in the release cycle to have enough time for catching regressions.
-  
+8. _Optional, but recommended_: Update the MinIO dependency (i.e. [github.com/mino/minio](https://github.com/minio/minio)) to latest official release in master as a preparation for the next release. The idea is to do this early in the release cycle to have enough time for catching regressions.
+
