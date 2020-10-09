@@ -446,83 +446,86 @@ func TestGetObject(t *testing.T) {
 
 func TestCopyObject(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		// Check the error when copying an object from a bucket with empty name
 		_, err := layer.CopyObject(ctx, "", TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNameInvalid{}, err)
+		assert.EqualError(t, err, minio.NotImplemented{API: "CopyObject"}.Error())
 
-		// Check the error when copying an object from non-existing bucket
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		// 	// Check the error when copying an object from a bucket with empty name
+		// 	_, err := layer.CopyObject(ctx, "", TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// 	assert.Equal(t, minio.BucketNameInvalid{}, err)
 
-		// Create the source bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		// 	// Check the error when copying an object from non-existing bucket
+		// 	_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// 	assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
-		// Check the error when copying an object with empty name
-		_, err = layer.CopyObject(ctx, TestBucket, "", DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		// 	// Create the source bucket using the Uplink API
+		// 	testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		// 	assert.NoError(t, err)
 
-		// Create the source object using the Uplink API
-		metadata := map[string]string{
-			"content-type": "text/plain",
-			"key1":         "value1",
-			"key2":         "value2",
-		}
-		obj, err := createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
-		assert.NoError(t, err)
+		// 	// Check the error when copying an object with empty name
+		// 	_, err = layer.CopyObject(ctx, TestBucket, "", DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// 	assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
 
-		// Get the source object info using the Minio API
-		srcInfo, err := layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.NoError(t, err)
+		// 	// Create the source object using the Uplink API
+		// 	metadata := map[string]string{
+		// 		"content-type": "text/plain",
+		// 		"key1":         "value1",
+		// 		"key2":         "value2",
+		// 	}
+		// 	obj, err := createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
+		// 	assert.NoError(t, err)
 
-		// Check the error when copying an object to a bucket with empty name
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, "", DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNameInvalid{}, err)
+		// 	// Get the source object info using the Minio API
+		// 	srcInfo, err := layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		// 	assert.NoError(t, err)
 
-		// Check the error when copying an object to a non-existing bucket
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: DestBucket}, err)
+		// 	// Check the error when copying an object to a bucket with empty name
+		// 	_, err = layer.CopyObject(ctx, TestBucket, TestFile, "", DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// 	assert.Equal(t, minio.BucketNameInvalid{}, err)
 
-		// Create the destination bucket using the Uplink API
-		destBucketInfo, err := project.CreateBucket(ctx, DestBucket)
-		assert.NoError(t, err)
+		// 	// Check the error when copying an object to a non-existing bucket
+		// 	_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// 	assert.Equal(t, minio.BucketNotFound{Bucket: DestBucket}, err)
 
-		// Copy the object using the Minio API
-		info, err := layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
-		if assert.NoError(t, err) {
-			assert.Equal(t, DestFile, info.Name)
-			assert.Equal(t, DestBucket, info.Bucket)
-			assert.False(t, info.IsDir)
+		// 	// Create the destination bucket using the Uplink API
+		// 	destBucketInfo, err := project.CreateBucket(ctx, DestBucket)
+		// 	assert.NoError(t, err)
 
-			// TODO upload.Info() is using StreamID creation time but this value is different
-			// than last segment creation time, CommitObject request should return latest info
-			// about object and those values should be used with upload.Info()
-			// This should be working after final fix
-			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+		// 	// Copy the object using the Minio API
+		// 	info, err := layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// 	if assert.NoError(t, err) {
+		// 		assert.Equal(t, DestFile, info.Name)
+		// 		assert.Equal(t, DestBucket, info.Bucket)
+		// 		assert.False(t, info.IsDir)
 
-			assert.Equal(t, obj.System.ContentLength, info.Size)
-			assert.Equal(t, "text/plain", info.ContentType)
-			assert.EqualValues(t, obj.Custom, info.UserDefined)
-		}
+		// 		// TODO upload.Info() is using StreamID creation time but this value is different
+		// 		// than last segment creation time, CommitObject request should return latest info
+		// 		// about object and those values should be used with upload.Info()
+		// 		// This should be working after final fix
+		// 		// assert.Equal(t, info.ModTime, obj.Info.Created)
+		// 		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
 
-		// Check that the destination object is uploaded using the Uplink API
-		obj, err = project.StatObject(ctx, destBucketInfo.Name, DestFile)
-		if assert.NoError(t, err) {
-			assert.Equal(t, DestFile, obj.Key)
-			assert.False(t, obj.IsPrefix)
+		// 		assert.Equal(t, obj.System.ContentLength, info.Size)
+		// 		assert.Equal(t, "text/plain", info.ContentType)
+		// 		assert.EqualValues(t, obj.Custom, info.UserDefined)
+		// 	}
 
-			// TODO upload.Info() is using StreamID creation time but this value is different
-			// than last segment creation time, CommitObject request should return latest info
-			// about object and those values should be used with upload.Info()
-			// This should be working after final fix
-			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+		// 	// Check that the destination object is uploaded using the Uplink API
+		// 	obj, err = project.StatObject(ctx, destBucketInfo.Name, DestFile)
+		// 	if assert.NoError(t, err) {
+		// 		assert.Equal(t, DestFile, obj.Key)
+		// 		assert.False(t, obj.IsPrefix)
 
-			assert.Equal(t, info.Size, obj.System.ContentLength)
-			assert.Equal(t, info.ContentType, obj.Custom["content-type"])
-			assert.EqualValues(t, info.UserDefined, obj.Custom)
-		}
+		// 		// TODO upload.Info() is using StreamID creation time but this value is different
+		// 		// than last segment creation time, CommitObject request should return latest info
+		// 		// about object and those values should be used with upload.Info()
+		// 		// This should be working after final fix
+		// 		// assert.Equal(t, info.ModTime, obj.Info.Created)
+		// 		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+
+		// 		assert.Equal(t, info.Size, obj.System.ContentLength)
+		// 		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
+		// 		assert.EqualValues(t, info.UserDefined, obj.Custom)
+		// 	}
 	})
 }
 
