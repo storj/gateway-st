@@ -1,11 +1,11 @@
 def withDockerNetwork(Closure inner) {
-    try {
-        networkId = UUID.randomUUID().toString()
-        sh "docker network create ${networkId}"
-        inner.call(networkId)
-    } finally {
-        sh "docker network rm ${networkId}"
-    }
+	try {
+		networkId = UUID.randomUUID().toString()
+		sh "docker network create ${networkId}"
+		inner.call(networkId)
+	} finally {
+		sh "docker network rm ${networkId}"
+	}
 }
 
 timeout(time: 26, unit: 'MINUTES') {
@@ -88,16 +88,16 @@ timeout(time: 26, unit: 'MINUTES') {
 							}
 						}
 					}
-		    		parallel branchedStages
+					parallel branchedStages
 				}
-	    	}
-	    	catch(err) {
-	     		throw err
-	    	}
-	    	finally {
-	     		sh "chmod -R 777 ." // ensure Jenkins agent can delete the working directory
-	     		deleteDir()
-	    	}
+			}
+			catch(err) {
+				throw err
+			}
+			finally {
+				sh "chmod -R 777 ." // ensure Jenkins agent can delete the working directory
+				deleteDir()
+			}
 
 		}
 
@@ -121,6 +121,7 @@ timeout(time: 26, unit: 'MINUTES') {
 						mintImage.inside("--network ${n} --entrypoint='' -u root:root -e SERVER_ENDPOINT=${gwContainerName}:11000 -e MINT_MODE=full -e ACCESS_KEY=${ACCESS_KEY} -e SECRET_KEY=doesnotmatter -e ENABLE_HTTPS=0") {
 							sh "cp testsuite/miniogw/mint/mint.sh /mint/mint.sh"
 							sh "cd /mint && ./entrypoint.sh /mint/run/core/aws-sdk-go /mint/run/core/aws-sdk-java /mint/run/core/s3select /mint/run/core/security"
+							sh "cat /mint/log/log.json || echo 'No log file available'"
 							// failing tests:  /mint/run/core/healthcheck /mint/run/core/minio-py /mint/run/core/aws-sdk-ruby /mint/run/core/awscli /mint/run/core/aws-sdk-php /mint/run/core/minio-dotnet
 							// /mint/run/core/minio-go /mint/run/core/minio-java /mint/run/core/mc /mint/run/core/minio-js /mint/run/core/s3cmd
 						}
@@ -136,6 +137,6 @@ timeout(time: 26, unit: 'MINUTES') {
 				}
 			}
 		}
-    }
+	}
 }
 
