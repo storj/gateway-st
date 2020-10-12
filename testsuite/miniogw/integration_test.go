@@ -143,7 +143,6 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Cli
 	args := append([]string{"run",
 		"--config-dir", ctx.Dir("gateway"),
 		"--server.address", address,
-		"--client.user-agent", "Zenko",
 	}, moreFlags...)
 
 	gateway := exec.Command(exe, args...)

@@ -177,7 +177,6 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 	// Transform the gateway config flags to the uplink config object
 	config := uplink.Config{}
 	config.DialTimeout = flags.Client.DialTimeout
-	config.UserAgent = flags.Client.UserAgent
 	return config
 }
 
