@@ -5,11 +5,9 @@ package miniogw_test
 
 import (
 	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"os/exec"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,37 +95,40 @@ func TestUploadDownload(t *testing.T) {
 			part2MD5 := md5.Sum(data[partSize:])
 			parts := append([]byte{}, part1MD5[:]...)
 			parts = append(parts, part2MD5[:]...)
-			partsMD5 := md5.Sum(parts)
-			expectedETag := hex.EncodeToString(partsMD5[:]) + "-2"
+			// partsMD5 := md5.Sum(parts)
+			// expectedETag := hex.EncodeToString(partsMD5[:]) + "-2"
 
 			rawClient, ok := client.(*minioclient.Minio)
 			require.True(t, ok)
 
 			err = rawClient.UploadMultipart(bucket, objectName, data, partSize.Int(), 0)
-			require.NoError(t, err)
+			// Expect error as multipart upload is currently not implemented
+			require.Error(t, err)
 
-			doneCh := make(chan struct{})
-			defer close(doneCh)
+			// TODO: Restore the below test code when we implement multipart upload again.
+			//
+			// doneCh := make(chan struct{})
+			// defer close(doneCh)
 
-			// TODO find out why with prefix set its hanging test
-			for message := range rawClient.API.ListObjectsV2(bucket, "", true, doneCh) {
-				require.Equal(t, objectName, message.Key)
-				require.NotEmpty(t, message.ETag)
+			// // TODO find out why with prefix set its hanging test
+			// for message := range rawClient.API.ListObjectsV2(bucket, "", true, doneCh) {
+			// 	require.Equal(t, objectName, message.Key)
+			// 	require.NotEmpty(t, message.ETag)
 
-				// Minio adds a double quote to ETag, sometimes.
-				// Remove the potential quote from either end.
-				etag := strings.TrimPrefix(message.ETag, `"`)
-				etag = strings.TrimSuffix(etag, `"`)
+			// 	// Minio adds a double quote to ETag, sometimes.
+			// 	// Remove the potential quote from either end.
+			// 	etag := strings.TrimPrefix(message.ETag, `"`)
+			// 	etag = strings.TrimSuffix(etag, `"`)
 
-				require.Equal(t, expectedETag, etag)
-				break
-			}
+			// 	require.Equal(t, expectedETag, etag)
+			// 	break
+			// }
 
-			buffer := make([]byte, len(data))
-			bytes, err := client.Download(bucket, objectName, buffer)
-			require.NoError(t, err)
+			// buffer := make([]byte, len(data))
+			// bytes, err := client.Download(bucket, objectName, buffer)
+			// require.NoError(t, err)
 
-			require.Equal(t, data, bytes)
+			// require.Equal(t, data, bytes)
 		}
 		{ // TODO: we need to support user agent in Stargate
 			// uplink := planet.Uplinks[0]
