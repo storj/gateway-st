@@ -14,9 +14,9 @@ require (
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
-	storj.io/common v0.0.0-20200903093850-858d8a4eccde
-	storj.io/private v0.0.0-20200818170340-c2963305092f
-	storj.io/uplink v1.3.0
+	storj.io/common v0.0.0-20201006183456-4f16ac657da9
+	storj.io/private v0.0.0-20200925142346-4c879709882f
+	storj.io/uplink v1.3.1-0.20201008224638-1a9a5783048f
 )
 
 replace github.com/minio/minio => github.com/storj/minio v0.0.0-20201005142930-0b1e648a8dee

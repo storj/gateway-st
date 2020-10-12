@@ -31,9 +31,8 @@ import (
 
 // GatewayFlags configuration flags.
 type GatewayFlags struct {
-	// TODO: We need to temporarily keep these two to run integration tests successfully. They will be removed later
-	NonInteractive bool   `help:"ignore, required for integration tests only" default:"false" setup:"true"`
-	Access         string `help:"ignore, required for integration tests only" default:"" basic-help:"true"`
+	// TODO: We need to temporarily keep this to run integration tests successfully. It will be removed later.
+	Access string `help:"ignore, required for integration tests only" default:"" basic-help:"true"`
 
 	Server miniogw.ServerConfig
 	Minio  miniogw.MinioConfig
