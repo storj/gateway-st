@@ -1001,6 +1001,55 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 	})
 }
 
+func TestListObjectVersions(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := layer.ListObjectVersions(ctx, "bucket", "prefix", "marker", "versionMarker", "delimiter", 0)
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestSetBucketPolicy(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.SetBucketPolicy(ctx, "bucket", nil)
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestGetBucketPolicy(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := layer.GetBucketPolicy(ctx, "bucket")
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestDeleteBucketPolicy(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.DeleteBucketPolicy(ctx, "bucket")
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestPutObjectTags(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.PutObjectTags(ctx, "bucket", "object", "tags", minio.ObjectOptions{})
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestGetObjectTags(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := layer.GetObjectTags(ctx, "bucket", "object", minio.ObjectOptions{})
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestDeleteObjectTags(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.DeleteObjectTags(ctx, "bucket", "object", minio.ObjectOptions{})
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
 func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	runTestWithPathCipher(t, storj.EncNull, test)
 }
