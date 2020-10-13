@@ -1182,6 +1182,8 @@ storj.io/common v0.0.0-20200729140050-4c1ddac6fa63/go.mod h1:ILr54ISCqCQ6MmIwT7e
 storj.io/common v0.0.0-20201001161806-f737e062f9cd/go.mod h1:ILr54ISCqCQ6MmIwT7eaR/fEGrBfgfxiPt8nmpWqnUM=
 storj.io/common v0.0.0-20201006183456-4f16ac657da9 h1:FWn8dp+s+3xqpOjhp3bVZOKrd75Ht9vWD2E9QHXoOxE=
 storj.io/common v0.0.0-20201006183456-4f16ac657da9/go.mod h1:ILr54ISCqCQ6MmIwT7eaR/fEGrBfgfxiPt8nmpWqnUM=
+storj.io/common v0.0.0-20201013134311-f2cfd0712d88 h1:onSRb2K8rImD8Xe/2HFAM0A6FnZOb5YefPvcpu02iJM=
+storj.io/common v0.0.0-20201013134311-f2cfd0712d88/go.mod h1:ILr54ISCqCQ6MmIwT7eaR/fEGrBfgfxiPt8nmpWqnUM=
 storj.io/drpc v0.0.11/go.mod h1:TiFc2obNjL9/3isMW1Rpxjy8V9uE0B2HMeMFGiiI7Iw=
 storj.io/drpc v0.0.14 h1:GCBdymTt1BRw4oHmmUZZlxYXLVRxxYj6x3Ivide2J+I=
 storj.io/drpc v0.0.14/go.mod h1:82nfl+6YwRwF6UG31cEWWUqv/FaKvP5SGqUvoqTxCMA=
@@ -1189,7 +1191,11 @@ storj.io/monkit-jaeger v0.0.0-20200518165323-80778fc3f91b h1:Bbg9JCtY6l3HrDxs3BX
 storj.io/monkit-jaeger v0.0.0-20200518165323-80778fc3f91b/go.mod h1:gj4vuCeyCRjRmH8LIrgoyU9Dc9uR6H+/GcDUXmTbf80=
 storj.io/private v0.0.0-20200925142346-4c879709882f h1:0csZNWzYRhgBFp58rbBgqSp/62jtK2n0DIZ3Z/41Wso=
 storj.io/private v0.0.0-20200925142346-4c879709882f/go.mod h1:3BB0H9SmnJDfgk55uZli6DLHmhLiOdKiDY58ZI2e+pk=
-storj.io/storj v0.12.1-0.20201010194050-4cbd4d52a9e5 h1:c9PH0oyutKvVUNPw2rfTmbq2bMziYxi9gTG2G2q9w8I=
-storj.io/storj v0.12.1-0.20201010194050-4cbd4d52a9e5/go.mod h1:bW6Adpwhs/tXA7dvPQQnPOCbknwPYAfDIJcVBb+mi6g=
+storj.io/private v0.0.0-20201013115607-898c54912fab h1:0Y5BDWcEUiTTeo1iHt/b5DVI1kq+kJBwy8QoQI0okC8=
+storj.io/private v0.0.0-20201013115607-898c54912fab/go.mod h1:3BB0H9SmnJDfgk55uZli6DLHmhLiOdKiDY58ZI2e+pk=
+storj.io/storj v0.12.1-0.20201013144504-830817ec0dde h1:Ikyt0WJ//pw8QnsAr3fk5u/xYMmVxaGMDiGkprH1X7E=
+storj.io/storj v0.12.1-0.20201013144504-830817ec0dde/go.mod h1:bW6Adpwhs/tXA7dvPQQnPOCbknwPYAfDIJcVBb+mi6g=
 storj.io/uplink v1.3.1-0.20201008224638-1a9a5783048f h1:Xqz6pjPQeL+r3NKrzyx6PmvIvQmuedNe4hBs3CCDY5o=
 storj.io/uplink v1.3.1-0.20201008224638-1a9a5783048f/go.mod h1:T3a4E2JNuX7oSR5pBmLMXUE4xTUT+iHdUkC9KLqiyxg=
+storj.io/uplink v1.3.1-0.20201013121851-01f6e9429b0e h1:VTmdZ5Gt9qEaqk5cNr759NvoSZqovWdn3/hmiqMumeE=
+storj.io/uplink v1.3.1-0.20201013121851-01f6e9429b0e/go.mod h1:/1h+wzy/7hX+RWJFzdsv2MUlX/GUrTPg/K+lJr+QwxU=
