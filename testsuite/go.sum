@@ -1197,5 +1197,5 @@ storj.io/storj v0.12.1-0.20201013144504-830817ec0dde h1:Ikyt0WJ//pw8QnsAr3fk5u/x
 storj.io/storj v0.12.1-0.20201013144504-830817ec0dde/go.mod h1:bW6Adpwhs/tXA7dvPQQnPOCbknwPYAfDIJcVBb+mi6g=
 storj.io/uplink v1.3.1-0.20201008224638-1a9a5783048f h1:Xqz6pjPQeL+r3NKrzyx6PmvIvQmuedNe4hBs3CCDY5o=
 storj.io/uplink v1.3.1-0.20201008224638-1a9a5783048f/go.mod h1:T3a4E2JNuX7oSR5pBmLMXUE4xTUT+iHdUkC9KLqiyxg=
-storj.io/uplink v1.3.1-0.20201013121851-01f6e9429b0e h1:VTmdZ5Gt9qEaqk5cNr759NvoSZqovWdn3/hmiqMumeE=
-storj.io/uplink v1.3.1-0.20201013121851-01f6e9429b0e/go.mod h1:/1h+wzy/7hX+RWJFzdsv2MUlX/GUrTPg/K+lJr+QwxU=
+storj.io/uplink v1.3.1 h1:TN89B7WrPWbY2QqIkqZFOv1VR5iO6in/KtfBA2kGlsY=
+storj.io/uplink v1.3.1/go.mod h1:/1h+wzy/7hX+RWJFzdsv2MUlX/GUrTPg/K+lJr+QwxU=

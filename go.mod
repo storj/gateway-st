@@ -16,7 +16,7 @@ require (
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 	storj.io/common v0.0.0-20201013134311-f2cfd0712d88
 	storj.io/private v0.0.0-20201013115607-898c54912fab
-	storj.io/uplink v1.3.1-0.20201013121851-01f6e9429b0e
+	storj.io/uplink v1.3.1
 )
 
 replace github.com/minio/minio => github.com/storj/minio v0.0.0-20201005142930-0b1e648a8dee

@@ -13,7 +13,7 @@ require (
 	storj.io/common v0.0.0-20201013134311-f2cfd0712d88
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/storj v0.12.1-0.20201013144504-830817ec0dde
-	storj.io/uplink v1.3.1-0.20201013121851-01f6e9429b0e
+	storj.io/uplink v1.3.1
 )
 
 replace github.com/minio/minio => github.com/storj/minio v0.0.0-20201005142930-0b1e648a8dee
