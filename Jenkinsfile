@@ -117,7 +117,7 @@ timeout(time: 26, unit: 'MINUTES') {
 							script: "docker exec ${gwContainerName} storj-sim network env GATEWAY_0_ACCESS",
 							returnStdout: true
 						).trim()
-						def mintImage = docker.build("minio-mint", "--pull https://github.com/storj/minio.git -f Dockerfile.mint")
+						def mintImage = docker.build("minio-mint", "--pull https://github.com/storj/minio.git#storj -f Dockerfile.mint")
 						mintImage.inside("--network ${n} --entrypoint='' -u root:root -e SERVER_ENDPOINT=${gwContainerName}:11000 -e MINT_MODE=full -e ACCESS_KEY=${ACCESS_KEY} -e SECRET_KEY=doesnotmatter -e ENABLE_HTTPS=0") {
 							try {
 								sh "cp testsuite/miniogw/mint/mint.sh /mint/mint.sh"
