@@ -25,7 +25,7 @@ Examples of Release Candidates:
 - `v2.1.0-rc.1`
 
 ## Step-by-step release process
-1. Announce your intention to make a new release to the #libuplink Slack channel.
+1. Announce your intention to make a new release to the #stargate Slack channel.
 2. Wait for a confirmation by at least one maintainer of this project (storj/gateway) before proceeding with the next step.
 3. Create a new release from the Github web interface:
   - Go to https://github.com/storj/gateway/releases.
@@ -48,5 +48,9 @@ Docker image for this release: `storjlabs/gateway:<build-tag>`
 ```
   - If this is an official release, deselect the `This is a pre-release` checkbox.
   - Click the `Update release` button.
-8. _Optional, but recommended_: Update the MinIO dependency (i.e. [github.com/mino/minio](https://github.com/minio/minio)) to latest official release in master as a preparation for the next release. The idea is to do this early in the release cycle to have enough time for catching regressions.
+8. _Optional, but recommended_: Update the MinIO dependency to latest official release in master as a preparation for the next release. The idea is to do this early in the release cycle to have enough time for catching regressions.
+  - Merge the latest release tag of [github.com/minio/minio](https://github.com/minio/minio) to the `storj` branch of our fork: [github.com/storj/minio](https://github.com/storj/minio)
+  - Update the dependency in `go.mod` to the new head of the `storj` branch, i.e. `replace github.com/minio/minio => github.com/storj/minio storj`
+  - Run `go mod tidy`.
+  - Repeat for `testsuite/go.mod`.
 
