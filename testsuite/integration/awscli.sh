@@ -36,7 +36,7 @@ random_bytes_file 1  1024      "$SRC_DIR/small-upload-testfile"     # create 1kb
 random_bytes_file 9  1024x1024 "$SRC_DIR/big-upload-testfile"       # create 9mb file of random bytes (remote)
 # this is special case where we need to test at least one remote segment and inline segment of exact size 0
 # value is invalid until we will be able to configure segment size once again
-random_bytes_file 64 1024x1024 "$SRC_DIR/multipart-upload-testfile"
+# random_bytes_file 64 1024x1024 "$SRC_DIR/multipart-upload-testfile"
 
 echo "Creating Bucket"
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" mb s3://bucket
@@ -49,20 +49,21 @@ aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/big-upload
 # Wait 5 seconds to trigger any error related to one of the different intervals
 sleep 5
 
-echo "Uploading Multipart File"
-aws configure set default.s3.multipart_threshold 4KB
-aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/multipart-upload-testfile" s3://bucket/multipart-testfile
+# TODO: activate when we implement multipart upload again
+# echo "Uploading Multipart File"
+# aws configure set default.s3.multipart_threshold 4KB
+# aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/multipart-upload-testfile" s3://bucket/multipart-testfile
 
 echo "Downloading Files"
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" ls s3://bucket
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp s3://bucket/small-testfile     "$DST_DIR/small-download-testfile"
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp s3://bucket/big-testfile       "$DST_DIR/big-download-testfile"
-aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp s3://bucket/multipart-testfile "$DST_DIR/multipart-download-testfile"
+# aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp s3://bucket/multipart-testfile "$DST_DIR/multipart-download-testfile"
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" rb s3://bucket --force
 
 require_equal_files_content "$SRC_DIR/small-upload-testfile"     "$DST_DIR/small-download-testfile"
 require_equal_files_content "$SRC_DIR/big-upload-testfile"       "$DST_DIR/big-download-testfile"
-require_equal_files_content "$SRC_DIR/multipart-upload-testfile" "$DST_DIR/multipart-download-testfile"
+# require_equal_files_content "$SRC_DIR/multipart-upload-testfile" "$DST_DIR/multipart-download-testfile"
 
 echo "Creating Bucket for sync test"
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" mb s3://bucket-sync
@@ -80,6 +81,7 @@ echo "Deleting Files"
 
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" mb s3://bucket
 
+# TODO: check for "Key": "data/multipart-download-testfile" when mutlipart upload is back
 cat > "$TMPDIR/all-exist.json" << EOF
 {
     "Objects": [
@@ -88,14 +90,12 @@ cat > "$TMPDIR/all-exist.json" << EOF
         },
         {
             "Key": "data/big-download-testfile"
-        },
-        {
-            "Key": "data/multipart-download-testfile"
         }
     ]
 }
 EOF
 
+# TODO: check for "Key": "data/multipart-download-testfile" when mutlipart upload is back
 cat > "$TMPDIR/some-exist.json" << EOF
 {
     "Objects": [
@@ -104,9 +104,6 @@ cat > "$TMPDIR/some-exist.json" << EOF
         },
         {
             "Key": "data/big-download-testfile"
-        },
-        {
-            "Key": "data/multipart-download-testfile"
         }
     ]
 }

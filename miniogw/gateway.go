@@ -51,9 +51,8 @@ func (gateway *Gateway) Name() string {
 // NewGatewayLayer implements cmd.Gateway.
 func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
 	return &gatewayLayer{
-		gateway:   gateway,
-		projects:  make(map[string]*uplink.Project),
-		multipart: NewMultipartUploads(),
+		gateway:  gateway,
+		projects: make(map[string]*uplink.Project),
 	}, nil
 }
 
@@ -64,9 +63,8 @@ func (gateway *Gateway) Production() bool {
 
 type gatewayLayer struct {
 	minio.GatewayUnsupported
-	gateway   *Gateway
-	projects  map[string]*uplink.Project // TODO: we need a better way to cache open projects
-	multipart *MultipartUploads
+	gateway  *Gateway
+	projects map[string]*uplink.Project // TODO: we need a better way to cache open projects
 }
 
 func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, forceDelete bool) (err error) {
