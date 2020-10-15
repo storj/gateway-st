@@ -23,6 +23,32 @@ retrieve those files!
 
 * [Using the S3 Gateway](https://documentation.tardigrade.io/api-reference/s3-gateway)
 
+
+# S3 API Compatibility
+The following S3 methods are supported:
+- HeadBucket
+- CreateBucket
+- DeleteBucket
+- ListBuckets
+- HeadObject
+- PutObject
+- GetObject
+- DeleteObject
+- DeleteObjects
+- ListObjects
+- ListObjectsV2
+
+We use the minio mint testsuite to ensure our compatibility to the S3 API. As some S3 methods are not supported yet, we use a custom build that you can run it against any endpoint using docker.
+To build our custom image and tag it as storj/mint:
+```
+docker build --pull https://github.com/storj/minio.git#storj -f Dockerfile.mint -t storj/mint
+```
+To run the tests against the endpoint `endpoint_address` (using the `HOST:PORT` format), use:
+```
+docker run -e SERVER_ENDPOINT=endpoint_address -e ACCESS_KEY=myaccesskey -e SECRET_KEY=mysecretkey -e ENABLE_HTTPS=0 storj/mint
+```
+The `ENABLE_HTTPS` flag indicates if https should be used (`ENABLE_HTTPS=1`)
+
 # License
 
 This library is distributed under the
