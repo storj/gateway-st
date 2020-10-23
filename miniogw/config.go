@@ -5,7 +5,9 @@ package miniogw
 
 // MinioConfig is a configuration struct that keeps details about starting Minio.
 type MinioConfig struct {
-	Dir string `help:"Minio generic server config path" default:"$CONFDIR/minio"`
+	AccessKey string `help:"Minio Access Key to use" default:"insecure-dev-access-key" basic-help:"true"`
+	SecretKey string `help:"Minio Secret Key to use" default:"insecure-dev-secret-key" basic-help:"true"`
+	Dir       string `help:"Minio generic server config path" default:"$CONFDIR/minio"`
 }
 
 // ServerConfig determines how minio listens for requests.

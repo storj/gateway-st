@@ -5,13 +5,18 @@ package miniogw_test
 
 import (
 	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcutil/base58"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
@@ -41,20 +46,23 @@ func TestUploadDownload(t *testing.T) {
 		// may conflict with some automatically bound address.
 		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
 
+		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
+		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
+
 		gatewayExe := ctx.Compile("storj.io/gateway")
 
 		client, err := minioclient.NewMinio(minioclient.Config{
 			S3Gateway:     gatewayAddr,
 			Satellite:     planet.Satellites[0].Addr(),
-			AccessKey:     access,
-			SecretKey:     "anything-would-work",
+			AccessKey:     gatewayAccessKey,
+			SecretKey:     gatewaySecretKey,
 			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
 			EncryptionKey: "fake-encryption-key",
 			NoSSL:         true,
 		})
 		require.NoError(t, err)
 
-		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr)
+		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
 		require.NoError(t, err)
 		defer func() { processgroup.Kill(gateway) }()
 
@@ -77,6 +85,38 @@ func TestUploadDownload(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
+
+			{ // try to access the content as static website - expect forbidden error
+				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusForbidden, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+
+				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusForbidden, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+			}
+
+			{ // restart the gateway with the --website flag and try again - expect success
+				err = stopGateway(gateway, gatewayAddr)
+				require.NoError(t, err)
+				gateway, err = startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
+				require.NoError(t, err)
+
+				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+
+				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, response.StatusCode)
+				readData, err := ioutil.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.Equal(t, data, readData)
+				require.NoError(t, response.Body.Close())
+			}
 		}
 
 		{ // multipart upload
@@ -95,55 +135,56 @@ func TestUploadDownload(t *testing.T) {
 			part2MD5 := md5.Sum(data[partSize:])
 			parts := append([]byte{}, part1MD5[:]...)
 			parts = append(parts, part2MD5[:]...)
-			// partsMD5 := md5.Sum(parts)
-			// expectedETag := hex.EncodeToString(partsMD5[:]) + "-2"
+			partsMD5 := md5.Sum(parts)
+			expectedETag := hex.EncodeToString(partsMD5[:]) + "-2"
 
 			rawClient, ok := client.(*minioclient.Minio)
 			require.True(t, ok)
 
 			err = rawClient.UploadMultipart(bucket, objectName, data, partSize.Int(), 0)
-			// Expect error as multipart upload is currently not implemented
-			require.Error(t, err)
+			require.NoError(t, err)
 
-			// TODO: Restore the below test code when we implement multipart upload again.
-			//
-			// doneCh := make(chan struct{})
-			// defer close(doneCh)
+			doneCh := make(chan struct{})
+			defer close(doneCh)
 
-			// // TODO find out why with prefix set its hanging test
-			// for message := range rawClient.API.ListObjectsV2(bucket, "", true, doneCh) {
-			// 	require.Equal(t, objectName, message.Key)
-			// 	require.NotEmpty(t, message.ETag)
+			// TODO find out why with prefix set its hanging test
+			for message := range rawClient.API.ListObjectsV2(bucket, "", true, doneCh) {
+				require.Equal(t, objectName, message.Key)
+				require.NotEmpty(t, message.ETag)
 
-			// 	// Minio adds a double quote to ETag, sometimes.
-			// 	// Remove the potential quote from either end.
-			// 	etag := strings.TrimPrefix(message.ETag, `"`)
-			// 	etag = strings.TrimSuffix(etag, `"`)
+				// Minio adds a double quote to ETag, sometimes.
+				// Remove the potential quote from either end.
+				etag := strings.TrimPrefix(message.ETag, `"`)
+				etag = strings.TrimSuffix(etag, `"`)
 
-			// 	require.Equal(t, expectedETag, etag)
-			// 	break
-			// }
+				require.Equal(t, expectedETag, etag)
+				break
+			}
 
-			// buffer := make([]byte, len(data))
-			// bytes, err := client.Download(bucket, objectName, buffer)
-			// require.NoError(t, err)
+			buffer := make([]byte, len(data))
+			bytes, err := client.Download(bucket, objectName, buffer)
+			require.NoError(t, err)
 
-			// require.Equal(t, data, bytes)
+			require.Equal(t, data, bytes)
 		}
-		{ // TODO: we need to support user agent in Stargate
-			// uplink := planet.Uplinks[0]
-			// satellite := planet.Satellites[0]
-			// info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
-			// require.NoError(t, err)
-			// require.False(t, info.PartnerID.IsZero())
+		{
+			uplink := planet.Uplinks[0]
+			satellite := planet.Satellites[0]
+			info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
+			require.NoError(t, err)
+			require.False(t, info.PartnerID.IsZero())
 		}
 	})
 }
 
-func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address string, moreFlags ...string) (*exec.Cmd, error) {
+func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
 	args := append([]string{"run",
 		"--config-dir", ctx.Dir("gateway"),
+		"--access", access,
 		"--server.address", address,
+		"--minio.access-key", accessKey,
+		"--minio.secret-key", secretKey,
+		"--client.user-agent", "Zenko",
 	}, moreFlags...)
 
 	gateway := exec.Command(exe, args...)

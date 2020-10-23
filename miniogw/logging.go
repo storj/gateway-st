@@ -93,7 +93,8 @@ func (log *layerLogging) DeleteBucket(ctx context.Context, bucket string, forceD
 }
 
 func (log *layerLogging) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
-	result, err = log.layer.ListObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
+	result, err = log.layer.ListObjects(ctx, bucket, prefix, marker, delimiter,
+		maxKeys)
 	return result, log.log(err)
 }
 
@@ -169,8 +170,8 @@ func (log *layerLogging) ListObjectParts(ctx context.Context, bucket, object, up
 	return result, log.log(err)
 }
 
-func (log *layerLogging) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts minio.ObjectOptions) error {
-	return log.log(log.layer.AbortMultipartUpload(ctx, bucket, object, uploadID, opts))
+func (log *layerLogging) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string) error {
+	return log.log(log.layer.AbortMultipartUpload(ctx, bucket, object, uploadID))
 }
 
 func (log *layerLogging) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
