@@ -6,7 +6,7 @@ replace storj.io/gateway => ../
 
 require (
 	github.com/btcsuite/btcutil v1.0.2
-	github.com/minio/minio v0.0.0-20200808024306-2a9819aff876
+	github.com/minio/minio v0.0.0-20201003015701-806625cbffcf
 	github.com/stretchr/testify v1.5.1
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.15.0
