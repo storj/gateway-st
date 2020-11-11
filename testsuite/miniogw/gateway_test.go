@@ -960,7 +960,7 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 func TestCompleteMultipartUpload(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		object, err := layer.CompleteMultipartUpload(ctx, "bucket", "object", "invalid-upload", nil, minio.ObjectOptions{})
-		require.NoError(t, err)
+		require.Error(t, err)
 		require.Equal(t, minio.ObjectInfo{}, object)
 	})
 }

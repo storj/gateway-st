@@ -62,9 +62,8 @@ func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLay
 	}
 
 	return &gatewayLayer{
-		gateway:   gateway,
-		project:   project,
-		multipart: NewMultipartUploads(),
+		gateway: gateway,
+		project: project,
 	}, nil
 }
 
@@ -75,9 +74,8 @@ func (gateway *Gateway) Production() bool {
 
 type gatewayLayer struct {
 	minio.GatewayUnsupported
-	gateway   *Gateway
-	project   *uplink.Project
-	multipart *MultipartUploads
+	gateway *Gateway
+	project *uplink.Project
 }
 
 func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, forceDelete bool) (err error) {
