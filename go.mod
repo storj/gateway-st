@@ -11,6 +11,7 @@ require (
 	github.com/spacemonkeygo/monkit/v3 v3.0.7-0.20200515175308-072401d8c752
 	github.com/spf13/cobra v0.0.6
 	github.com/spf13/pflag v1.0.5
+	github.com/zeebo/admission/v3 v3.0.2 // indirect
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
