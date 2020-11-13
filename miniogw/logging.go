@@ -62,8 +62,8 @@ func (log *layerLogging) log(err error) error {
 	return err
 }
 
-func (log *layerLogging) NewNSLock(ctx context.Context, bucket string, objects ...string) minio.RWLocker {
-	return log.layer.NewNSLock(ctx, bucket, objects...)
+func (log *layerLogging) NewNSLock(bucket string, objects ...string) minio.RWLocker {
+	return log.layer.NewNSLock(bucket, objects...)
 }
 
 func (log *layerLogging) Shutdown(ctx context.Context) error {
@@ -177,10 +177,6 @@ func (log *layerLogging) AbortMultipartUpload(ctx context.Context, bucket, objec
 func (log *layerLogging) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	objInfo, err = log.layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, uploadedParts, opts)
 	return objInfo, log.log(err)
-}
-
-func (log *layerLogging) ReloadFormat(ctx context.Context, dryRun bool) error {
-	return log.log(log.layer.ReloadFormat(ctx, dryRun))
 }
 
 func (log *layerLogging) HealFormat(ctx context.Context, dryRun bool) (madmin.HealResultItem, error) {
