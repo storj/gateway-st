@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
@@ -18,6 +20,7 @@ import (
 	"github.com/minio/minio/pkg/hash"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
+	"go.uber.org/zap"
 
 	"storj.io/common/storj"
 	"storj.io/private/version"
@@ -32,19 +35,50 @@ var (
 )
 
 // NewStorjGateway creates a new Storj S3 gateway.
-func NewStorjGateway(access *uplink.Access, config uplink.Config, website bool) *Gateway {
+func NewStorjGateway(log *zap.Logger, access *uplink.Access, config uplink.Config, website bool) *Gateway {
 	return &Gateway{
+		log:     log,
 		access:  access,
 		config:  config,
 		website: website,
+		uploadTracker: uploadTracker{
+			active: map[string]time.Time{},
+		},
 	}
 }
 
 // Gateway is the implementation of a minio cmd.Gateway.
 type Gateway struct {
+	log     *zap.Logger
 	access  *uplink.Access
 	config  uplink.Config
 	website bool
+
+	uploadTracker uploadTracker
+}
+
+type uploadTracker struct {
+	mu     sync.Mutex
+	active map[string]time.Time
+}
+
+func (t *uploadTracker) tryAdd(name string) (existing time.Time, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if existing, ok := t.active[name]; ok {
+		return existing, false
+	}
+	now := time.Now()
+	t.active[name] = now
+
+	return now, true
+}
+
+func (t *uploadTracker) remove(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.active, name)
 }
 
 // Name implements cmd.Gateway.
@@ -605,6 +639,22 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	id := bucketName + "/" + objectPath
+	if t, ok := layer.gateway.uploadTracker.tryAdd(id); ok {
+		defer layer.gateway.uploadTracker.remove(id)
+	} else {
+		layer.gateway.log.Error("concurrent upload",
+			zap.String("bucket", bucketName),
+			zap.String("objectKey", objectPath),
+			zap.Time("started at", t))
+		return minio.ObjectInfo{}, minio.ObjectAlreadyExists{
+			Bucket:    bucketName,
+			Object:    objectPath,
+			VersionID: "",
+			Err:       errors.New("concurrent upload"),
+		}
+	}
 
 	// TODO this should be removed and implemented on satellite side
 	_, err = layer.project.StatBucket(ctx, bucketName)
