@@ -238,7 +238,10 @@ func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err
 
 	config := flags.newUplinkConfig(ctx)
 
-	return miniogw.NewStorjGateway(access, config, flags.Website), nil
+	return miniogw.NewStorjGateway(access, miniogw.Config{
+		Uplink:  config,
+		Website: flags.Website,
+	}), nil
 }
 
 func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {

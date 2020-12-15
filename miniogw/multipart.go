@@ -22,6 +22,7 @@ import (
 
 	"storj.io/common/context2"
 	"storj.io/uplink"
+	"storj.io/uplink/private/storage/streams"
 )
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
@@ -38,6 +39,21 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	if err != nil {
 		return "", err
 	}
+
+	// Scenario: if a client starts uploading an object and then dies, when
+	// is it safe to restart uploading?
+	// * with libuplink natively, it's immediately safe. the client died, so
+	//   it stopped however far it got, and it can start over.
+	// * with the gateway, unless we do the following line it is impossible
+	//   to know when it's safe to start uploading again. it might be up to
+	//   30 minutes later that it's safe! the reason is if the client goes
+	//   away, the gateway keeps running, and may down the road decide the
+	//   request was canceled, and so the object should get deleted.
+	// So, to make clients of the gateway's behavior match libuplink, we are
+	// disabling the cleanup on cancel that libuplink tries to do. we may
+	// want to consider disabling this for libuplink entirely.
+	// The following line currently only impacts UploadObject calls.
+	ctx = streams.DisableDeleteOnCancel(ctx)
 
 	// TODO: this can now be done without this separate goroutine
 	stream, err := layer.project.UploadObject(ctx, bucket, object, nil)
