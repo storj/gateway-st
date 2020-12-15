@@ -43,7 +43,8 @@ type GatewayFlags struct {
 
 	Config
 
-	Website bool `help:"serve content as a static website" default:"false" basic-help:"true"`
+	Website        bool `help:"serve content as a static website" default:"false" basic-help:"true"`
+	DeleteOnCancel bool `help:"if false, don't clean up garbage when canceling an upload. encouraged to stay true" default:"true" basic-help:"false"`
 }
 
 var (
@@ -238,7 +239,11 @@ func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err
 
 	config := flags.newUplinkConfig(ctx)
 
-	return miniogw.NewStorjGateway(access, config, flags.Website), nil
+	return miniogw.NewStorjGateway(access, miniogw.Config{
+		Uplink:         config,
+		Website:        flags.Website,
+		DeleteOnCancel: flags.DeleteOnCancel,
+	}), nil
 }
 
 func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {

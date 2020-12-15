@@ -22,6 +22,7 @@ import (
 
 	"storj.io/common/context2"
 	"storj.io/uplink"
+	"storj.io/uplink/private/storage/streams"
 )
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
@@ -37,6 +38,10 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	upload, err := uploads.Create(bucket, object, opts.UserDefined)
 	if err != nil {
 		return "", err
+	}
+
+	if !layer.gateway.config.DeleteOnCancel {
+		ctx = streams.DisableDeleteOnCancel(ctx)
 	}
 
 	// TODO: this can now be done without this separate goroutine

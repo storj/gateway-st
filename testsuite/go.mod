@@ -14,5 +14,5 @@ require (
 	storj.io/common v0.0.0-20201207172416-78f4e59925c3
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/storj v0.12.1-0.20201209183422-e322eac05497
-	storj.io/uplink v1.4.2
+	storj.io/uplink v1.4.3-0.20201215205209-2ec67f6993d0
 )

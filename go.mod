@@ -15,5 +15,5 @@ require (
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 	storj.io/common v0.0.0-20201207172416-78f4e59925c3
 	storj.io/private v0.0.0-20201126162939-6fbb1e924f51
-	storj.io/uplink v1.4.2
+	storj.io/uplink v1.4.3-0.20201215205209-2ec67f6993d0
 )
