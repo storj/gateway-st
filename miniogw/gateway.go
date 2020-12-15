@@ -63,6 +63,7 @@ func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLay
 
 	return &gatewayLayer{
 		gateway:   gateway,
+		active:    newActiveUploads(),
 		project:   project,
 		multipart: NewMultipartUploads(),
 	}, nil
@@ -76,6 +77,7 @@ func (gateway *Gateway) Production() bool {
 type gatewayLayer struct {
 	minio.GatewayUnsupported
 	gateway   *Gateway
+	active    *activeUploads
 	project   *uplink.Project
 	multipart *MultipartUploads
 }
@@ -611,6 +613,16 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
+
+	if ok := layer.active.tryAdd(bucketName, objectPath); !ok {
+		return minio.ObjectInfo{}, minio.ObjectAlreadyExists{
+			Bucket:    bucketName,
+			Object:    objectPath,
+			VersionID: "",
+			Err:       errors.New("concurrent upload"),
+		}
+	}
+	defer layer.active.remove(bucketName, objectPath)
 
 	if data == nil {
 		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0, true)
