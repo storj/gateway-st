@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/md5" /* #nosec G501 */ // Is only used for calculating a hash of the ETags of the all the parts of a multipart upload.
 	"encoding/hex"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -20,7 +21,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 
 	info, err := layer.project.NewMultipartUpload(ctx, bucket, object, nil)
 	if err != nil {
-		return "", convertError(err, bucket, object)
+		return "", convertMultipartError(err, bucket, object, "")
 	}
 	return info.StreamID, nil
 }
@@ -38,7 +39,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 
 	partInfo, err := layer.project.PutObjectPart(ctx, bucket, object, uploadID, partID, data)
 	if err != nil {
-		return minio.PartInfo{}, convertError(err, bucket, object)
+		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	// TODO: Store the part's ETag in metabase
@@ -54,7 +55,7 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 	defer mon.Task()(&ctx)(&err)
 	err = layer.project.AbortMultipartUpload(ctx, bucket, object, uploadID)
 	if err != nil {
-		return convertError(err, bucket, object)
+		return convertMultipartError(err, bucket, object, uploadID)
 	}
 	return nil
 }
@@ -66,7 +67,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 
 	etag, err := multipartUploadETag(uploadedParts)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, object)
+		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
@@ -76,7 +77,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		CustomMetadata: metadata,
 	})
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, object)
+		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	return minioObjectInfo(bucket, etag, obj), nil
@@ -87,7 +88,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 
 	list, err := layer.project.ListObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts)
 	if err != nil {
-		return minio.ListPartsInfo{}, convertError(err, bucket, object)
+		return minio.ListPartsInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	parts := make([]minio.PartInfo, 0, len(list.Items))
@@ -130,7 +131,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	// TODO this should be removed and implemented on satellite side
 	_, err = layer.project.StatBucket(ctx, bucket)
 	if err != nil {
-		return minio.ListMultipartsInfo{}, convertError(err, bucket, "")
+		return minio.ListMultipartsInfo{}, convertMultipartError(err, bucket, "", "")
 	}
 
 	recursive := delimiter == ""
@@ -186,12 +187,12 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 
 	}
 	if list.Err() != nil {
-		return result, convertError(list.Err(), bucket, "")
+		return result, convertMultipartError(list.Err(), bucket, "", "")
 	}
 
 	more := list.Next()
 	if list.Err() != nil {
-		return result, convertError(list.Err(), bucket, "")
+		return result, convertMultipartError(list.Err(), bucket, "", "")
 	}
 
 	result = minio.ListMultipartsInfo{
@@ -226,7 +227,7 @@ func (layer *gatewayLayer) listSingleUpload(ctx context.Context, bucketName, key
 			prefixes = append(prefixes, key+"/")
 		}
 		if err := list.Err(); err != nil {
-			return minio.ListMultipartsInfo{}, convertError(err, bucketName, key)
+			return minio.ListMultipartsInfo{}, convertMultipartError(err, bucketName, key, "")
 		}
 	}
 
@@ -235,7 +236,7 @@ func (layer *gatewayLayer) listSingleUpload(ctx context.Context, bucketName, key
 	// upload, err := layer.project.StatObject(ctx, bucketName, key)
 	// if err != nil {
 	// 	if !errors.Is(err, uplink.ErrObjectNotFound) {
-	// 		return minio.ListMultipartsInfo{}, convertError(err, bucketName, key)
+	// 		return minio.ListMultipartsInfo{}, convertMultipartError(err, bucketName, key, "")
 	// 	}
 	// } else {
 	// 	uploads = append(uploads, minioObjectInfo(bucketName, "", upload))
@@ -285,4 +286,12 @@ func canonicalEtag(etag string) string {
 		return etag[:p]
 	}
 	return etag
+}
+
+func convertMultipartError(err error, bucket, object, uploadID string) error {
+	if errors.Is(err, uplink.ErrStreamIDInvalid) {
+		return minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
+	}
+
+	return convertError(err, bucket, object)
 }
