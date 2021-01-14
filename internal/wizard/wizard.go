@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/zeebo/errs"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 
 	"storj.io/common/storj"
 )
@@ -145,7 +145,7 @@ func PromptForEncryptionPassphrase() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	encKey, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+	encKey, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", err
 	}
@@ -162,7 +162,7 @@ func PromptForEncryptionPassphrase() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	repeatedEncKey, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+	repeatedEncKey, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", err
 	}
