@@ -986,7 +986,7 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create a new gateway with the restrictedAccess
-		gateway := miniogw.NewStorjGateway(restrictedAccess, uplink.Config{}, false)
+		gateway := miniogw.NewStorjGateway(restrictedAccess, miniogw.Config{})
 		restrictedLayer, err := gateway.NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
@@ -1030,7 +1030,7 @@ func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathC
 		return nil, nil, err
 	}
 
-	gateway := miniogw.NewStorjGateway(access, uplink.Config{}, false)
+	gateway := miniogw.NewStorjGateway(access, miniogw.Config{})
 	layer, err := gateway.NewGatewayLayer(auth.Credentials{})
 	if err != nil {
 		return nil, nil, err

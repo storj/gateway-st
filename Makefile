@@ -1,10 +1,10 @@
-GO_VERSION ?= 1.15.6
+GO_VERSION ?= 1.15.7
 GOOS ?= linux
 GOARCH ?= amd64
 GOPATH ?= $(shell go env GOPATH)
 COMPOSE_PROJECT_NAME := ${TAG}-$(shell git rev-parse --abbrev-ref HEAD)
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
-ifeq (${BRANCH_NAME},master)
+ifeq (${BRANCH_NAME},main)
 TAG    := $(shell git rev-parse --short HEAD)-go${GO_VERSION}
 else
 TAG    := $(shell git rev-parse --short HEAD)-${BRANCH_NAME}-go${GO_VERSION}
@@ -193,8 +193,8 @@ test-docker-clean: ## Clean up Docker environment used in test-docker target
 
 .PHONY: bump-dependencies
 bump-dependencies:
-	go get storj.io/common@master storj.io/private@master storj.io/uplink@master
+	go get storj.io/common@main storj.io/private@main storj.io/uplink@multipart-upload
 	go mod tidy
 	cd testsuite;\
-		go get storj.io/common@master storj.io/storj@master storj.io/uplink@master;\
+		go get storj.io/common@main storj.io/storj@multipart-upload storj.io/uplink@multipart-upload;\
 		go mod tidy
