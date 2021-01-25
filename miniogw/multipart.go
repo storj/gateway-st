@@ -266,16 +266,16 @@ func (layer *gatewayLayer) listSingleUpload(ctx context.Context, bucketName, key
 	}, nil
 }
 
-func minioMultipartInfo(bucket string, object *uplink.Object) minio.MultipartInfo {
+func minioMultipartInfo(bucket string, object *multipart.Object) minio.MultipartInfo {
 	if object == nil {
-		object = &uplink.Object{}
+		object = &multipart.Object{}
 	}
 
 	return minio.MultipartInfo{
 		Bucket:      bucket,
 		Object:      object.Key,
 		Initiated:   object.System.Created,
-		UploadID:    object.System.StreamID,
+		UploadID:    object.StreamID,
 		UserDefined: object.Custom,
 	}
 }
