@@ -14,6 +14,7 @@ import (
 	minio "github.com/minio/minio/cmd"
 
 	"storj.io/uplink"
+	"storj.io/uplink/private/multipart"
 	"storj.io/uplink/private/storage/streams"
 )
 
@@ -35,7 +36,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	// The following line currently only impacts UploadObject calls.
 	ctx = streams.DisableDeleteOnCancel(ctx)
 
-	info, err := layer.project.NewMultipartUpload(ctx, bucket, object, nil)
+	info, err := multipart.NewMultipartUpload(ctx, layer.project, bucket, object, nil)
 	if err != nil {
 		return "", convertMultipartError(err, bucket, object, "")
 	}
@@ -53,7 +54,7 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	partInfo, err := layer.project.PutObjectPart(ctx, bucket, object, uploadID, partID, data)
+	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID, data)
 	if err != nil {
 		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
@@ -69,7 +70,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 
 func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
-	err = layer.project.AbortMultipartUpload(ctx, bucket, object, uploadID)
+	err = multipart.AbortMultipartUpload(ctx, layer.project, bucket, object, uploadID)
 	if err != nil {
 		return convertMultipartError(err, bucket, object, uploadID)
 	}
@@ -89,7 +90,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
 	metadata["s3:etag"] = etag
 
-	obj, err := layer.project.CompleteMultipartUpload(ctx, bucket, object, uploadID, &uplink.MultipartObjectOptions{
+	obj, err := multipart.CompleteMultipartUpload(ctx, layer.project, bucket, object, uploadID, &multipart.ObjectOptions{
 		CustomMetadata: metadata,
 	})
 	if err != nil {
@@ -102,7 +103,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	list, err := layer.project.ListObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts)
+	list, err := multipart.ListObjectParts(ctx, layer.project, bucket, object, uploadID, partNumberMarker, maxParts)
 	if err != nil {
 		return minio.ListPartsInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
@@ -175,7 +176,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 		return layer.listSingleUpload(ctx, bucket, prefix, recursive)
 	}
 
-	list := layer.project.ListMultipartUploads(ctx, bucket, &uplink.ListMultipartUploadsOptions{
+	list := multipart.ListMultipartUploads(ctx, layer.project, bucket, &multipart.ListMultipartUploadsOptions{
 		Prefix:    prefix,
 		Cursor:    keyMarker,
 		Recursive: recursive,
@@ -234,7 +235,7 @@ func (layer *gatewayLayer) listSingleUpload(ctx context.Context, bucketName, key
 
 	var prefixes []string
 	if !recursive {
-		list := layer.project.ListMultipartUploads(ctx, bucketName, &uplink.ListMultipartUploadsOptions{
+		list := multipart.ListMultipartUploads(ctx, layer.project, bucketName, &multipart.ListMultipartUploadsOptions{
 			Prefix:    key + "/",
 			Recursive: true,
 			// Limit: 1, would be nice to set here
@@ -305,7 +306,7 @@ func canonicalEtag(etag string) string {
 }
 
 func convertMultipartError(err error, bucket, object, uploadID string) error {
-	if errors.Is(err, uplink.ErrStreamIDInvalid) {
+	if errors.Is(err, multipart.ErrStreamIDInvalid) {
 		return minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 	}
 

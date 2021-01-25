@@ -1066,6 +1066,7 @@ golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7w
 golang.org/x/sys v0.0.0-20210112091331-59c308dcf3cc h1:y0Og6AYdwus7SIAnKnDxjc4gJetRiYEWOx4AKbOeyEI=
 golang.org/x/sys v0.0.0-20210112091331-59c308dcf3cc/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/term v0.0.0-20201117132131-f5c789dd3221/go.mod h1:Nr5EML6q2oocZ2LXRh80K7BxOlk5/8JxuGnuhpl+muw=
+golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf h1:MZ2shdL+ZM/XzY3ZGOnh4Nlpnxz5GSOhOmtHo3iPU6M=
 golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
 golang.org/x/text v0.3.1-0.20180807135948-17ff2d5776d2/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
@@ -1254,7 +1255,5 @@ storj.io/monkit-jaeger v0.0.0-20200518165323-80778fc3f91b/go.mod h1:gj4vuCeyCRjR
 storj.io/private v0.0.0-20210108233641-2ba1ef686d1f/go.mod h1:3KcGiA7phL3a0HUCe5ar90SlIU3iFb8hKInaEZQ5P7o=
 storj.io/private v0.0.0-20210120150301-bd3ac3e989f0 h1:y8GkOxqdj4fXkksn076nQxcVAaGR+4MhJmFb0q2yqsM=
 storj.io/private v0.0.0-20210120150301-bd3ac3e989f0/go.mod h1:VHaDkpBka3Pp5rXqFSDHbEmzMaFFW4BYrXJfGIN1Udo=
-storj.io/storj v0.12.1-0.20210120172825-292caa9043da h1:+DX3tffJZKLBbaGwU82QlS/N5hF9c31aSIYVaP4MNms=
-storj.io/storj v0.12.1-0.20210120172825-292caa9043da/go.mod h1:mc6VCmg6ZLfD47rzg2VaUnsUJopD2Xt13hq/9NkKBXg=
-storj.io/uplink v1.4.6-0.20210115090500-10cfa3d1c277 h1:H+YVCCYBgk3xRda52MwQO3svpQvqE6P/bjccVLyvROs=
-storj.io/uplink v1.4.6-0.20210115090500-10cfa3d1c277/go.mod h1:lpQO2Smf6gpOl7hkB/IEKdrMMdbIHeRF1QKhyZCoD5w=
+storj.io/storj v0.12.1-0.20210121160013-3c13aae61e60 h1:2ZbMSdxHWByKOM3GGKog98A6/L1tIY+Hs4qMEkdE+7c=
+storj.io/storj v0.12.1-0.20210121160013-3c13aae61e60/go.mod h1:mc6VCmg6ZLfD47rzg2VaUnsUJopD2Xt13hq/9NkKBXg=
