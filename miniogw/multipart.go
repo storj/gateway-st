@@ -179,38 +179,23 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 
 	recursive := delimiter == ""
 
+	var list *multipart.UploadIterator
+
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		// N.B.: in this case, the most S3-compatible thing we could do
-		// is ask the satellite to list all siblings of this prefix that
-		// share the same parent encryption key, decrypt all of them,
-		// then only return the ones that have this same unencrypted
-		// prefix.
-		// this is terrible from a performance perspective, and it turns
-		// out, many of the usages of listing without a /-suffix are
-		// simply to provide a sort of StatObject like feature. in fact,
-		// for example, duplicity never calls list without a /-suffix
-		// in a case where it expects to get back more than one result.
-		// so, we could either
-		// 1) return an error here, guaranteeing nothing works
-		// 2) do the full S3 compatible thing, which has terrible
-		//    performance for a really common case (StatObject-like
-		//		functionality)
-		// 3) handle strictly more of the use cases than #1 without
-		//    loss of performance by turning this into a StatObject.
-		// so we do #3 here. it's great!
+		list = multipart.ListPendingObjectStreams(ctx, layer.project, bucket, prefix, &multipart.ListMultipartUploadsOptions{
+			System: true,
+			Custom: true,
+		})
+	} else {
+		list = multipart.ListMultipartUploads(ctx, layer.project, bucket, &multipart.ListMultipartUploadsOptions{
+			Prefix:    prefix,
+			Cursor:    keyMarker,
+			Recursive: recursive,
 
-		return layer.listSingleUpload(ctx, bucket, prefix, recursive)
+			System: true,
+			Custom: true,
+		})
 	}
-
-	list := multipart.ListMultipartUploads(ctx, layer.project, bucket, &multipart.ListMultipartUploadsOptions{
-		Prefix:    prefix,
-		Cursor:    keyMarker,
-		Recursive: recursive,
-
-		System: true,
-		Custom: true,
-	})
-
 	startAfter := keyMarker
 	var uploads []minio.MultipartInfo
 	var prefixes []string
@@ -254,42 +239,6 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	}
 
 	return result, nil
-}
-
-func (layer *gatewayLayer) listSingleUpload(ctx context.Context, bucketName, key string, recursive bool) (result minio.ListMultipartsInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	var prefixes []string
-	if !recursive {
-		list := multipart.ListMultipartUploads(ctx, layer.project, bucketName, &multipart.ListMultipartUploadsOptions{
-			Prefix:    key + "/",
-			Recursive: true,
-			// Limit: 1, would be nice to set here
-		})
-		if list.Next() {
-			prefixes = append(prefixes, key+"/")
-		}
-		if err := list.Err(); err != nil {
-			return minio.ListMultipartsInfo{}, convertMultipartError(err, bucketName, key, "")
-		}
-	}
-
-	var uploads []minio.MultipartInfo
-	// TODO: we need a uplink API to list the pending uploads for a specific object key
-	// upload, err := layer.project.StatObject(ctx, bucketName, key)
-	// if err != nil {
-	// 	if !errors.Is(err, uplink.ErrObjectNotFound) {
-	// 		return minio.ListMultipartsInfo{}, convertMultipartError(err, bucketName, key, "")
-	// 	}
-	// } else {
-	// 	uploads = append(uploads, minioObjectInfo(bucketName, "", upload))
-	// }
-
-	return minio.ListMultipartsInfo{
-		IsTruncated:    false,
-		CommonPrefixes: prefixes,
-		Uploads:        uploads,
-	}, nil
 }
 
 func minioMultipartInfo(bucket string, object *multipart.Object) minio.MultipartInfo {
