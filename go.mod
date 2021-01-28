@@ -14,9 +14,10 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.16.0
+	golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c // indirect
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
 	google.golang.org/api v0.20.0 // indirect
-	storj.io/common v0.0.0-20210119231202-8321551aa24d
+	storj.io/common v0.0.0-20210204114159-106c992bbc05
 	storj.io/private v0.0.0-20210120150301-bd3ac3e989f0
-	storj.io/uplink v1.4.6-0.20210126192115-f484c5a10918
+	storj.io/uplink v1.4.6-0.20210204154407-ab245b221ef3
 )

@@ -305,6 +305,54 @@ func TestGetObjectInfo(t *testing.T) {
 	})
 }
 
+func TestGetMultipartInfo(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Check the error when using an empty bucket name
+		multipartInfo, err := layer.GetMultipartInfo(ctx, "", "object", "uploadid", minio.ObjectOptions{})
+		require.Error(t, err)
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+		assert.Empty(t, multipartInfo)
+
+		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "", "uploadid", minio.ObjectOptions{})
+		require.Error(t, err)
+		assert.Equal(t, minio.ObjectNameInvalid{}, err)
+		assert.Empty(t, multipartInfo)
+
+		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "object", "", minio.ObjectOptions{})
+		require.Error(t, err)
+		assert.Equal(t, minio.InvalidUploadID{}, err)
+		assert.Empty(t, multipartInfo)
+
+		// Check the error when getting MultipartInfo from non-existing bucket
+		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "object", "uploadid", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		assert.Empty(t, multipartInfo)
+
+		// Create the bucket using the Uplink API
+		_, err = project.CreateBucket(ctx, TestBucket)
+		assert.NoError(t, err)
+
+		now := time.Now()
+		// TODO when we can have two multipart uploads for the same object key, make tests for this case
+		upload, err := layer.NewMultipartUpload(ctx, TestBucket, "multipart-upload", minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.NotEmpty(t, upload)
+
+		// Check the error when getting MultipartInfo from non-existing object
+		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "object", upload, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: "object"}, err)
+		assert.Empty(t, multipartInfo)
+
+		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "multipart-upload", upload, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		require.Equal(t, "multipart-upload", multipartInfo.Object)
+		require.Equal(t, upload, multipartInfo.UploadID)
+		require.Equal(t, TestBucket, multipartInfo.Bucket)
+		require.WithinDuration(t, now, multipartInfo.Initiated, time.Minute)
+	})
+}
+
 func TestGetObjectNInfo(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting an object from a bucket with empty name

@@ -44,11 +44,37 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 }
 
 func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
+	if bucket == "" {
+		return minio.MultipartInfo{}, minio.BucketNameInvalid{}
+	}
+
+	if object == "" {
+		return minio.MultipartInfo{}, minio.ObjectNameInvalid{}
+	}
+
+	if uploadID == "" {
+		return minio.MultipartInfo{}, minio.InvalidUploadID{}
+	}
+
 	info.Bucket = bucket
 	info.Object = object
 	info.UploadID = uploadID
-	// TODO: We need an uplink API for this
-	return info, nil
+
+	list := multipart.ListPendingObjectStreams(ctx, layer.project, bucket, object, &multipart.ListMultipartUploadsOptions{
+		System: true,
+		Custom: true,
+	})
+
+	for list.Next() {
+		obj := list.Item()
+		if obj.StreamID == uploadID {
+			return minioMultipartInfo(bucket, obj), nil
+		}
+	}
+	if list.Err() != nil {
+		return minio.MultipartInfo{}, convertError(list.Err(), bucket, object)
+	}
+	return minio.MultipartInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
 }
 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
