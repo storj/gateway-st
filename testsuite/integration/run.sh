@@ -3,16 +3,18 @@ set -ueo pipefail
 set +x
 
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd $SCRIPTDIR
 
-cd $SCRIPTDIR && go install \
-	storj.io/storj/cmd/certificates \
-	storj.io/storj/cmd/identity \
-	storj.io/storj/cmd/satellite \
-	storj.io/storj/cmd/storagenode \
-	storj.io/storj/cmd/versioncontrol \
-	storj.io/storj/cmd/storj-sim
+VERSION=$(go list -m -f "{{.Version}}" storj.io/storj)
 
-cd $SCRIPTDIR && go install storj.io/gateway
+/usr/local/go/bin/go install storj.io/storj/cmd/certificates@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/identity@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/satellite@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/storagenode@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/versioncontrol@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/storj-sim@$VERSION
+
+cd ../.. && go install storj.io/gateway
 
 # setup tmpdir for testfiles and cleanup
 TMP=$(mktemp -d -t tmp.XXXXXXXXXX)
