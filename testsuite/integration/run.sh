@@ -7,12 +7,12 @@ cd $SCRIPTDIR
 
 VERSION=$(go list -m -f "{{.Version}}" storj.io/storj)
 
-/usr/local/bin/go install storj.io/storj/cmd/certificates@$VERSION
-/usr/local/bin/go install storj.io/storj/cmd/identity@$VERSION
-/usr/local/bin/go install storj.io/storj/cmd/satellite@$VERSION
-/usr/local/bin/go install storj.io/storj/cmd/storagenode@$VERSION
-/usr/local/bin/go install storj.io/storj/cmd/versioncontrol@$VERSION
-/usr/local/bin/go install storj.io/storj/cmd/storj-sim@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/certificates@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/identity@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/satellite@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/storagenode@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/versioncontrol@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/storj-sim@$VERSION
 
 cd ../.. && go install storj.io/gateway
 
