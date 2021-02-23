@@ -49,7 +49,7 @@ func TestUploadDownload(t *testing.T) {
 		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
 		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
 
-		gatewayExe := ctx.Compile("storj.io/gateway")
+		gatewayExe := ctx.CompileAt("../..", "storj.io/gateway")
 
 		client, err := minioclient.NewMinio(minioclient.Config{
 			S3Gateway:     gatewayAddr,
