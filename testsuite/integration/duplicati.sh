@@ -27,9 +27,9 @@ random_bytes_file "10MiB" "$SRC_DIR/backup-testfile-10MiB" # create 10MiB file o
 
 BUCKET="backup-bucket"
 
-duplicati-cli backup  s3://$BUCKET $SRC_DIR --s3-server-name=$GATEWAY_0_ADDR --aws_access_key_id=$GATEWAY_0_ACCESS_KEY --aws_secret_access_key=$GATEWAY_0_SECRET_KEY --passphrase=my-pass --use-ssl=false --debug-output=true
+duplicati-cli backup  s3://$BUCKET $SRC_DIR --s3-server-name=$GATEWAY_0_ADDR --auth-username=$GATEWAY_0_ACCESS_KEY --auth-password=$GATEWAY_0_SECRET_KEY --passphrase=my-pass --use-ssl=false --debug-output=true
 
-duplicati-cli restore s3://$BUCKET --restore-path=$DST_DIR --s3-server-name=$GATEWAY_0_ADDR --aws_access_key_id=$GATEWAY_0_ACCESS_KEY --aws_secret_access_key=$GATEWAY_0_SECRET_KEY --passphrase=my-pass --use-ssl=false --debug-output=true
+duplicati-cli restore s3://$BUCKET --restore-path=$DST_DIR --s3-server-name=$GATEWAY_0_ADDR --auth-username=$GATEWAY_0_ACCESS_KEY --auth-password=$GATEWAY_0_SECRET_KEY --passphrase=my-pass --use-ssl=false --debug-output=true
 
 require_equal_files_content "$SRC_DIR/backup-testfile-1MiB"  "$DST_DIR/backup-testfile-1MiB"
 require_equal_files_content "$SRC_DIR/backup-testfile-10MiB" "$DST_DIR/backup-testfile-10MiB"

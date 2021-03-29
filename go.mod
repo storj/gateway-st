@@ -4,16 +4,20 @@ go 1.13
 
 require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
+	github.com/calebcase/tmpfile v1.0.2 // indirect
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio v0.0.0-20201125204248-91130e884b5d
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
-	github.com/spacemonkeygo/monkit/v3 v3.0.7
-	github.com/spf13/cobra v0.0.6
+	github.com/onsi/ginkgo v1.14.0 // indirect
+	github.com/spacemonkeygo/monkit/v3 v3.0.10
+	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/zeebo/errs v1.2.2
-	go.uber.org/zap v1.15.0
+	go.uber.org/zap v1.16.0
+	golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c // indirect
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
-	storj.io/common v0.0.0-20210223102301-4de910503c2c
-	storj.io/private v0.0.0-20210218090419-b7dcd2175342
-	storj.io/uplink v1.4.6-0.20210219140335-667f093f4a3a
+	google.golang.org/api v0.20.0 // indirect
+	storj.io/common v0.0.0-20210325225810-6cd9934a276a
+	storj.io/private v0.0.0-20210225200021-48b617cbe817
+	storj.io/uplink v1.4.6-0.20210326162107-c1403fdd9e35
 )

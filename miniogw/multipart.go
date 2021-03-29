@@ -8,37 +8,18 @@ import (
 	"crypto/md5" /* #nosec G501 */ // Is only used for calculating a hash of the ETags of the all the parts of a multipart upload.
 	"encoding/hex"
 	"errors"
-	"io"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	minio "github.com/minio/minio/cmd"
-	"github.com/minio/minio/pkg/hash"
-	"github.com/zeebo/errs"
 
-	"storj.io/common/context2"
 	"storj.io/uplink"
+	"storj.io/uplink/private/multipart"
 	"storj.io/uplink/private/storage/streams"
 )
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
-	ctx = context2.WithoutCancellation(ctx)
-
 	defer mon.Task()(&ctx)(&err)
-	if err := uplink.CustomMetadata(opts.UserDefined).Verify(); err != nil {
-		return "", err
-	}
-
-	uploads := layer.multipart
-
-	upload, err := uploads.Create(bucket, object, opts.UserDefined)
-	if err != nil {
-		return "", err
-	}
 
 	// Scenario: if a client starts uploading an object and then dies, when
 	// is it safe to restart uploading?
@@ -55,111 +36,69 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	// The following line currently only impacts UploadObject calls.
 	ctx = streams.DisableDeleteOnCancel(ctx)
 
-	// TODO: this can now be done without this separate goroutine
-	stream, err := layer.project.UploadObject(ctx, bucket, object, nil)
+	info, err := multipart.NewMultipartUpload(ctx, layer.project, bucket, object, nil)
 	if err != nil {
-		uploads.RemoveByID(upload.ID)
-		upload.fail(err)
-		return "", err
+		return "", convertMultipartError(err, bucket, object, "")
 	}
-
-	go func() {
-		_, err = io.Copy(stream, upload.Stream)
-		if err != nil {
-			uploads.RemoveByID(upload.ID)
-			abortErr := stream.Abort()
-			upload.fail(errs.Combine(err, abortErr))
-			return
-		}
-
-		etag, etagErr := upload.etag()
-		if etagErr != nil {
-			uploads.RemoveByID(upload.ID)
-			abortErr := stream.Abort()
-			upload.fail(errs.Combine(etagErr, abortErr))
-			return
-		}
-
-		metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
-		metadata["s3:etag"] = etag
-
-		err = stream.SetCustomMetadata(ctx, metadata)
-		if err != nil {
-			uploads.RemoveByID(upload.ID)
-			abortErr := stream.Abort()
-			upload.fail(errs.Combine(err, abortErr))
-			return
-		}
-
-		err = stream.Commit()
-		uploads.RemoveByID(upload.ID)
-		if err != nil {
-			upload.fail(errs.Combine(err, err))
-			return
-		}
-
-		upload.complete(minioObjectInfo(bucket, etag, stream.Info()))
-	}()
-
-	return upload.ID, nil
+	return info.StreamID, nil
 }
 
 func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
+	if bucket == "" {
+		return minio.MultipartInfo{}, minio.BucketNameInvalid{}
+	}
+
+	if object == "" {
+		return minio.MultipartInfo{}, minio.ObjectNameInvalid{}
+	}
+
+	if uploadID == "" {
+		return minio.MultipartInfo{}, minio.InvalidUploadID{}
+	}
+
 	info.Bucket = bucket
 	info.Object = object
 	info.UploadID = uploadID
-	return info, nil
+
+	list := multipart.ListPendingObjectStreams(ctx, layer.project, bucket, object, &multipart.ListMultipartUploadsOptions{
+		System: true,
+		Custom: true,
+	})
+
+	for list.Next() {
+		obj := list.Item()
+		if obj.StreamID == uploadID {
+			return minioMultipartInfo(bucket, obj), nil
+		}
+	}
+	if list.Err() != nil {
+		return minio.MultipartInfo{}, convertError(list.Err(), bucket, object)
+	}
+	return minio.MultipartInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
 }
 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.multipart
-
-	upload, err := uploads.Get(bucket, object, uploadID)
+	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID, data)
 	if err != nil {
-		return minio.PartInfo{}, err
+		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	part, err := upload.Stream.AddPart(partID, data.Reader)
-	if err != nil {
-		return minio.PartInfo{}, err
-	}
+	// TODO: Store the part's ETag in metabase
 
-	err = <-part.Done
-	if err != nil {
-		return minio.PartInfo{}, err
-	}
-
-	partInfo := minio.PartInfo{
-		PartNumber:   part.Number,
-		LastModified: time.Now(),
-		ETag:         data.MD5CurrentHexString(),
-		Size:         atomic.LoadInt64(&part.Size),
-	}
-
-	upload.addCompletedPart(partInfo)
-
-	return partInfo, nil
+	return minio.PartInfo{
+		PartNumber: partID,
+		Size:       partInfo.Size,
+		ETag:       data.MD5CurrentHexString(),
+	}, nil
 }
 
 func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
-
-	uploads := layer.multipart
-
-	upload, err := uploads.Remove(bucket, object, uploadID)
+	err = multipart.AbortMultipartUpload(ctx, layer.project, bucket, object, uploadID)
 	if err != nil {
-		return err
-	}
-
-	if upload != nil {
-		errAbort := Error.New("abort")
-		upload.Stream.Abort(errAbort)
-		r := <-upload.Done
-		if !errors.Is(r.Error, errAbort) {
-			return r.Error
-		}
+		return convertMultipartError(err, bucket, object, uploadID)
 	}
 	return nil
 }
@@ -167,244 +106,157 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.multipart
-	upload, err := uploads.Remove(bucket, object, uploadID)
+	// TODO: Check that ETag of uploadedParts match the ETags stored in metabase.
+
+	etag, err := multipartUploadETag(uploadedParts)
 	if err != nil {
-		return minio.ObjectInfo{}, err
-	}
-	if upload == nil {
-		return minio.ObjectInfo{}, nil
+		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	// notify stream that there aren't more parts coming
-	upload.Stream.Close()
-	// wait for completion
-	result := <-upload.Done
-	// return the final info
-	return result.Info, result.Error
+	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
+	metadata["s3:etag"] = etag
+
+	obj, err := multipart.CompleteMultipartUpload(ctx, layer.project, bucket, object, uploadID, &multipart.ObjectOptions{
+		CustomMetadata: metadata,
+	})
+	if err != nil {
+		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	return minioObjectInfo(bucket, etag, obj), nil
 }
 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.multipart
-	upload, err := uploads.Get(bucket, object, uploadID)
+	list, err := multipart.ListObjectParts(ctx, layer.project, bucket, object, uploadID, partNumberMarker, maxParts)
 	if err != nil {
-		return minio.ListPartsInfo{}, err
+		return minio.ListPartsInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	list := minio.ListPartsInfo{}
-
-	list.Bucket = bucket
-	list.Object = object
-	list.UploadID = uploadID
-	list.PartNumberMarker = partNumberMarker
-	list.MaxParts = maxParts
-	list.UserDefined = upload.Metadata
-	list.Parts = upload.getCompletedParts()
-
-	sort.Slice(list.Parts, func(i, k int) bool {
-		return list.Parts[i].PartNumber < list.Parts[k].PartNumber
-	})
-
-	var first int
-	for i, p := range list.Parts {
-		first = i
-		if partNumberMarker <= p.PartNumber {
-			break
-		}
+	parts := make([]minio.PartInfo, 0, len(list.Items))
+	for _, item := range list.Items {
+		parts = append(parts, minio.PartInfo{
+			PartNumber:   item.PartNumber,
+			LastModified: item.LastModified,
+			ETag:         "",        // TODO: Entity tag returned when the part was initially uploaded.
+			Size:         item.Size, // Size in bytes of the part.
+			ActualSize:   item.Size, // Decompressed Size.
+		})
 	}
-
-	list.Parts = list.Parts[first:]
-	if len(list.Parts) > maxParts {
-		list.NextPartNumberMarker = list.Parts[maxParts].PartNumber
-		list.Parts = list.Parts[:maxParts]
-		list.IsTruncated = true
-	}
-
-	return list, nil
+	return minio.ListPartsInfo{
+		Bucket:               bucket,
+		Object:               object,
+		UploadID:             uploadID,
+		StorageClass:         "",               // TODO
+		PartNumberMarker:     partNumberMarker, // Part number after which listing begins.
+		NextPartNumberMarker: partNumberMarker, // TODO Next part number marker to be used if list is truncated
+		MaxParts:             maxParts,
+		IsTruncated:          list.More,
+		Parts:                parts,
+		// also available: UserDefined map[string]string
+	}, nil
 }
 
 // ListMultipartUploads lists all multipart uploads.
-func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket string, prefix string, keyMarker string, uploadIDMarker string, delimiter string, maxUploads int) (lmi minio.ListMultipartsInfo, err error) {
+func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket string, prefix string, keyMarker string, uploadIDMarker string, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	uploads := layer.multipart
+	// TODO maybe this should be checked by project.ListMultipartUploads
+	if bucket == "" {
+		return minio.ListMultipartsInfo{}, minio.BucketNameInvalid{}
+	}
 
-	lmi.Prefix = prefix
-	lmi.KeyMarker = keyMarker
-	lmi.UploadIDMarker = uploadIDMarker
-	lmi.Delimiter = delimiter
-	lmi.MaxUploads = maxUploads
-	lmi.IsTruncated = false
+	if delimiter != "" && delimiter != "/" {
+		return minio.ListMultipartsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+	}
 
-	uploads.mu.RLock()
-	defer uploads.mu.RUnlock()
+	// TODO this should be removed and implemented on satellite side
+	_, err = layer.project.StatBucket(ctx, bucket)
+	if err != nil {
+		return minio.ListMultipartsInfo{}, convertMultipartError(err, bucket, "", "")
+	}
 
-	for _, upload := range uploads.pending {
-		// TODO support markers
-		if upload.Bucket == bucket && strings.HasPrefix(upload.Object, prefix) {
-			lmi.Uploads = append(lmi.Uploads, minio.MultipartInfo{
-				UploadID: upload.ID,
-				Object:   upload.Object,
-			})
+	recursive := delimiter == ""
 
-			if len(lmi.Uploads) > maxUploads {
-				lmi.Uploads = lmi.Uploads[:maxUploads]
-				lmi.IsTruncated = true
-				break
-			}
+	var list *multipart.UploadIterator
+
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		list = multipart.ListPendingObjectStreams(ctx, layer.project, bucket, prefix, &multipart.ListMultipartUploadsOptions{
+			System: true,
+			Custom: true,
+		})
+	} else {
+		list = multipart.ListMultipartUploads(ctx, layer.project, bucket, &multipart.ListMultipartUploadsOptions{
+			Prefix:    prefix,
+			Cursor:    keyMarker,
+			Recursive: recursive,
+
+			System: true,
+			Custom: true,
+		})
+	}
+	startAfter := keyMarker
+	var uploads []minio.MultipartInfo
+	var prefixes []string
+
+	limit := maxUploads
+	for (limit > 0 || maxUploads == 0) && list.Next() {
+		limit--
+		object := list.Item()
+		if object.IsPrefix {
+			prefixes = append(prefixes, object.Key)
+			continue
 		}
+
+		uploads = append(uploads, minioMultipartInfo(bucket, object))
+
+		startAfter = object.Key
+
+	}
+	if list.Err() != nil {
+		return result, convertMultipartError(list.Err(), bucket, "", "")
 	}
 
-	return lmi, nil
+	more := list.Next()
+	if list.Err() != nil {
+		return result, convertMultipartError(list.Err(), bucket, "", "")
+	}
+
+	result = minio.ListMultipartsInfo{
+		KeyMarker:      keyMarker,
+		UploadIDMarker: uploadIDMarker,
+		MaxUploads:     maxUploads,
+		IsTruncated:    more,
+		Uploads:        uploads,
+		Prefix:         prefix,
+		Delimiter:      delimiter,
+		CommonPrefixes: prefixes,
+	}
+	if more {
+		result.NextKeyMarker = startAfter
+		// TODO: NextUploadID
+	}
+
+	return result, nil
 }
 
-// TODO: implement
-// func (layer *gatewayLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int, startOffset int64, length int64, srcInfo minio.ObjectInfo) (info minio.PartInfo, err error) {
+func minioMultipartInfo(bucket string, object *multipart.Object) minio.MultipartInfo {
+	if object == nil {
+		object = &multipart.Object{}
+	}
 
-// MultipartUploads manages pending multipart uploads.
-type MultipartUploads struct {
-	mu      sync.RWMutex
-	lastID  int
-	pending map[string]*MultipartUpload
-}
-
-// NewMultipartUploads creates new MultipartUploads.
-func NewMultipartUploads() *MultipartUploads {
-	return &MultipartUploads{
-		pending: map[string]*MultipartUpload{},
+	return minio.MultipartInfo{
+		Bucket:      bucket,
+		Object:      object.Key,
+		Initiated:   object.System.Created,
+		UploadID:    object.StreamID,
+		UserDefined: object.Custom,
 	}
 }
 
-// Create creates a new upload.
-func (uploads *MultipartUploads) Create(bucket, object string, metadata map[string]string) (*MultipartUpload, error) {
-	uploads.mu.Lock()
-	defer uploads.mu.Unlock()
-
-	for id, upload := range uploads.pending {
-		if upload.Bucket == bucket && upload.Object == object {
-			upload.Stream.Abort(Error.New("aborted by another upload to the same location"))
-			delete(uploads.pending, id)
-		}
-	}
-
-	uploads.lastID++
-	uploadID := "Upload" + strconv.Itoa(uploads.lastID)
-
-	upload := NewMultipartUpload(uploadID, bucket, object, metadata)
-	uploads.pending[uploadID] = upload
-
-	return upload, nil
-}
-
-// Get finds a pending upload.
-func (uploads *MultipartUploads) Get(bucket, object, uploadID string) (*MultipartUpload, error) {
-	uploads.mu.RLock()
-	defer uploads.mu.RUnlock()
-
-	upload, ok := uploads.pending[uploadID]
-	if !ok {
-		return nil, Error.New("pending upload %q missing", uploadID)
-	}
-	if upload.Bucket != bucket || upload.Object != object {
-		return nil, Error.New("pending upload %q bucket/object name mismatch", uploadID)
-	}
-
-	return upload, nil
-}
-
-// Remove returns and removes a pending upload.
-func (uploads *MultipartUploads) Remove(bucket, object, uploadID string) (*MultipartUpload, error) {
-	uploads.mu.Lock()
-	defer uploads.mu.Unlock()
-
-	upload, ok := uploads.pending[uploadID]
-	if !ok {
-		// The multipart upload may have been removed automatically due to finishing.
-		// Ideally this should return an error as well, however due to the concurrent merging
-		// of parts, the implementation cannot be stateless.
-		return nil, nil
-	}
-	if upload.Bucket != bucket || upload.Object != object {
-		return nil, Error.New("pending upload %q bucket/object name mismatch", uploadID)
-	}
-
-	delete(uploads.pending, uploadID)
-
-	return upload, nil
-}
-
-// RemoveByID removes pending upload by id.
-func (uploads *MultipartUploads) RemoveByID(uploadID string) {
-	uploads.mu.Lock()
-	defer uploads.mu.Unlock()
-
-	delete(uploads.pending, uploadID)
-}
-
-// MultipartUpload is partial info about a pending upload.
-type MultipartUpload struct {
-	ID       string
-	Bucket   string
-	Object   string
-	Metadata map[string]string
-	Done     chan (*MultipartUploadResult)
-	Stream   *MultipartStream
-
-	mu        sync.Mutex
-	completed []minio.PartInfo
-}
-
-// MultipartUploadResult contains either an Error or the uploaded ObjectInfo.
-type MultipartUploadResult struct {
-	Error error
-	Info  minio.ObjectInfo
-}
-
-// NewMultipartUpload creates a new MultipartUpload.
-func NewMultipartUpload(uploadID string, bucket, object string, metadata map[string]string) *MultipartUpload {
-	upload := &MultipartUpload{
-		ID:       uploadID,
-		Bucket:   bucket,
-		Object:   object,
-		Metadata: metadata,
-		Done:     make(chan *MultipartUploadResult, 1),
-		Stream:   NewMultipartStream(),
-	}
-	return upload
-}
-
-// addCompletedPart adds a completed part to the list.
-func (upload *MultipartUpload) addCompletedPart(part minio.PartInfo) {
-	upload.mu.Lock()
-	defer upload.mu.Unlock()
-
-	upload.completed = append(upload.completed, part)
-}
-
-func (upload *MultipartUpload) getCompletedParts() []minio.PartInfo {
-	upload.mu.Lock()
-	defer upload.mu.Unlock()
-
-	return append([]minio.PartInfo{}, upload.completed...)
-}
-
-// fail aborts the upload with an error.
-func (upload *MultipartUpload) fail(err error) {
-	upload.Done <- &MultipartUploadResult{Error: err}
-	close(upload.Done)
-}
-
-// complete completes the upload.
-func (upload *MultipartUpload) complete(info minio.ObjectInfo) {
-	upload.Done <- &MultipartUploadResult{Info: info}
-	close(upload.Done)
-}
-
-func (upload *MultipartUpload) etag() (string, error) {
+func multipartUploadETag(parts []minio.CompletePart) (string, error) {
 	var hashes []byte
-	parts := upload.getCompletedParts()
 	for _, part := range parts {
 		md5, err := hex.DecodeString(canonicalEtag(part.ETag))
 		if err != nil {
@@ -428,152 +280,10 @@ func canonicalEtag(etag string) string {
 	return etag
 }
 
-// MultipartStream serializes multiple readers into a single reader.
-type MultipartStream struct {
-	mu          sync.Mutex
-	moreParts   sync.Cond
-	err         error
-	closed      bool
-	finished    bool
-	nextID      int
-	nextNumber  int
-	currentPart *StreamPart
-	parts       []*StreamPart
-}
-
-// StreamPart is a reader waiting in MultipartStream.
-type StreamPart struct {
-	Number int
-	ID     int
-	Size   int64
-	Reader *hash.Reader
-	Done   chan error
-}
-
-// NewMultipartStream creates a new MultipartStream.
-func NewMultipartStream() *MultipartStream {
-	stream := &MultipartStream{}
-	stream.moreParts.L = &stream.mu
-	stream.nextID = 1
-	return stream
-}
-
-// Abort aborts the stream reading.
-func (stream *MultipartStream) Abort(err error) {
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-
-	if stream.finished {
-		return
+func convertMultipartError(err error, bucket, object, uploadID string) error {
+	if errors.Is(err, multipart.ErrStreamIDInvalid) {
+		return minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 	}
 
-	if stream.err == nil {
-		stream.err = err
-	}
-	stream.finished = true
-	stream.closed = true
-
-	for _, part := range stream.parts {
-		part.Done <- err
-		close(part.Done)
-	}
-	stream.parts = nil
-
-	stream.moreParts.Broadcast()
-}
-
-// Close closes the stream, but lets it complete.
-func (stream *MultipartStream) Close() {
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-
-	stream.closed = true
-	stream.moreParts.Broadcast()
-}
-
-// Read implements io.Reader interface, blocking when there's no part.
-func (stream *MultipartStream) Read(data []byte) (n int, err error) {
-	stream.mu.Lock()
-	for {
-		// has an error occurred?
-		if stream.err != nil {
-			stream.mu.Unlock()
-			return 0, Error.Wrap(err)
-		}
-		// still uploading the current part?
-		if stream.currentPart != nil {
-			break
-		}
-		// do we have the next part?
-		if len(stream.parts) > 0 && stream.nextID == stream.parts[0].ID {
-			stream.currentPart = stream.parts[0]
-			stream.parts = stream.parts[1:]
-			stream.nextID++
-			break
-		}
-		// we don't have the next part and are closed, hence we are complete
-		if stream.closed {
-			stream.finished = true
-			stream.mu.Unlock()
-			return 0, io.EOF
-		}
-
-		stream.moreParts.Wait()
-	}
-	stream.mu.Unlock()
-
-	// read as much as we can
-	n, err = stream.currentPart.Reader.Read(data)
-	atomic.AddInt64(&stream.currentPart.Size, int64(n))
-
-	if err == io.EOF {
-		// the part completed, hence advance to the next one
-		err = nil
-		close(stream.currentPart.Done)
-		stream.currentPart = nil
-	} else if err != nil {
-		// something bad happened, abort the whole thing
-		stream.Abort(err)
-		return n, Error.Wrap(err)
-	}
-
-	return n, err
-}
-
-// AddPart adds a new part to the stream to wait.
-func (stream *MultipartStream) AddPart(partID int, data *hash.Reader) (*StreamPart, error) {
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-
-	if partID < stream.nextID {
-		return nil, Error.New("part %d already uploaded, next part ID is %d", partID, stream.nextID)
-	}
-
-	for _, p := range stream.parts {
-		if p.ID == partID {
-			// Replace the reader of this part with the new one.
-			// This could happen if the read timeout for this part has expired
-			// and the client tries to upload the part again.
-			p.Reader = data
-			return p, nil
-		}
-	}
-
-	stream.nextNumber++
-	part := &StreamPart{
-		Number: stream.nextNumber - 1,
-		ID:     partID,
-		Size:   0,
-		Reader: data,
-		Done:   make(chan error, 1),
-	}
-
-	stream.parts = append(stream.parts, part)
-	sort.Slice(stream.parts, func(i, k int) bool {
-		return stream.parts[i].ID < stream.parts[k].ID
-	})
-
-	stream.moreParts.Broadcast()
-
-	return part, nil
+	return convertError(err, bucket, object)
 }

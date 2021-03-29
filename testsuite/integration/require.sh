@@ -10,3 +10,10 @@ require_equal_files_content () {
         exit 1
     fi
 }
+
+require_equal_strings () {
+    if [ "$1" != "$2" ]; then
+        echo "$2 does not match $1"
+        exit 1
+    fi
+}
