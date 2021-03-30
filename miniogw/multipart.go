@@ -77,20 +77,32 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, 
 	return minio.MultipartInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
 }
 
+type etagReader struct {
+	*minio.PutObjReader
+}
+
+func newETagReader(reader *minio.PutObjReader) *etagReader {
+	return &etagReader{PutObjReader: reader}
+}
+
+func (r *etagReader) CurrentETag() []byte {
+	return []byte(r.MD5CurrentHexString())
+}
+
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID, data)
+	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID, newETagReader(data))
 	if err != nil {
 		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	// TODO: Store the part's ETag in metabase
-
 	return minio.PartInfo{
 		PartNumber: partID,
 		Size:       partInfo.Size,
-		ETag:       data.MD5CurrentHexString(),
+		ActualSize: partInfo.Size,
+		ETag:       string(partInfo.ETag),
+		// TODO: should we return LastModified here?
 	}, nil
 }
 
@@ -139,9 +151,9 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		parts = append(parts, minio.PartInfo{
 			PartNumber:   item.PartNumber,
 			LastModified: item.LastModified,
-			ETag:         "",        // TODO: Entity tag returned when the part was initially uploaded.
-			Size:         item.Size, // Size in bytes of the part.
-			ActualSize:   item.Size, // Decompressed Size.
+			ETag:         string(item.ETag), // Entity tag returned when the part was initially uploaded.
+			Size:         item.Size,         // Size in bytes of the part.
+			ActualSize:   item.Size,         // Decompressed Size.
 		})
 	}
 	return minio.ListPartsInfo{

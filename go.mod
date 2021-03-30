@@ -19,5 +19,5 @@ require (
 	google.golang.org/api v0.20.0 // indirect
 	storj.io/common v0.0.0-20210325225810-6cd9934a276a
 	storj.io/private v0.0.0-20210225200021-48b617cbe817
-	storj.io/uplink v1.4.6-0.20210326162107-c1403fdd9e35
+	storj.io/uplink v1.4.6-0.20210330101846-63e323b65e90
 )
