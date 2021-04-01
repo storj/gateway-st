@@ -92,7 +92,7 @@ func (r *etagReader) CurrentETag() []byte {
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID, newETagReader(data))
+	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID-1, newETagReader(data))
 	if err != nil {
 		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
@@ -141,7 +141,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	list, err := multipart.ListObjectParts(ctx, layer.project, bucket, object, uploadID, partNumberMarker, maxParts)
+	list, err := multipart.ListObjectParts(ctx, layer.project, bucket, object, uploadID, partNumberMarker-1, maxParts)
 	if err != nil {
 		return minio.ListPartsInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
@@ -149,7 +149,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	parts := make([]minio.PartInfo, 0, len(list.Items))
 	for _, item := range list.Items {
 		parts = append(parts, minio.PartInfo{
-			PartNumber:   item.PartNumber,
+			PartNumber:   item.PartNumber + 1,
 			LastModified: item.LastModified,
 			ETag:         string(item.ETag), // Entity tag returned when the part was initially uploaded.
 			Size:         item.Size,         // Size in bytes of the part.
