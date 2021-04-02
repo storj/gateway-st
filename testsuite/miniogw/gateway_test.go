@@ -203,7 +203,7 @@ func TestPutObject(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when putting an object to a non-existing bucket
-		_, err = layer.PutObject(ctx, TestBucket, TestFile, nil, minio.ObjectOptions{})
+		_, err = layer.PutObject(ctx, TestBucket, TestFile, nil, minio.ObjectOptions{UserDefined: metadata})
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the bucket using the Uplink API
@@ -259,8 +259,8 @@ func TestGetObjectInfo(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting an object from non-existing bucket
-		_, err = layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		// _, err = layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
@@ -312,8 +312,8 @@ func TestGetObjectNInfo(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting an object from non-existing bucket
-		_, err = layer.GetObjectNInfo(ctx, TestBucket, TestFile, nil, nil, 0, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		// _, err = layer.GetObjectNInfo(ctx, TestBucket, TestFile, nil, nil, 0, minio.ObjectOptions{})
+		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
@@ -386,8 +386,8 @@ func TestGetObject(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting an object from non-existing bucket
-		err = layer.GetObject(ctx, TestBucket, TestFile, 0, 0, nil, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		// err = layer.GetObject(ctx, TestBucket, TestFile, 0, 0, nil, "", minio.ObjectOptions{})
+		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
@@ -450,8 +450,8 @@ func TestCopyObject(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when copying an object from non-existing bucket
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		// _, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the source bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
@@ -533,9 +533,9 @@ func TestDeleteObject(t *testing.T) {
 		assert.Empty(t, deleted)
 
 		// Check the error when deleting an object from non-existing bucket
-		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
-		assert.Empty(t, deleted)
+		// deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		// assert.Empty(t, deleted)
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
@@ -576,11 +576,11 @@ func TestDeleteObjects(t *testing.T) {
 		assert.Empty(t, deletedObjects[0])
 
 		// Check the error when deleting an object from non-existing bucket
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
-		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, deleteErrors[0])
-		require.Len(t, deletedObjects, 1)
-		assert.Empty(t, deletedObjects[0])
+		// deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		// require.Len(t, deleteErrors, 1)
+		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, deleteErrors[0])
+		// require.Len(t, deletedObjects, 1)
+		// assert.Empty(t, deletedObjects[0])
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
