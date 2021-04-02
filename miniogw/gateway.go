@@ -104,12 +104,6 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
-
 	object, err := layer.project.DeleteObject(ctx, bucketName, objectPath)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
@@ -150,12 +144,6 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 
 func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objectPath string, rangeSpec *minio.HTTPRangeSpec, header http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	defer mon.Task()(&ctx)(&err)
-
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return nil, convertError(err, bucketName, objectPath)
-	}
 
 	startOffset := int64(0)
 	length := int64(-1)
@@ -209,12 +197,6 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return convertError(err, bucketName, objectPath)
-	}
-
 	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
 		Offset: startOffset,
 		Length: length,
@@ -240,12 +222,6 @@ func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath
 
 func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
-
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
 
 	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
 	if err != nil {
@@ -282,12 +258,6 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
-	}
-
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return result, convertError(err, bucketName, "")
 	}
 
 	recursive := delimiter == ""
@@ -403,12 +373,6 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 
 	if delimiter != "" && delimiter != "/" {
 		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, minio.UnsupportedDelimiter{Delimiter: delimiter}
-	}
-
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, convertError(err, bucketName, "")
 	}
 
 	recursive := delimiter == ""
@@ -550,20 +514,6 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: destBucket}
 	}
 
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, srcBucket)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, srcBucket, "")
-	}
-
-	// TODO this should be removed and implemented on satellite side
-	if srcBucket != destBucket {
-		_, err = layer.project.StatBucket(ctx, destBucket)
-		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, destBucket, "")
-		}
-	}
-
 	if srcBucket == destBucket && srcObject == destObject {
 		// Source and destination are the same. Do nothing, otherwise copying
 		// the same object over itself may destroy it, especially if it is a
@@ -620,12 +570,6 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 
 	if !layer.gateway.config.DeleteOnCancel {
 		ctx = streams.DisableDeleteOnCancel(ctx)
-	}
-
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
 	if ok := layer.active.tryAdd(bucketName, objectPath); !ok {
