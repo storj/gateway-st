@@ -184,10 +184,9 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucket)
-	if err != nil {
-		return minio.ListMultipartsInfo{}, convertMultipartError(err, bucket, "", "")
-	}
+	defer func() {
+		err = checkBucketError(ctx, layer.project, bucket, "", err)
+	}()
 
 	recursive := delimiter == ""
 

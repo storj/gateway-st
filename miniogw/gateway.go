@@ -101,7 +101,10 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO this should be removed and implemented on satellite side
+	// TODO this should be removed and implemented on satellite side.
+	// This call needs to occur prior to the DeleteObject call below, because
+	// project.DeleteObject will return a nil error for a missing bucket. To
+	// maintain consistency, we need to manually check if the bucket exists.
 	_, err = layer.project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
@@ -149,10 +152,9 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return nil, convertError(err, bucketName, objectPath)
-	}
+	defer func() {
+		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
+	}()
 
 	startOffset := int64(0)
 	length := int64(-1)
@@ -206,17 +208,13 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return convertError(err, bucketName, objectPath)
-	}
-
 	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
 		Offset: startOffset,
 		Length: length,
 	})
 	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
 		return convertError(err, bucketName, objectPath)
 	}
 	defer func() { err = errs.Combine(err, download.Close()) }()
@@ -232,20 +230,16 @@ func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath
 
 	_, err = io.Copy(writer, download)
 
-	return err
+	return convertError(err, bucketName, objectPath)
 }
 
 func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
-
 	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
 	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
@@ -282,10 +276,9 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return result, convertError(err, bucketName, "")
-	}
+	defer func() {
+		err = checkBucketError(ctx, layer.project, bucketName, "", err)
+	}()
 
 	recursive := delimiter == ""
 
@@ -403,10 +396,9 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	}
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, convertError(err, bucketName, "")
-	}
+	defer func() {
+		err = checkBucketError(ctx, layer.project, bucketName, "", err)
+	}()
 
 	recursive := delimiter == ""
 
@@ -642,10 +634,9 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 	ctx = streams.DisableDeleteOnCancel(ctx)
 
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, bucketName)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
+	defer func() {
+		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
+	}()
 
 	if ok := layer.active.tryAdd(bucketName, objectPath); !ok {
 		return minio.ObjectInfo{}, minio.ObjectAlreadyExists{
@@ -677,6 +668,9 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 	}
 
+	if opts.UserDefined == nil {
+		opts.UserDefined = map[string]string{}
+	}
 	opts.UserDefined["s3:etag"] = hex.EncodeToString(data.MD5Current())
 	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
 	if err != nil {
@@ -747,6 +741,20 @@ func (layer *gatewayLayer) isSatelliteOnline(ctx context.Context) bool {
 
 	err = project.Close()
 	return err == nil
+}
+
+// checkBucketError will stat the bucket if the provided error is not nil, in
+// order to check if the proper error to return is really a bucket not found
+// error. If the satellite has already returned this error, do not make an
+// additional check.
+func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, object string, err error) error {
+	if err != nil && !errors.Is(err, uplink.ErrBucketNotFound) {
+		_, statErr := project.StatBucket(ctx, bucketName)
+		if statErr != nil {
+			return convertError(statErr, bucketName, object)
+		}
+	}
+	return err
 }
 
 func convertError(err error, bucket, object string) error {
