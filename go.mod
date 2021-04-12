@@ -19,7 +19,7 @@ require (
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
 	google.golang.org/api v0.20.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
-	storj.io/common v0.0.0-20210408063549-b10b43cba35a
+	storj.io/common v0.0.0-20210412024514-5bcb1fff421e
 	storj.io/private v0.0.0-20210403210935-5fd57695864c
 	storj.io/uplink v1.4.6-0.20210409140224-ad6bc2e5b2ee
 )
