@@ -304,7 +304,7 @@ Your S3 Gateway is configured and ready to use!
 
 Some things to try next:
 
-* See https://documentation.tardigrade.io/api-reference/s3-gateway for some example commands`)
+* See https://docs.storj.io/api-reference/s3-gateway for some example commands`)
 
 	return nil
 }
@@ -320,7 +320,7 @@ func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, ov
 		access, err = uplink.ParseAccess(accessString)
 	} else if setupCfg.SatelliteAddress != "" && setupCfg.APIKey != "" && setupCfg.Passphrase != "" {
 		satellite := setupCfg.SatelliteAddress
-		if fullAddress, ok := wizard.SatelliesURL[satellite]; ok {
+		if fullAddress, ok := wizard.SatellitesURL[satellite]; ok {
 			satellite = fullAddress
 		}
 		access, err = uplink.RequestAccessWithPassphrase(ctx, satellite, setupCfg.APIKey, setupCfg.Passphrase)

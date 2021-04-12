@@ -20,16 +20,19 @@ import (
 
 var (
 	satellites = []string{
-		"12EayRS2V1kEsWESU9QMRseFhdxYxKicsiFmxrsLZHeLUtdps3S@us-central-1.tardigrade.io:7777",
-		"12L9ZFwhzVpuEKMUNUqkaTLGzwY9G24tbiigLiXpmZWKwmcNDDs@europe-west-1.tardigrade.io:7777",
-		"121RTSDpyNZVcEU84Ticf2L1ntiuUimbWgfATz21tuvgk3vzoA6@asia-east-1.tardigrade.io:7777",
+		"12EayRS2V1kEsWESU9QMRseFhdxYxKicsiFmxrsLZHeLUtdps3S@us1.storj.io:7777",
+		"12L9ZFwhzVpuEKMUNUqkaTLGzwY9G24tbiigLiXpmZWKwmcNDDs@eu1.storj.io:7777",
+		"121RTSDpyNZVcEU84Ticf2L1ntiuUimbWgfATz21tuvgk3vzoA6@ap1.storj.io:7777",
 	}
 
-	// SatelliesURL mapping host to satellite URL.
-	SatelliesURL = map[string]string{
+	// SatellitesURL mapping host to satellite URL.
+	SatellitesURL = map[string]string{
 		"us-central-1.tardigrade.io":  satellites[0],
 		"europe-west-1.tardigrade.io": satellites[1],
 		"asia-east-1.tardigrade.io":   satellites[2],
+		"us1.storj.io":                satellites[0],
+		"eu1.storj.io":                satellites[1],
+		"ap1.storj.io":                satellites[2],
 	}
 )
 
