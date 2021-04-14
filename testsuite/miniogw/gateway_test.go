@@ -21,7 +21,6 @@ import (
 	"github.com/minio/minio/pkg/hash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zeebo/errs"
 
 	"storj.io/common/pb"
 	"storj.io/common/storj"
@@ -339,7 +338,7 @@ func TestGetObjectNInfo(t *testing.T) {
 		for i, tt := range []struct {
 			rangeSpec *minio.HTTPRangeSpec
 			substr    string
-			err       error
+			err       bool
 		}{
 			{rangeSpec: nil, substr: "abcdef"},
 			{rangeSpec: &minio.HTTPRangeSpec{Start: 0, End: 0}, substr: "a"},
@@ -353,20 +352,20 @@ func TestGetObjectNInfo(t *testing.T) {
 			{rangeSpec: &minio.HTTPRangeSpec{Start: 0, End: 3}, substr: "abcd"},
 			{rangeSpec: &minio.HTTPRangeSpec{Start: 1, End: 4}, substr: "bcde"},
 			{rangeSpec: &minio.HTTPRangeSpec{Start: 2, End: 5}, substr: "cdef"},
-			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: 0}, substr: ""},
-			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: -2}, substr: "ef"},
-			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: -100}, substr: "abcdef"},
-			{rangeSpec: &minio.HTTPRangeSpec{Start: -1, End: 3}, substr: "", err: minio.InvalidRange{OffsetBegin: -1, OffsetEnd: 3, ResourceSize: 6}},
-			{rangeSpec: &minio.HTTPRangeSpec{Start: 0, End: -2}, substr: "", err: errs.New("Unexpected range specification case")},
-			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: 1}, substr: "", err: errs.New("Unexpected range specification case")},
+			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: 0, End: -1}, substr: ""},
+			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: -2, End: -1}, substr: "ef"},
+			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: -100, End: -1}, substr: "abcdef"},
+			{rangeSpec: &minio.HTTPRangeSpec{Start: -1, End: 3}, err: true},
+			{rangeSpec: &minio.HTTPRangeSpec{Start: 0, End: -2}, err: true},
+			{rangeSpec: &minio.HTTPRangeSpec{IsSuffixLength: true, Start: 1}, err: true},
 		} {
 			errTag := fmt.Sprintf("%d. %v", i, tt)
 
 			// Get the object info using the Minio API
 			reader, err := layer.GetObjectNInfo(ctx, TestBucket, TestFile, tt.rangeSpec, nil, 0, minio.ObjectOptions{})
 
-			if tt.err != nil {
-				assert.EqualError(t, err, tt.err.Error(), errTag)
+			if tt.err {
+				assert.Error(t, err, errTag)
 			} else if assert.NoError(t, err) {
 				data, err := ioutil.ReadAll(reader)
 				assert.NoError(t, err, errTag)
@@ -414,7 +413,7 @@ func TestGetObject(t *testing.T) {
 		for i, tt := range []struct {
 			offset, length int64
 			substr         string
-			err            error
+			err            bool
 		}{
 			{offset: 0, length: 0, substr: ""},
 			{offset: 0, length: -1, substr: "abcdef"},
@@ -427,8 +426,8 @@ func TestGetObject(t *testing.T) {
 			{offset: 0, length: 4, substr: "abcd"},
 			{offset: 1, length: 4, substr: "bcde"},
 			{offset: 2, length: 4, substr: "cdef"},
-			{offset: -1, length: 7, substr: "", err: minio.InvalidRange{OffsetBegin: -1, OffsetEnd: 6, ResourceSize: 6}},
-			{offset: 0, length: -2, substr: "", err: minio.InvalidRange{OffsetBegin: 0, OffsetEnd: -2, ResourceSize: 6}},
+			{offset: -1, length: 7, err: true},
+			{offset: 0, length: -2, err: true},
 		} {
 			errTag := fmt.Sprintf("%d. %+v", i, tt)
 
@@ -437,8 +436,8 @@ func TestGetObject(t *testing.T) {
 			// Get the object info using the Minio API
 			err = layer.GetObject(ctx, TestBucket, TestFile, tt.offset, tt.length, &buf, "", minio.ObjectOptions{})
 
-			if tt.err != nil {
-				assert.Equal(t, tt.err, err, errTag)
+			if tt.err {
+				assert.Error(t, err, errTag)
 			} else if assert.NoError(t, err) {
 				assert.Equal(t, tt.substr, buf.String(), errTag)
 			}

@@ -156,56 +156,55 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objec
 		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
 	}()
 
-	startOffset := int64(0)
-	length := int64(-1)
-	if rangeSpec != nil {
-		if rangeSpec.IsSuffixLength {
-			if rangeSpec.Start > 0 {
-				return nil, errs.New("Unexpected range specification case")
-			}
-			// TODO: can we avoid this additional call?
-			object, err := layer.project.StatObject(ctx, bucketName, objectPath)
-			if err != nil {
-				return nil, convertError(err, bucketName, objectPath)
-			}
-			startOffset, length, err = rangeSpec.GetOffsetLength(object.System.ContentLength)
-			if err != nil {
-				return nil, convertError(err, bucketName, objectPath)
-			}
-		} else if rangeSpec.End < -1 {
-			return nil, errs.New("Unexpected range specification case")
-		} else {
-			startOffset = rangeSpec.Start
-			if rangeSpec.End != -1 {
-				length = rangeSpec.End - rangeSpec.Start + 1
-			}
-		}
+	downloadOpts, err := rangeSpecToDownloadOptions(rangeSpec)
+	if err != nil {
+		return nil, err
 	}
 
-	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
-		Offset: startOffset,
-		Length: length,
-	})
+	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, downloadOpts)
 	if err != nil {
 		return nil, convertError(err, bucketName, objectPath)
 	}
 
-	object := download.Info()
-	if startOffset < 0 || length < -1 {
-		return nil, errs.Combine(
-			minio.InvalidRange{
-				OffsetBegin:  startOffset,
-				OffsetEnd:    startOffset + length - 1,
-				ResourceSize: object.System.ContentLength,
-			},
-			download.Close(),
-		)
-	}
-
-	objectInfo := minioObjectInfo(bucketName, "", object)
+	objectInfo := minioObjectInfo(bucketName, "", download.Info())
 	downloadCloser := func() { _ = download.Close() }
 
 	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
+}
+
+func rangeSpecToDownloadOptions(spec *minio.HTTPRangeSpec) (opts *uplink.DownloadOptions, err error) {
+	switch {
+	// Case 1: Not present -> represented by a nil RangeSpec
+	case spec == nil:
+		return nil, nil
+
+	// Case 2: bytes=1-10 (absolute start and end offsets) -> RangeSpec{false, 1, 10}
+	case spec.Start >= 0 && spec.End >= 0 && !spec.IsSuffixLength:
+		return &uplink.DownloadOptions{
+			Offset: spec.Start,
+			Length: spec.End - spec.Start + 1,
+		}, nil
+
+	// Case 3: bytes=10- (absolute start offset with end offset unspecified) -> RangeSpec{false, 10, -1}
+	case spec.Start >= 0 && spec.End == -1 && !spec.IsSuffixLength:
+		return &uplink.DownloadOptions{
+			Offset: spec.Start,
+			Length: -1,
+		}, nil
+
+	// Case 4: bytes=-30 (suffix length specification) -> RangeSpec{true, -30, -1}
+	case spec.Start <= 0 && spec.End == -1 && spec.IsSuffixLength:
+		if spec.Start == 0 {
+			return &uplink.DownloadOptions{Offset: 0, Length: 0}, nil
+		}
+		return &uplink.DownloadOptions{
+			Offset: spec.Start,
+			Length: -1,
+		}, nil
+
+	default:
+		return nil, errs.New("Unexpected range specification case: %#v", spec)
+	}
 }
 
 func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
