@@ -5,7 +5,6 @@ package miniogw
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"reflect"
 
@@ -70,8 +69,8 @@ func (log *layerLogging) Shutdown(ctx context.Context) error {
 	return log.log(log.layer.Shutdown(ctx))
 }
 
-func (log *layerLogging) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
-	return log.layer.StorageInfo(ctx, local)
+func (log *layerLogging) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
+	return log.layer.StorageInfo(ctx)
 }
 
 func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) error {
@@ -106,10 +105,6 @@ func (log *layerLogging) ListObjectsV2(ctx context.Context, bucket, prefix, cont
 func (log *layerLogging) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	reader, err = log.layer.GetObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
 	return reader, log.log(err)
-}
-
-func (log *layerLogging) GetObject(ctx context.Context, bucket, object string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
-	return log.log(log.layer.GetObject(ctx, bucket, object, startOffset, length, writer, etag, opts))
 }
 
 func (log *layerLogging) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -184,19 +179,14 @@ func (log *layerLogging) HealFormat(ctx context.Context, dryRun bool) (madmin.He
 	return rv, log.log(err)
 }
 
-func (log *layerLogging) HealBucket(ctx context.Context, bucket string, dryRun, remove bool) (madmin.HealResultItem, error) {
-	rv, err := log.layer.HealBucket(ctx, bucket, dryRun, remove)
+func (log *layerLogging) HealBucket(ctx context.Context, bucket string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
+	rv, err := log.layer.HealBucket(ctx, bucket, opts)
 	return rv, log.log(err)
 }
 
 func (log *layerLogging) HealObject(ctx context.Context, bucket, object, versionID string, opts madmin.HealOpts) (madmin.HealResultItem, error) {
 	rv, err := log.layer.HealObject(ctx, bucket, object, versionID, opts)
 	return rv, log.log(err)
-}
-
-func (log *layerLogging) ListBucketsHeal(ctx context.Context) (buckets []minio.BucketInfo, err error) {
-	buckets, err = log.layer.ListBucketsHeal(ctx)
-	return buckets, log.log(err)
 }
 
 func (log *layerLogging) SetBucketPolicy(ctx context.Context, n string, p *policy.Policy) error {
@@ -224,7 +214,7 @@ func (log *layerLogging) IsCompressionSupported() bool {
 	return log.layer.IsCompressionSupported()
 }
 
-func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.Metrics, error) {
+func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.BackendMetrics, error) {
 	metrics, err := log.layer.GetMetrics(ctx)
 	return metrics, log.log(err)
 }

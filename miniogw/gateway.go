@@ -207,34 +207,6 @@ func rangeSpecToDownloadOptions(spec *minio.HTTPRangeSpec) (opts *uplink.Downloa
 	}
 }
 
-func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
-		Offset: startOffset,
-		Length: length,
-	})
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return convertError(err, bucketName, objectPath)
-	}
-	defer func() { err = errs.Combine(err, download.Close()) }()
-
-	object := download.Info()
-	if startOffset < 0 || length < -1 {
-		return minio.InvalidRange{
-			OffsetBegin:  startOffset,
-			OffsetEnd:    startOffset + length,
-			ResourceSize: object.System.ContentLength,
-		}
-	}
-
-	_, err = io.Copy(writer, download)
-
-	return convertError(err, bucketName, objectPath)
-}
-
 func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
@@ -595,7 +567,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
 
-	reader, err := hash.NewReader(download, info.System.ContentLength, "", "", info.System.ContentLength, true)
+	reader, err := hash.NewReader(download, info.System.ContentLength, "", "", info.System.ContentLength)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -651,11 +623,11 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 	defer layer.active.remove(bucketName, objectPath)
 
 	if data == nil {
-		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0, true)
+		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0)
 		if err != nil {
 			return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 		}
-		data = minio.NewPutObjReader(hashReader, nil, nil)
+		data = minio.NewPutObjReader(hashReader)
 	}
 
 	upload, err := layer.project.UploadObject(ctx, bucketName, objectPath, nil)
@@ -694,7 +666,7 @@ func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 	return layer.project.Close()
 }
 
-func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
+func (layer *gatewayLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
 	info := minio.StorageInfo{}
 	info.Backend.Type = minio.BackendGateway
 	info.Backend.GatewayOnline = layer.isSatelliteOnline(ctx)

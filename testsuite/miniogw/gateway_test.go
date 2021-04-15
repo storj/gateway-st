@@ -178,10 +178,9 @@ func TestPutObject(t *testing.T) {
 			"098f6bcd4621d373cade4e832627b4f6",
 			"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 			int64(len("test")),
-			true,
 		)
 		require.NoError(t, err)
-		data := minio.NewPutObjReader(hashReader, nil, nil)
+		data := minio.NewPutObjReader(hashReader)
 
 		metadata := map[string]string{
 			"content-type": "media/foo",
@@ -374,72 +373,6 @@ func TestGetObjectNInfo(t *testing.T) {
 				assert.NoError(t, err, errTag)
 
 				assert.Equal(t, tt.substr, string(data), errTag)
-			}
-		}
-	})
-}
-
-func TestGetObject(t *testing.T) {
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		// Check the error when getting an object from a bucket with empty name
-		err := layer.GetObject(ctx, "", "", 0, 0, nil, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNameInvalid{}, err)
-
-		// Check the error when getting an object from non-existing bucket
-		err = layer.GetObject(ctx, TestBucket, TestFile, 0, 0, nil, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
-
-		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
-
-		// Check the error when getting an object with empty name
-		err = layer.GetObject(ctx, TestBucket, "", 0, 0, nil, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
-
-		// Check the error when getting a non-existing object
-		err = layer.GetObject(ctx, TestBucket, TestFile, 0, 0, nil, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
-
-		// Create the object using the Uplink API
-		metadata := map[string]string{
-			"content-type": "text/plain",
-			"key1":         "value1",
-			"key2":         "value2",
-		}
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("abcdef"), metadata)
-		assert.NoError(t, err)
-
-		for i, tt := range []struct {
-			offset, length int64
-			substr         string
-			err            bool
-		}{
-			{offset: 0, length: 0, substr: ""},
-			{offset: 0, length: -1, substr: "abcdef"},
-			{offset: 0, length: 100, substr: "abcdef"},
-			{offset: 3, length: 0, substr: ""},
-			{offset: 3, length: -1, substr: "def"},
-			{offset: 3, length: 100, substr: "def"},
-			{offset: 0, length: 6, substr: "abcdef"},
-			{offset: 0, length: 5, substr: "abcde"},
-			{offset: 0, length: 4, substr: "abcd"},
-			{offset: 1, length: 4, substr: "bcde"},
-			{offset: 2, length: 4, substr: "cdef"},
-			{offset: -1, length: 7, err: true},
-			{offset: 0, length: -2, err: true},
-		} {
-			errTag := fmt.Sprintf("%d. %+v", i, tt)
-
-			var buf bytes.Buffer
-
-			// Get the object info using the Minio API
-			err = layer.GetObject(ctx, TestBucket, TestFile, tt.offset, tt.length, &buf, "", minio.ObjectOptions{})
-
-			if tt.err {
-				assert.Error(t, err, errTag)
-			} else if assert.NoError(t, err) {
-				assert.Equal(t, tt.substr, buf.String(), errTag)
 			}
 		}
 	})
@@ -1366,10 +1299,9 @@ func newMinioPutObjReader(t *testing.T) *minio.PutObjReader {
 		"098f6bcd4621d373cade4e832627b4f6",
 		"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 		int64(len("test")),
-		true,
 	)
 	require.NoError(t, err)
-	data := minio.NewPutObjReader(hashReader, nil, nil)
+	data := minio.NewPutObjReader(hashReader)
 
 	return data
 }
