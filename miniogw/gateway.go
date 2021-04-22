@@ -756,6 +756,10 @@ func convertError(err error, bucket, object string) error {
 		return minio.ObjectNotFound{Bucket: bucket, Object: object}
 	}
 
+	if errors.Is(err, uplink.ErrBandwidthLimitExceeded) {
+		return minio.BucketQuotaExceeded{Bucket: bucket}
+	}
+
 	return err
 }
 
