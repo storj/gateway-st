@@ -8,13 +8,16 @@ import (
 	"crypto/md5" /* #nosec G501 */ // Is only used for calculating a hash of the ETags of the all the parts of a multipart upload.
 	"encoding/hex"
 	"errors"
+	"math"
+	"sort"
 	"strconv"
 	"strings"
 
 	minio "github.com/minio/minio/cmd"
+	"github.com/zeebo/errs"
 
+	"storj.io/common/sync2"
 	"storj.io/uplink"
-	"storj.io/uplink/private/multipart"
 	"storj.io/uplink/private/storage/streams"
 )
 
@@ -36,11 +39,11 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	// The following line currently only impacts UploadObject calls.
 	ctx = streams.DisableDeleteOnCancel(ctx)
 
-	info, err := multipart.NewMultipartUpload(ctx, layer.project, bucket, object, nil)
+	info, err := layer.project.BeginUpload(ctx, bucket, object, nil)
 	if err != nil {
 		return "", convertMultipartError(err, bucket, object, "")
 	}
-	return info.StreamID, nil
+	return info.UploadID, nil
 }
 
 func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
@@ -60,14 +63,15 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, 
 	info.Object = object
 	info.UploadID = uploadID
 
-	list := multipart.ListPendingObjectStreams(ctx, layer.project, bucket, object, &multipart.ListMultipartUploadsOptions{
+	list := layer.project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
+		Prefix: object,
 		System: true,
 		Custom: true,
 	})
 
 	for list.Next() {
 		obj := list.Item()
-		if obj.StreamID == uploadID {
+		if obj.UploadID == uploadID {
 			return minioMultipartInfo(bucket, obj), nil
 		}
 	}
@@ -77,38 +81,50 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, 
 	return minio.MultipartInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
 }
 
-type etagReader struct {
-	*minio.PutObjReader
-}
-
-func newETagReader(reader *minio.PutObjReader) *etagReader {
-	return &etagReader{PutObjReader: reader}
-}
-
-func (r *etagReader) CurrentETag() []byte {
-	return []byte(r.MD5CurrentHexString())
-}
-
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	partInfo, err := multipart.PutObjectPart(ctx, layer.project, bucket, object, uploadID, partID-1, newETagReader(data))
+	if partID < 1 || partID > math.MaxUint32 {
+		return minio.PartInfo{}, errs.New("partID is out of range.")
+	}
+
+	partUpload, err := layer.project.UploadPart(ctx, bucket, object, uploadID, uint32(partID-1))
 	if err != nil {
 		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
+	_, err = sync2.Copy(ctx, partUpload, data)
+	if err != nil {
+		abortErr := partUpload.Abort()
+		err = errs.Combine(err, abortErr)
+		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	err = partUpload.SetETag([]byte(data.MD5CurrentHexString()))
+	if err != nil {
+		abortErr := partUpload.Abort()
+		err = errs.Combine(err, abortErr)
+		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	err = partUpload.Commit()
+	if err != nil {
+		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	part := partUpload.Info()
 	return minio.PartInfo{
-		PartNumber: partID,
-		Size:       partInfo.Size,
-		ActualSize: partInfo.Size,
-		ETag:       string(partInfo.ETag),
-		// TODO: should we return LastModified here?
+		PartNumber:   int(part.PartNumber + 1),
+		Size:         part.Size,
+		ActualSize:   part.Size,
+		ETag:         string(part.ETag),
+		LastModified: part.Modified,
 	}, nil
 }
 
 func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
-	err = multipart.AbortMultipartUpload(ctx, layer.project, bucket, object, uploadID)
+	err = layer.project.AbortUpload(ctx, bucket, object, uploadID)
 	if err != nil {
 		return convertMultipartError(err, bucket, object, uploadID)
 	}
@@ -128,7 +144,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
 	metadata["s3:etag"] = etag
 
-	obj, err := multipart.CompleteMultipartUpload(ctx, layer.project, bucket, object, uploadID, &multipart.ObjectOptions{
+	obj, err := layer.project.CommitUpload(ctx, bucket, object, uploadID, &uplink.CommitUploadOptions{
 		CustomMetadata: metadata,
 	})
 	if err != nil {
@@ -141,21 +157,36 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	list, err := multipart.ListObjectParts(ctx, layer.project, bucket, object, uploadID, partNumberMarker-1, maxParts)
-	if err != nil {
-		return minio.ListPartsInfo{}, convertMultipartError(err, bucket, object, uploadID)
-	}
+	list := layer.project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{
+		Cursor: uint32(partNumberMarker - 1),
+	})
 
-	parts := make([]minio.PartInfo, 0, len(list.Items))
-	for _, item := range list.Items {
+	parts := make([]minio.PartInfo, 0, maxParts)
+
+	limit := maxParts
+	for (limit > 0 || maxParts == 0) && list.Next() {
+		limit--
+		part := list.Item()
 		parts = append(parts, minio.PartInfo{
-			PartNumber:   item.PartNumber + 1,
-			LastModified: item.LastModified,
-			ETag:         string(item.ETag), // Entity tag returned when the part was initially uploaded.
-			Size:         item.Size,         // Size in bytes of the part.
-			ActualSize:   item.Size,         // Decompressed Size.
+			PartNumber:   int(part.PartNumber + 1),
+			LastModified: part.Modified,
+			ETag:         string(part.ETag), // Entity tag returned when the part was initially uploaded.
+			Size:         part.Size,         // Size in bytes of the part.
+			ActualSize:   part.Size,         // Decompressed Size.
 		})
 	}
+	if list.Err() != nil {
+		return result, convertMultipartError(list.Err(), bucket, object, uploadID)
+	}
+
+	more := list.Next()
+	if list.Err() != nil {
+		return result, convertMultipartError(list.Err(), bucket, object, uploadID)
+	}
+
+	sort.Slice(parts, func(i, k int) bool {
+		return parts[i].PartNumber < parts[k].PartNumber
+	})
 	return minio.ListPartsInfo{
 		Bucket:               bucket,
 		Object:               object,
@@ -164,7 +195,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		PartNumberMarker:     partNumberMarker, // Part number after which listing begins.
 		NextPartNumberMarker: partNumberMarker, // TODO Next part number marker to be used if list is truncated
 		MaxParts:             maxParts,
-		IsTruncated:          list.More,
+		IsTruncated:          more,
 		Parts:                parts,
 		// also available: UserDefined map[string]string
 	}, nil
@@ -190,23 +221,14 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 
 	recursive := delimiter == ""
 
-	var list *multipart.UploadIterator
+	list := layer.project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
+		Prefix:    prefix,
+		Cursor:    keyMarker,
+		Recursive: recursive,
 
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		list = multipart.ListPendingObjectStreams(ctx, layer.project, bucket, prefix, &multipart.ListMultipartUploadsOptions{
-			System: true,
-			Custom: true,
-		})
-	} else {
-		list = multipart.ListMultipartUploads(ctx, layer.project, bucket, &multipart.ListMultipartUploadsOptions{
-			Prefix:    prefix,
-			Cursor:    keyMarker,
-			Recursive: recursive,
-
-			System: true,
-			Custom: true,
-		})
-	}
+		System: true,
+		Custom: true,
+	})
 	startAfter := keyMarker
 	var uploads []minio.MultipartInfo
 	var prefixes []string
@@ -214,15 +236,15 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	limit := maxUploads
 	for (limit > 0 || maxUploads == 0) && list.Next() {
 		limit--
-		object := list.Item()
-		if object.IsPrefix {
-			prefixes = append(prefixes, object.Key)
+		upload := list.Item()
+		if upload.IsPrefix {
+			prefixes = append(prefixes, upload.Key)
 			continue
 		}
 
-		uploads = append(uploads, minioMultipartInfo(bucket, object))
+		uploads = append(uploads, minioMultipartInfo(bucket, upload))
 
-		startAfter = object.Key
+		startAfter = upload.Key
 
 	}
 	if list.Err() != nil {
@@ -252,17 +274,16 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	return result, nil
 }
 
-func minioMultipartInfo(bucket string, object *multipart.Object) minio.MultipartInfo {
-	if object == nil {
-		object = &multipart.Object{}
+func minioMultipartInfo(bucket string, upload *uplink.UploadInfo) minio.MultipartInfo {
+	if upload == nil {
+		return minio.MultipartInfo{}
 	}
 
 	return minio.MultipartInfo{
-		Bucket:      bucket,
-		Object:      object.Key,
-		Initiated:   object.System.Created,
-		UploadID:    object.StreamID,
-		UserDefined: object.Custom,
+		Bucket:    bucket,
+		Object:    upload.Key,
+		Initiated: upload.System.Created,
+		UploadID:  upload.UploadID,
 	}
 }
 
@@ -292,7 +313,7 @@ func canonicalEtag(etag string) string {
 }
 
 func convertMultipartError(err error, bucket, object, uploadID string) error {
-	if errors.Is(err, multipart.ErrStreamIDInvalid) {
+	if errors.Is(err, uplink.ErrUploadIDInvalid) {
 		return minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 	}
 
