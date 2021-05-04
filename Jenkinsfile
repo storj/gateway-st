@@ -90,6 +90,19 @@ pipeline {
                         sh 'cd ./testsuite/integration && ./run.sh'
                     }
                 }
+
+                stage('Go Compatibility') {
+                    steps {
+                        sh 'GOOS=linux   GOARCH=amd64 go vet ./...'
+                        sh 'GOOS=linux   GOARCH=386   go vet ./...'
+                        sh 'GOOS=linux   GOARCH=arm64 go vet ./...'
+                        sh 'GOOS=linux   GOARCH=arm   go vet ./...'
+                        sh 'GOOS=windows GOARCH=amd64 go vet ./...'
+                        sh 'GOOS=windows GOARCH=386   go vet ./...'
+                        // Use kqueue to avoid needing cgo for verification.
+                        sh 'GOOS=darwin  GOARCH=amd64 go vet -tags kqueue ./...'
+                    }
+                }
             }
         }
     }

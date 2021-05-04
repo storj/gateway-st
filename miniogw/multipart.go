@@ -84,7 +84,7 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket string, 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if partID < 1 || partID > math.MaxUint32 {
+	if partID < 1 || int64(partID) > math.MaxUint32 {
 		return minio.PartInfo{}, errs.New("partID is out of range.")
 	}
 
