@@ -43,6 +43,10 @@ pipeline {
                         sh 'check-errs ./...'
                         sh 'staticcheck ./...'
                         sh 'golangci-lint --config /go/ci/.golangci.yml -j=2 run'
+                        dir("testsuite") {
+                            sh 'staticcheck ./...'
+                            sh 'golangci-lint --config /go/ci/.golangci.yml -j=2 run'
+                        }
                         // TODO: reenable,
                         //    currently there are few packages that contain non-standard license formats.
                         //sh 'go-licenses check ./...'

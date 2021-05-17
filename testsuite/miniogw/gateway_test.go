@@ -1140,7 +1140,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.NoError(t, err)
 
 		totalPartsCount := 3
-		completeParts := make([]minio.CompletePart, totalPartsCount)
+		completeParts := make([]minio.CompletePart, 0, totalPartsCount)
 		for i := 1; i <= totalPartsCount; i++ {
 			info, err := layer.PutObjectPart(ctx, TestBucket, TestFile, uploadID, i, newMinioPutObjReader(t), minio.ObjectOptions{})
 			require.NoError(t, err)

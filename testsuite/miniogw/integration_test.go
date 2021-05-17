@@ -4,6 +4,7 @@
 package miniogw_test
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -87,12 +88,12 @@ func TestUploadDownload(t *testing.T) {
 			require.Equal(t, data, bytes)
 
 			{ // try to access the content as static website - expect forbidden error
-				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
+				response, err := httpGet(ctx, fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
 				require.NoError(t, err)
 				require.Equal(t, http.StatusForbidden, response.StatusCode)
 				require.NoError(t, response.Body.Close())
 
-				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
+				response, err = httpGet(ctx, fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
 				require.NoError(t, err)
 				require.Equal(t, http.StatusForbidden, response.StatusCode)
 				require.NoError(t, response.Body.Close())
@@ -104,12 +105,12 @@ func TestUploadDownload(t *testing.T) {
 				gateway, err = startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
 				require.NoError(t, err)
 
-				response, err := http.Get(fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
+				response, err := httpGet(ctx, fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, response.StatusCode)
 				require.NoError(t, response.Body.Close())
 
-				response, err = http.Get(fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
+				response, err = httpGet(ctx, fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, response.StatusCode)
 				readData, err := ioutil.ReadAll(response.Body)
@@ -175,6 +176,14 @@ func TestUploadDownload(t *testing.T) {
 			require.False(t, info.PartnerID.IsZero())
 		}
 	})
+}
+
+func httpGet(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return http.DefaultClient.Do(req)
 }
 
 func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
