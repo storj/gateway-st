@@ -9,7 +9,7 @@ require (
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio v0.0.0-20210304002810-c3217bd6ebc0
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
-	github.com/spacemonkeygo/monkit/v3 v3.0.10
+	github.com/spacemonkeygo/monkit/v3 v3.0.12
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/zeebo/errs v1.2.2
