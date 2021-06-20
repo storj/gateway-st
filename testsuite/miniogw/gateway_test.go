@@ -563,26 +563,26 @@ func TestDeleteObjects(t *testing.T) {
 }
 
 func TestListObjects(t *testing.T) {
-	testListObjects(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, bool, error) {
+	testListObjects(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, bool, error) {
 		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, "", false, err
 		}
-		return list.Prefixes, list.Objects, list.IsTruncated, nil
+		return list.Prefixes, list.Objects, marker, list.IsTruncated, nil
 	})
 }
 
 func TestListObjectsV2(t *testing.T) {
-	testListObjects(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, bool, error) {
+	testListObjects(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, bool, error) {
 		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
 		if err != nil {
-			return nil, nil, false, err
+			return nil, nil, "", false, err
 		}
-		return list.Prefixes, list.Objects, list.IsTruncated, nil
+		return list.Prefixes, list.Objects, list.ContinuationToken, list.IsTruncated, nil
 	})
 }
 
-func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context, minio.ObjectLayer, string, string, string, string, int) ([]string, []minio.ObjectInfo, bool, error)) {
+func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context, minio.ObjectLayer, string, string, string, string, int) ([]string, []minio.ObjectInfo, string, bool, error)) {
 	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects with unsupported delimiter
 		_, err := layer.ListObjects(ctx, TestBucket, "", "", "#", 0)
@@ -856,9 +856,10 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			errTag := fmt.Sprintf("%d. %+v", i, tt)
 
 			// Check that the expected objects can be listed using the Minio API
-			prefixes, objects, isTruncated, err := listObjects(t, ctx, layer, TestBucket, tt.prefix, tt.marker, tt.delimiter, tt.maxKeys)
+			prefixes, objects, marker, isTruncated, err := listObjects(t, ctx, layer, TestBucket, tt.prefix, tt.marker, tt.delimiter, tt.maxKeys)
 			if assert.NoError(t, err, errTag) {
 				assert.Equal(t, tt.more, isTruncated, errTag)
+				assert.Equal(t, tt.marker, marker, errTag)
 				assert.Equal(t, tt.prefixes, prefixes, errTag)
 				require.Equal(t, len(tt.objects), len(objects), errTag)
 				for i, objectInfo := range objects {
