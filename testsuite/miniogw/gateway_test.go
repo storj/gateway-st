@@ -562,27 +562,43 @@ func TestDeleteObjects(t *testing.T) {
 	})
 }
 
+type listObjectsFunc func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error)
+
 func TestListObjects(t *testing.T) {
-	testListObjects(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, bool, error) {
+	testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
 		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
 		if err != nil {
-			return nil, nil, "", false, err
+			return nil, nil, "", "", false, err
 		}
-		return list.Prefixes, list.Objects, marker, list.IsTruncated, nil
+		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	})
+	testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
 	})
 }
 
 func TestListObjectsV2(t *testing.T) {
-	testListObjects(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, bool, error) {
+	testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
 		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
 		if err != nil {
-			return nil, nil, "", false, err
+			return nil, nil, "", "", false, err
 		}
-		return list.Prefixes, list.Objects, list.ContinuationToken, list.IsTruncated, nil
+		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+	})
+	testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
 	})
 }
 
-func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context, minio.ObjectLayer, string, string, string, string, int) ([]string, []minio.ObjectInfo, string, bool, error)) {
+func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects with unsupported delimiter
 		_, err := layer.ListObjects(ctx, TestBucket, "", "", "#", 0)
@@ -856,7 +872,7 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			errTag := fmt.Sprintf("%d. %+v", i, tt)
 
 			// Check that the expected objects can be listed using the Minio API
-			prefixes, objects, marker, isTruncated, err := listObjects(t, ctx, layer, TestBucket, tt.prefix, tt.marker, tt.delimiter, tt.maxKeys)
+			prefixes, objects, marker, _, isTruncated, err := listObjects(ctx, layer, TestBucket, tt.prefix, tt.marker, tt.delimiter, tt.maxKeys)
 			if assert.NoError(t, err, errTag) {
 				assert.Equal(t, tt.more, isTruncated, errTag)
 				assert.Equal(t, tt.marker, marker, errTag)
@@ -891,6 +907,59 @@ func testListObjects(t *testing.T, listObjects func(*testing.T, context.Context,
 			}
 		}
 	})
+}
+
+func testListObjectsLoop(t *testing.T, listObjects listObjectsFunc) {
+	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		require.NoError(t, err)
+
+		wantObjects := make(map[string]struct{})
+		wantObjectsWithPrefix := make(map[string]struct{})
+
+		for i := 1; i <= 5; i++ {
+			for j := 1; j <= 10; j++ {
+				file, err := createFile(ctx, project, testBucketInfo.Name, fmt.Sprintf("1/%d/%d", i, j), []byte("test"), map[string]string{"content-type": "text/plain"})
+				require.NoError(t, err)
+
+				wantObjects[file.Key] = struct{}{}
+
+				if i == 3 {
+					wantObjectsWithPrefix[file.Key] = struct{}{}
+				}
+			}
+		}
+
+		gotObjects, err := listBucketObjects(ctx, listObjects, layer, "")
+		require.NoError(t, err)
+		assert.Equal(t, wantObjects, gotObjects)
+		gotObjectsWithPrefix, err := listBucketObjects(ctx, listObjects, layer, "1/3/")
+		require.NoError(t, err)
+		assert.Equal(t, wantObjectsWithPrefix, gotObjectsWithPrefix)
+	})
+}
+
+func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer minio.ObjectLayer, prefix string) (map[string]struct{}, error) {
+	gotObjects := make(map[string]struct{})
+
+	for marker, isTruncated := "", true; isTruncated; {
+		prefixes, objects, _, nextContinuationToken, more, err := listObjects(ctx, layer, TestBucket, prefix, marker, "", 4)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(prefixes) > 0 {
+			return nil, errors.New("prefixes should be empty")
+		}
+
+		for _, o := range objects {
+			gotObjects[o.Name] = struct{}{}
+		}
+
+		marker, isTruncated = nextContinuationToken, more
+	}
+
+	return gotObjects, nil
 }
 
 func TestListMultipartUploads(t *testing.T) {

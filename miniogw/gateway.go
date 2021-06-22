@@ -281,7 +281,7 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 
 	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
-		Cursor:    marker,
+		Cursor:    strings.TrimPrefix(marker, prefix),
 		Recursive: recursive,
 
 		System: true,
@@ -412,7 +412,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 
 	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
-		Cursor:    startAfterPath,
+		Cursor:    strings.TrimPrefix(startAfterPath, prefix),
 		Recursive: recursive,
 
 		System: true,
