@@ -366,7 +366,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	defer mon.Task()(&ctx)(&err)
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsV2Info{ContinuationToken: continuationToken}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+		return minio.ListObjectsV2Info{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
 	}
 
 	// TODO this should be removed and implemented on satellite side
