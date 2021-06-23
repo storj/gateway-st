@@ -579,6 +579,13 @@ func TestListObjects(t *testing.T) {
 		}
 		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
 	})
+	testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	})
 }
 
 func TestListObjectsV2(t *testing.T) {
@@ -590,6 +597,13 @@ func TestListObjectsV2(t *testing.T) {
 		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
 	})
 	testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+	})
+	testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
 		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
 		if err != nil {
 			return nil, nil, "", "", false, err
@@ -917,49 +931,227 @@ func testListObjectsLoop(t *testing.T, listObjects listObjectsFunc) {
 		wantObjects := make(map[string]struct{})
 		wantObjectsWithPrefix := make(map[string]struct{})
 
+		wantPrefixes := make(map[string]struct{})
+
 		for i := 1; i <= 5; i++ {
 			for j := 1; j <= 10; j++ {
-				file, err := createFile(ctx, project, testBucketInfo.Name, fmt.Sprintf("1/%d/%d", i, j), []byte("test"), map[string]string{"content-type": "text/plain"})
+				file, err := createFile(ctx, project, testBucketInfo.Name, fmt.Sprintf("1/%d/%d/o", i, j), nil, nil)
 				require.NoError(t, err)
 
 				wantObjects[file.Key] = struct{}{}
 
 				if i == 3 {
 					wantObjectsWithPrefix[file.Key] = struct{}{}
+					wantPrefixes[fmt.Sprintf("1/%d/%d/", i, j)] = struct{}{}
 				}
 			}
 		}
 
-		gotObjects, err := listBucketObjects(ctx, listObjects, layer, "")
-		require.NoError(t, err)
-		assert.Equal(t, wantObjects, gotObjects)
-		gotObjectsWithPrefix, err := listBucketObjects(ctx, listObjects, layer, "1/3/")
-		require.NoError(t, err)
-		assert.Equal(t, wantObjectsWithPrefix, gotObjectsWithPrefix)
+		wantNonRecursiveObjects := make(map[string]struct{})
+
+		for i := 0; i < 10; i++ {
+			file, err := createFile(ctx, project, testBucketInfo.Name, fmt.Sprintf("1/3/%d", i), nil, nil)
+			require.NoError(t, err)
+
+			wantObjects[file.Key] = struct{}{}
+			wantObjectsWithPrefix[file.Key] = struct{}{}
+			wantNonRecursiveObjects[file.Key] = struct{}{}
+		}
+
+		for _, tt := range [...]struct {
+			name         string
+			prefix       string
+			delimiter    string
+			limit        int
+			wantPrefixes map[string]struct{}
+			wantObjects  map[string]struct{}
+		}{
+			{
+				name:         "recursive + no prefix",
+				prefix:       "",
+				delimiter:    "",
+				limit:        2,
+				wantPrefixes: map[string]struct{}{},
+				wantObjects:  wantObjects,
+			},
+			{
+				name:         "recursive + with prefix",
+				prefix:       "1/3/",
+				delimiter:    "",
+				limit:        1,
+				wantPrefixes: map[string]struct{}{},
+				wantObjects:  wantObjectsWithPrefix,
+			},
+			{
+				name:         "non-recursive + no prefix",
+				prefix:       "",
+				delimiter:    "/",
+				limit:        2,
+				wantPrefixes: map[string]struct{}{"1/": {}},
+				wantObjects:  map[string]struct{}{},
+			},
+			{
+				name:         "non-recursive + with prefix",
+				prefix:       "1/3/",
+				delimiter:    "/",
+				limit:        1,
+				wantPrefixes: wantPrefixes,
+				wantObjects:  wantNonRecursiveObjects,
+			},
+		} {
+			prefixes, objects, err := listBucketObjects(ctx, listObjects, layer, tt.prefix, tt.delimiter, tt.limit, "")
+			require.NoError(t, err, tt.name)
+			assert.Equal(t, tt.wantPrefixes, prefixes, tt.name)
+			assert.Equal(t, tt.wantObjects, objects, tt.name)
+		}
 	})
 }
 
-func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer minio.ObjectLayer, prefix string) (map[string]struct{}, error) {
-	gotObjects := make(map[string]struct{})
+func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
+	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		require.NoError(t, err)
 
-	for marker, isTruncated := "", true; isTruncated; {
-		prefixes, objects, _, nextContinuationToken, more, err := listObjects(ctx, layer, TestBucket, prefix, marker, "", 4)
-		if err != nil {
-			return nil, err
+		for i := 1; i <= 2; i++ {
+			for j := 1; j <= 4; j++ {
+				_, err = createFile(ctx, project, testBucketInfo.Name, fmt.Sprintf("1/%d/%d", i, j), nil, nil)
+				require.NoError(t, err)
+				_, err = createFile(ctx, project, testBucketInfo.Name, fmt.Sprintf("1/%d/%d/o", i, j), nil, nil)
+				require.NoError(t, err)
+			}
 		}
 
-		if len(prefixes) > 0 {
-			return nil, errors.New("prefixes should be empty")
+		for _, tt := range [...]struct {
+			name         string
+			prefix       string
+			delimiter    string
+			limit        int
+			startAfter   string
+			wantPrefixes bool
+			wantObjects  bool
+		}{
+			{
+				name:         "recursive + unlimited",
+				prefix:       "1/1/1",
+				delimiter:    "",
+				limit:        2,
+				startAfter:   "",
+				wantPrefixes: false,
+				wantObjects:  true,
+			},
+			{
+				name:         "recursive + limited",
+				prefix:       "1/1/2",
+				delimiter:    "",
+				limit:        1,
+				startAfter:   "",
+				wantPrefixes: false,
+				wantObjects:  true,
+			},
+			{
+				name:         "non-recursive + unlimited",
+				prefix:       "1/1/3",
+				delimiter:    "/",
+				limit:        0,
+				startAfter:   "",
+				wantPrefixes: true,
+				wantObjects:  true,
+			},
+			{
+				name:         "non-recursive + limited",
+				prefix:       "1/1/4",
+				delimiter:    "/",
+				limit:        1,
+				startAfter:   "",
+				wantPrefixes: true,
+				wantObjects:  true,
+			},
+			{
+				name:         "startAfter implies object is listed after prefix",
+				prefix:       "1/2/1",
+				delimiter:    "/",
+				limit:        2,
+				startAfter:   "1/2/1/",
+				wantPrefixes: false,
+				wantObjects:  false,
+			},
+			{
+				name:         "startAfter is garbage",
+				prefix:       "1/2/2",
+				delimiter:    "/",
+				limit:        1,
+				startAfter:   "invalid",
+				wantPrefixes: false,
+				wantObjects:  false,
+			},
+			{
+				name:         "startAfter replaces continuationToken",
+				prefix:       "1/2/3",
+				delimiter:    "/",
+				limit:        0,
+				startAfter:   "1/2/3",
+				wantPrefixes: true,
+				wantObjects:  false,
+			},
+		} {
+			prefixes, objects, err := listBucketObjects(ctx, listObjects, layer, tt.prefix, tt.delimiter, tt.limit, tt.startAfter)
+			require.NoError(t, err, tt.name)
+
+			if tt.wantPrefixes {
+				assert.Equal(t, map[string]struct{}{tt.prefix + "/": {}}, prefixes, tt.name)
+			} else {
+				assert.Empty(t, prefixes, tt.name)
+			}
+
+			if tt.wantObjects {
+				assert.Equal(t, map[string]struct{}{tt.prefix: {}}, objects, tt.name)
+			} else {
+				assert.Empty(t, objects, tt.name)
+			}
+		}
+	})
+}
+
+func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer minio.ObjectLayer, prefix, delimiter string, maxKeys int, startAfter string) (map[string]struct{}, map[string]struct{}, error) {
+	gotPrefixes, gotObjects := make(map[string]struct{}), make(map[string]struct{})
+
+	for marker, more := "", true; more; {
+		if marker == "" {
+			marker = startAfter
+		}
+
+		prefixes, objects, _, nextContinuationToken, isTruncated, err := listObjects(ctx, layer, TestBucket, prefix, marker, delimiter, maxKeys)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if maxKeys > 0 && len(prefixes)+len(objects) > maxKeys {
+			return nil, nil, errors.New("prefixes + objects exceed maxKeys")
+		}
+
+		switch isTruncated {
+		case true:
+			if nextContinuationToken == "" {
+				return nil, nil, errors.New("isTruncated is true but nextContinuationToken is empty")
+			}
+		case false:
+			if nextContinuationToken != "" {
+				return nil, nil, errors.New("isTruncated is false but nextContinuationToken is not empty")
+			}
+		}
+
+		for _, p := range prefixes {
+			gotPrefixes[p] = struct{}{}
 		}
 
 		for _, o := range objects {
 			gotObjects[o.Name] = struct{}{}
 		}
 
-		marker, isTruncated = nextContinuationToken, more
+		marker, more = nextContinuationToken, isTruncated
 	}
 
-	return gotObjects, nil
+	return gotPrefixes, gotObjects, nil
 }
 
 func TestListMultipartUploads(t *testing.T) {
