@@ -21,7 +21,6 @@ import (
 
 	"storj.io/private/version"
 	"storj.io/uplink"
-	"storj.io/uplink/private/storage/streams"
 )
 
 var (
@@ -519,21 +518,6 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketNam
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// Scenario: if a client starts uploading an object and then dies, when
-	// is it safe to restart uploading?
-	// * with libuplink natively, it's immediately safe. the client died, so
-	//   it stopped however far it got, and it can start over.
-	// * with the gateway, unless we do the following line it is impossible
-	//   to know when it's safe to start uploading again. it might be up to
-	//   30 minutes later that it's safe! the reason is if the client goes
-	//   away, the gateway keeps running, and may down the road decide the
-	//   request was canceled, and so the object should get deleted.
-	// So, to make clients of the gateway's behavior match libuplink, we are
-	// disabling the cleanup on cancel that libuplink tries to do. we may
-	// want to consider disabling this for libuplink entirely.
-	// The following line currently only impacts UploadObject calls.
-	ctx = streams.DisableDeleteOnCancel(ctx)
-
 	if srcObject == "" {
 		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: srcBucket}
 	}
@@ -608,21 +592,6 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
-
-	// Scenario: if a client starts uploading an object and then dies, when
-	// is it safe to restart uploading?
-	// * with libuplink natively, it's immediately safe. the client died, so
-	//   it stopped however far it got, and it can start over.
-	// * with the gateway, unless we do the following line it is impossible
-	//   to know when it's safe to start uploading again. it might be up to
-	//   30 minutes later that it's safe! the reason is if the client goes
-	//   away, the gateway keeps running, and may down the road decide the
-	//   request was canceled, and so the object should get deleted.
-	// So, to make clients of the gateway's behavior match libuplink, we are
-	// disabling the cleanup on cancel that libuplink tries to do. we may
-	// want to consider disabling this for libuplink entirely.
-	// The following line currently only impacts UploadObject calls.
-	ctx = streams.DisableDeleteOnCancel(ctx)
 
 	// TODO this should be removed and implemented on satellite side
 	defer func() {
