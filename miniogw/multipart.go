@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	minio "github.com/minio/minio/cmd"
+	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/zeebo/errs"
 
 	"storj.io/common/sync2"
@@ -123,6 +124,11 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	etag, err := multipartUploadETag(uploadedParts)
 	if err != nil {
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
+		opts.UserDefined["s3:tags"] = tagsStr
+		delete(opts.UserDefined, xhttp.AmzObjectTagging)
 	}
 
 	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()

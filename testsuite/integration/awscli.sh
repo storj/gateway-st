@@ -46,6 +46,21 @@ aws configure set default.s3.multipart_threshold 1TB
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/small-upload-testfile" s3://bucket/small-testfile
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/big-upload-testfile"   s3://bucket/big-testfile
 
+echo "Testing tagging"
+touch "$TMPDIR/no-tags.json"
+cat > "$TMPDIR/has-tags.json" << EOF
+TAGSET	designation	confidential
+EOF
+aws --endpoint="http://$GATEWAY_0_ADDR" s3api get-object-tagging --bucket bucket --key big-testfile --output text > "$TMPDIR/tags.json"
+require_equal_files_content "$TMPDIR/tags.json" "$TMPDIR/no-tags.json"
+aws --endpoint="http://$GATEWAY_0_ADDR" s3api put-object-tagging --bucket bucket --key big-testfile --tagging '{"TagSet": [{ "Key": "designation", "Value": "confidential" }]}'
+aws --endpoint="http://$GATEWAY_0_ADDR" s3api get-object-tagging --bucket bucket --key big-testfile --output text > "$TMPDIR/tags.json"
+require_equal_files_content "$TMPDIR/tags.json" "$TMPDIR/has-tags.json"
+aws --endpoint="http://$GATEWAY_0_ADDR" s3api delete-object-tagging --bucket bucket --key big-testfile
+aws --endpoint="http://$GATEWAY_0_ADDR" s3api get-object-tagging --bucket bucket --key big-testfile --output text > "$TMPDIR/tags.json"
+require_equal_files_content "$TMPDIR/tags.json" "$TMPDIR/no-tags.json"
+
+
 # Wait 5 seconds to trigger any error related to one of the different intervals
 sleep 5
 

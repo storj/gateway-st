@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcutil/base58"
 	minio "github.com/minio/minio/cmd"
+	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/stretchr/testify/assert"
@@ -183,16 +184,18 @@ func TestPutObject(t *testing.T) {
 		data := minio.NewPutObjReader(hashReader)
 
 		metadata := map[string]string{
-			"content-type": "media/foo",
-			"key1":         "value1",
-			"key2":         "value2",
+			"content-type":         "media/foo",
+			"key1":                 "value1",
+			"key2":                 "value2",
+			xhttp.AmzObjectTagging: "key3=value3&key4=value4",
 		}
 
 		expectedMetaInfo := pb.SerializableMeta{
 			ContentType: metadata["content-type"],
 			UserDefined: map[string]string{
-				"key1": metadata["key1"],
-				"key2": metadata["key2"],
+				"key1":    metadata["key1"],
+				"key2":    metadata["key2"],
+				"s3:tags": "key3=value3&key4=value4",
 			},
 		}
 
@@ -1413,7 +1416,15 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			})
 		}
 
-		_, err = layer.CompleteMultipartUpload(ctx, TestBucket, TestFile, uploadID, completeParts, minio.ObjectOptions{})
+		metadata := map[string]string{
+			"content-type":         "text/plain",
+			xhttp.AmzObjectTagging: "key1=value1&key2=value2",
+		}
+		expectedMetadata := map[string]string{
+			"content-type": "text/plain",
+			"s3:tags":      "key1=value1&key2=value2",
+		}
+		_, err = layer.CompleteMultipartUpload(ctx, TestBucket, TestFile, uploadID, completeParts, minio.ObjectOptions{UserDefined: metadata})
 		require.NoError(t, err)
 
 		obj, err := layer.ListObjects(ctx, TestBucket, TestFile, "", "", 2)
@@ -1421,6 +1432,8 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Len(t, obj.Objects, 1)
 		require.Equal(t, TestBucket, obj.Objects[0].Bucket)
 		require.Equal(t, TestFile, obj.Objects[0].Name)
+		expectedMetadata["s3:etag"] = obj.Objects[0].ETag
+		require.Equal(t, expectedMetadata, obj.Objects[0].UserDefined)
 	})
 }
 
@@ -1459,6 +1472,171 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
 		require.True(t, errors.Is(err, uplink.ErrObjectNotFound))
 
+	})
+}
+
+func TestListObjectVersions(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := layer.ListObjectVersions(ctx, "bucket", "prefix", "marker", "versionMarker", "delimiter", 0)
+		require.EqualError(t, err, minio.NotImplemented{}.Error())
+	})
+}
+
+func TestPutObjectTags(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Check the error when putting object tags from a bucket with empty name
+		_, err := layer.PutObjectTags(ctx, "", "", "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		// Check the error when putting object tags with a non-existent bucket
+		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+
+		// Create the bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		require.NoError(t, err)
+
+		// Check the error when putting object tags for an object with empty name
+		_, err = layer.PutObjectTags(ctx, TestBucket, "", "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+
+		// Check the error when putting object tags with a non-existing object
+		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+
+		// These are the object tags we want to put
+		objectTags := "key3=value3&key4=value4"
+
+		// This is the tag map expected from GetObjectTags
+		expectedObjectTags := map[string]string{
+			"key3": "value3",
+			"key4": "value4",
+		}
+
+		// Create the object using the Uplink API
+		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, objectTags, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, expectedObjectTags, ts.ToMap())
+
+		// Test that sending an empty tag set is effectively the same as deleting them
+		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, "", minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Empty(t, ts.ToMap())
+	})
+}
+
+func TestGetObjectTags(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Check the error when getting object tags from a bucket with empty name
+		_, err := layer.GetObjectTags(ctx, "", "", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		// Check the error when getting object tags with a non-existent bucket
+		_, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+
+		// Create the bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		require.NoError(t, err)
+
+		// Check the error when getting object tags for an object with empty name
+		_, err = layer.GetObjectTags(ctx, TestBucket, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+
+		// Check the error when getting object tags with a non-existent object
+		_, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+
+		// This is the custom metadata for the object.
+		metadata := map[string]string{
+			"content-type": "text/plain",
+			"s3:tags":      "key1=value1&key2=value2",
+		}
+
+		// These are the expected object tags from that metadata.
+		expected := map[string]string{
+			"key1": "value1",
+			"key2": "value2",
+		}
+
+		// Create the object using the Uplink API
+		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
+		require.NoError(t, err)
+
+		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, expected, ts.ToMap())
+
+		metadataNoObjectTags := map[string]string{
+			"content-type": "text/plain",
+		}
+
+		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadataNoObjectTags)
+		require.NoError(t, err)
+
+		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Empty(t, ts.ToMap())
+
+		metadataEmptyObjectTags := map[string]string{
+			"content-type": "text/plain",
+			"s3:tags":      "",
+		}
+
+		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadataEmptyObjectTags)
+		require.NoError(t, err)
+
+		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Empty(t, ts.ToMap())
+	})
+}
+
+func TestDeleteObjectTags(t *testing.T) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Check the error when deleting object tags from a bucket with empty name
+		_, err := layer.DeleteObjectTags(ctx, "", "", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		// Check the error when deleting object tags with a non-existent bucket
+		_, err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+
+		// Create the bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		require.NoError(t, err)
+
+		// Check the error when deleting object tags for an object with empty name
+		_, err = layer.DeleteObjectTags(ctx, TestBucket, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+
+		// Check the error when deleting object tags for a non-existing object
+		_, err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+
+		metadata := map[string]string{
+			"s3:tags": "key5=value5&key6=value6",
+		}
+
+		// Create the object using the Uplink API
+		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
+		require.NoError(t, err)
+
+		_, err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Empty(t, ts.ToMap())
 	})
 }
 

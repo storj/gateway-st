@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 
+	"github.com/minio/minio-go/v7/pkg/tags"
 	minio "github.com/minio/minio/cmd"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/bucket/policy"
@@ -38,6 +39,10 @@ type layerLogging struct {
 	minio.GatewayUnsupported
 	layer  minio.ObjectLayer
 	logger *zap.Logger
+}
+
+func (log *layerLogging) IsTaggingSupported() bool {
+	return log.layer.IsTaggingSupported()
 }
 
 // minioError checks if the given error is a minio error.
@@ -109,6 +114,21 @@ func (log *layerLogging) GetObjectNInfo(ctx context.Context, bucket, object stri
 
 func (log *layerLogging) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	objInfo, err = log.layer.GetObjectInfo(ctx, bucket, object, opts)
+	return objInfo, log.log(err)
+}
+
+func (log *layerLogging) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.PutObjectTags(ctx, bucketName, objectPath, tags, opts)
+	return objInfo, log.log(err)
+}
+
+func (log *layerLogging) GetObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
+	t, err = log.layer.GetObjectTags(ctx, bucketName, objectPath, opts)
+	return t, log.log(err)
+}
+
+func (log *layerLogging) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	objInfo, err = log.layer.DeleteObjectTags(ctx, bucketName, objectPath, opts)
 	return objInfo, log.log(err)
 }
 
