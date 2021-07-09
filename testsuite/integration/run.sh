@@ -13,6 +13,7 @@ VERSION=$(go list -m -f "{{.Version}}" storj.io/storj)
 /usr/local/go/bin/go install storj.io/storj/cmd/storagenode@$VERSION
 /usr/local/go/bin/go install storj.io/storj/cmd/versioncontrol@$VERSION
 /usr/local/go/bin/go install storj.io/storj/cmd/storj-sim@$VERSION
+/usr/local/go/bin/go install storj.io/storj/cmd/multinode@$VERSION
 
 cd ../.. && go install storj.io/gateway
 

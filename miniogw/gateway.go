@@ -294,18 +294,6 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 	for (limit > 0 || maxKeys == 0) && list.Next() {
 		object := list.Item()
 
-		// The conditional below is a temporary fix until
-		// https://review.dev.storj.io/c/storj/uplink/+/5103 is resolved.
-		// Gateway will try to hop one item further (this successfully
-		// [hackingly] resolves the issue in synthetical tests).
-		if object.Key == startAfter {
-			if list.Next() {
-				object = list.Item()
-			} else {
-				break
-			}
-		}
-
 		limit--
 
 		if object.IsPrefix {
@@ -411,18 +399,6 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	limit := maxKeys
 	for (limit > 0 || maxKeys == 0) && list.Next() {
 		object := list.Item()
-
-		// The conditional below is a temporary fix until
-		// https://review.dev.storj.io/c/storj/uplink/+/5103 is resolved.
-		// Gateway will try to hop one item further (this successfully
-		// [hackingly] resolves the issue in synthetical tests).
-		if object.Key == startAfterPath {
-			if list.Next() {
-				object = list.Item()
-			} else {
-				break
-			}
-		}
 
 		limit--
 
