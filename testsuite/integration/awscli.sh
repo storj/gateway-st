@@ -46,6 +46,18 @@ aws configure set default.s3.multipart_threshold 1TB
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/small-upload-testfile" s3://bucket/small-testfile
 aws s3 --endpoint="http://$GATEWAY_0_ADDR" --no-progress cp "$SRC_DIR/big-upload-testfile"   s3://bucket/big-testfile
 
+echo "Testing presign"
+URL=$(aws s3 --endpoint "http://$GATEWAY_0_ADDR" presign s3://bucket/big-testfile)
+STATUS=$(curl -s -o "$TMPDIR/big-upload-testfile" -w "%{http_code}" "$URL")
+require_equal_strings "$STATUS" "200"
+require_equal_files_content "$SRC_DIR/big-upload-testfile" "$TMPDIR/big-upload-testfile"
+
+echo "Testing presign expires"
+URL=$(aws s3 --endpoint "http://$GATEWAY_0_ADDR" presign s3://bucket/big-testfile --expires-in 1)
+sleep 2
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+require_equal_strings "$STATUS" "403"
+
 echo "Testing tagging"
 touch "$TMPDIR/no-tags.json"
 cat > "$TMPDIR/has-tags.json" << EOF
