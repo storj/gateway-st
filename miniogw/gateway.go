@@ -328,7 +328,7 @@ func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.Bucke
 		})
 	}
 	if buckets.Err() != nil {
-		return nil, buckets.Err()
+		return nil, convertError(buckets.Err(), "", "")
 	}
 	return items, nil
 }
