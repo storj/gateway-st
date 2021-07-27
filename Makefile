@@ -1,26 +1,27 @@
 GO_VERSION ?= 1.15.7
 GOOS ?= linux
 GOARCH ?= amd64
-GOPATH ?= $(shell go env GOPATH)
-COMPOSE_PROJECT_NAME := ${TAG}-$(shell git rev-parse --abbrev-ref HEAD)
+
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
+
 ifeq (${BRANCH_NAME},main)
-TAG    := $(shell git rev-parse --short HEAD)-go${GO_VERSION}
+	TAG := $(shell git rev-parse --short HEAD)-go${GO_VERSION}
 else
-TAG    := $(shell git rev-parse --short HEAD)-${BRANCH_NAME}-go${GO_VERSION}
-ifneq (,$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*"))
-LATEST_TAG := latest
+	TAG := $(shell git rev-parse --short HEAD)-${BRANCH_NAME}-go${GO_VERSION}
+	ifneq (,$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*"))
+		LATEST_TAG := latest
+	endif
 endif
-endif
+
 RELEASE_BUILD_REQUIRED ?= false
 
 FILEEXT :=
+
 ifeq (${GOOS},windows)
-FILEEXT := .exe
+	FILEEXT := .exe
 endif
 
-DOCKER_BUILD := docker build \
-	--build-arg TAG=${TAG}
+DOCKER_BUILD := docker build --build-arg TAG=${TAG}
 
 .DEFAULT_GOAL := help
 .PHONY: help
