@@ -7,7 +7,7 @@ require (
 	github.com/calebcase/tmpfile v1.0.2 // indirect
 	github.com/gomodule/redigo v2.0.0+incompatible // indirect
 	github.com/minio/cli v1.22.0
-	github.com/minio/minio v0.0.0-20210304002810-c3217bd6ebc0
+	github.com/minio/minio v0.0.0-20210423172742-e0d3a8c1f4e5
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
 	github.com/spacemonkeygo/monkit/v3 v3.0.15

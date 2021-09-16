@@ -18,6 +18,7 @@ import (
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/hash"
+	"github.com/minio/minio/pkg/madmin"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 
@@ -30,6 +31,12 @@ var (
 
 	// Error is the errs class of standard End User Client errors.
 	Error = errs.Class("Storj Gateway error")
+
+	// ErrUnsupportedDelimiter is a custom "not implemented" error type
+	// for when an unsupported delimiter is given in a request.
+	ErrUnsupportedDelimiter = minio.NotImplemented{
+		Message: "Delimiters other than '/' are unsupported",
+	}
 )
 
 // Config allows configuration of some Gateway options.
@@ -342,7 +349,7 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 	}
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+		return minio.ListObjectsInfo{}, ErrUnsupportedDelimiter
 	}
 
 	// TODO this should be removed and implemented on satellite side
@@ -440,7 +447,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	defer mon.Task()(&ctx)(&err)
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsV2Info{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+		return minio.ListObjectsV2Info{}, ErrUnsupportedDelimiter
 	}
 
 	// TODO this should be removed and implemented on satellite side
@@ -734,7 +741,7 @@ func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 
 func (layer *gatewayLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
 	info := minio.StorageInfo{}
-	info.Backend.Type = minio.BackendGateway
+	info.Backend.Type = madmin.Gateway
 	info.Backend.GatewayOnline = layer.isSatelliteOnline(ctx)
 	return info, nil
 }

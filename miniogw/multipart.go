@@ -201,7 +201,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket stri
 	}
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListMultipartsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+		return minio.ListMultipartsInfo{}, ErrUnsupportedDelimiter
 	}
 
 	// TODO this should be removed and implemented on satellite side

@@ -619,7 +619,7 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects with unsupported delimiter
 		_, err := layer.ListObjects(ctx, TestBucket, "", "", "#", 0)
-		assert.Equal(t, minio.UnsupportedDelimiter{Delimiter: "#"}, err)
+		assert.Equal(t, miniogw.ErrUnsupportedDelimiter, err)
 
 		// Check the error when listing objects in a bucket with empty name
 		_, err = layer.ListObjects(ctx, "", "", "", "/", 0)
