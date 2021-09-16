@@ -147,7 +147,7 @@ func cmdRun(cmd *cobra.Command, args []string) (err error) {
 		zap.S().Warn("Failed to initialize telemetry batcher: ", err)
 	}
 
-	zap.S().Infof("Starting Tardigrade S3 Gateway\n\n")
+	zap.S().Infof("Starting Storj DCS S3 Gateway\n\n")
 	zap.S().Infof("Endpoint: %s\n", address)
 	zap.S().Infof("Access key: %s\n", runCfg.Minio.AccessKey)
 	zap.S().Infof("Secret key: %s\n", runCfg.Minio.SecretKey)
