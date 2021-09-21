@@ -12,11 +12,12 @@ import (
 	"net/http"
 	"strings"
 
+	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/cmd/config/storageclass"
 	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
@@ -28,34 +29,48 @@ import (
 var (
 	mon = monkit.Package()
 
-	// Error is the errs class of standard End User Client errors.
-	Error = errs.Class("Storj Gateway error")
-
-	// ErrUnsupportedDelimiter is a custom "not implemented" error type
-	// for when an unsupported delimiter is given in a request.
-	ErrUnsupportedDelimiter = minio.NotImplemented{
-		API: "Delimiters other than '/' are unsupported",
+	// ErrProjectUsageLimit is a custom error for when a user has reached their
+	// Satellite project upload limit.
+	//
+	// Note: we went with 403 Forbidden over 507 Insufficient Storage, as 507
+	// doesn't fit this case exactly. 507 is for when the server cannot
+	// physically store any further data, e.g. the disk has filled up. In this
+	// case though the user can solve this themselves by upgrading their plan,
+	// so it should be treated as a 4xx level error, not 5xx.
+	ErrProjectUsageLimit = miniogo.ErrorResponse{
+		Code:       "XStorjProjectLimits",
+		StatusCode: http.StatusForbidden,
+		Message:    "You have reached your Storj project upload limit on the Satellite.",
 	}
+
+	// ErrSlowDown is a custom error for when a user is exceeding Satellite
+	// request rate limits. We don't use the built-in `minio.SlowDown{}` error
+	// because minio doesn't expect this error would be returned by the object
+	// API. e.g. it would map errors like `minio.InsufficientWriteQuorum` to
+	// `minio.SlowDown`, but not SlowDown to itself.
+	ErrSlowDown = miniogo.ErrorResponse{
+		Code:       "SlowDown",
+		StatusCode: http.StatusTooManyRequests,
+		Message:    "Please reduce your request rate.",
+	}
+
+	// ErrNoUplinkProject is a custom error that indicates there was no
+	// `*uplink.Project` in the context for the gateway to pick up. This error
+	// may signal that passing credentials down to the object layer is working
+	// incorrectly.
+	ErrNoUplinkProject = errs.Class("uplink project")
 )
 
-// Config allows configuration of some Gateway options.
-type Config struct {
-	Uplink  uplink.Config
-	Website bool
+// Gateway is the implementation of cmd.Gateway.
+type Gateway struct {
+	compatibilityConfig S3CompatibilityConfig
 }
 
 // NewStorjGateway creates a new Storj S3 gateway.
-func NewStorjGateway(access *uplink.Access, config Config) *Gateway {
+func NewStorjGateway(compatibilityConfig S3CompatibilityConfig) *Gateway {
 	return &Gateway{
-		access: access,
-		config: config,
+		compatibilityConfig: compatibilityConfig,
 	}
-}
-
-// Gateway is the implementation of a minio cmd.Gateway.
-type Gateway struct {
-	access *uplink.Access
-	config Config
 }
 
 // Name implements cmd.Gateway.
@@ -65,17 +80,8 @@ func (gateway *Gateway) Name() string {
 
 // NewGatewayLayer implements cmd.Gateway.
 func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
-	ctx := minio.GlobalContext
-
-	project, err := gateway.config.Uplink.OpenProject(ctx, gateway.access)
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-
 	return &gatewayLayer{
-		gateway: gateway,
-		active:  newActiveUploads(),
-		project: project,
+		compatibilityConfig: gateway.compatibilityConfig,
 	}, nil
 }
 
@@ -86,68 +92,43 @@ func (gateway *Gateway) Production() bool {
 
 type gatewayLayer struct {
 	minio.GatewayUnsupported
-	gateway *Gateway
-	active  *activeUploads
-	project *uplink.Project
+	compatibilityConfig S3CompatibilityConfig
 }
 
-func (layer *gatewayLayer) IsTaggingSupported() bool {
-	return true
+func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
+	defer mon.Task()(&ctx)(&err)
+	return nil
 }
 
-func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucketName string, forceDelete bool) (err error) {
+func (layer *gatewayLayer) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
+	info := minio.StorageInfo{}
+	info.Backend.Type = minio.BackendGateway
+	info.Backend.GatewayOnline = true
+	return info, nil
+}
+
+func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if forceDelete {
-		_, err = layer.project.DeleteBucketWithObjects(ctx, bucketName)
-		return convertError(err, bucketName, "")
-	}
-
-	_, err = layer.project.DeleteBucket(ctx, bucketName)
-
-	return convertError(err, bucketName, "")
-}
-
-func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	// TODO this should be removed and implemented on satellite side.
-	// This call needs to occur prior to the DeleteObject call below, because
-	// project.DeleteObject will return a nil error for a missing bucket. To
-	// maintain consistency, we need to manually check if the bucket exists.
-	_, err = layer.project.StatBucket(ctx, bucketName)
+	project, err := projectFromContext(ctx, bucket, "")
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
+		return err
 	}
 
-	object, err := layer.project.DeleteObject(ctx, bucketName, objectPath)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
+	_, err = project.CreateBucket(ctx, bucket)
 
-	return minioObjectInfo(bucketName, "", object), nil
-}
-
-func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucketName string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, errs []error) {
-	// TODO: implement multiple object deletion in libuplink API
-	errs = make([]error, len(objects))
-	deleted = make([]minio.DeletedObject, len(objects))
-	for i, object := range objects {
-		_, deleteErr := layer.DeleteObject(ctx, bucketName, object.ObjectName, opts)
-		if deleteErr != nil && !errors.As(deleteErr, &minio.ObjectNotFound{}) {
-			errs[i] = convertError(deleteErr, bucketName, object.ObjectName)
-			continue
-		}
-		deleted[i].ObjectName = object.ObjectName
-	}
-	return deleted, errs
+	return convertError(err, bucket, "")
 }
 
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	bucket, err := layer.project.StatBucket(ctx, bucketName)
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return minio.BucketInfo{}, err
+	}
 
+	bucket, err := project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return minio.BucketInfo{}, convertError(err, bucketName, "")
 	}
@@ -158,202 +139,15 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 	}, nil
 }
 
-func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucketName, objectPath string, rangeSpec *minio.HTTPRangeSpec, header http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	// TODO this should be removed and implemented on satellite side
-	defer func() {
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-	}()
-
-	downloadOpts, err := rangeSpecToDownloadOptions(rangeSpec)
-	if err != nil {
-		return nil, err
-	}
-
-	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, downloadOpts)
-	if err != nil {
-		return nil, convertError(err, bucketName, objectPath)
-	}
-
-	objectInfo := minioObjectInfo(bucketName, "", download.Info())
-	downloadCloser := func() { _ = download.Close() }
-
-	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
-}
-
-func rangeSpecToDownloadOptions(spec *minio.HTTPRangeSpec) (opts *uplink.DownloadOptions, err error) {
-	switch {
-	// Case 1: Not present -> represented by a nil RangeSpec
-	case spec == nil:
-		return nil, nil
-
-	// Case 2: bytes=1-10 (absolute start and end offsets) -> RangeSpec{false, 1, 10}
-	case spec.Start >= 0 && spec.End >= 0 && !spec.IsSuffixLength:
-		return &uplink.DownloadOptions{
-			Offset: spec.Start,
-			Length: spec.End - spec.Start + 1,
-		}, nil
-
-	// Case 3: bytes=10- (absolute start offset with end offset unspecified) -> RangeSpec{false, 10, -1}
-	case spec.Start >= 0 && spec.End == -1 && !spec.IsSuffixLength:
-		return &uplink.DownloadOptions{
-			Offset: spec.Start,
-			Length: -1,
-		}, nil
-
-	// Case 4: bytes=-30 (suffix length specification) -> RangeSpec{true, -30, -1}
-	case spec.Start <= 0 && spec.End == -1 && spec.IsSuffixLength:
-		if spec.Start == 0 {
-			return &uplink.DownloadOptions{Offset: 0, Length: 0}, nil
-		}
-		return &uplink.DownloadOptions{
-			Offset: spec.Start,
-			Length: -1,
-		}, nil
-
-	default:
-		return nil, errs.New("Unexpected range specification case: %#v", spec)
-	}
-}
-
-func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
-
-	return minioObjectInfo(bucketName, "", object), nil
-}
-
-func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
-		Offset: startOffset,
-		Length: length,
-	})
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return convertError(err, bucketName, objectPath)
-	}
-	defer func() { err = errs.Combine(err, download.Close()) }()
-
-	object := download.Info()
-	if startOffset < 0 || length < -1 {
-		return minio.InvalidRange{
-			OffsetBegin:  startOffset,
-			OffsetEnd:    startOffset + length,
-			ResourceSize: object.System.ContentLength,
-		}
-	}
-
-	_, err = io.Copy(writer, download)
-
-	return convertError(err, bucketName, objectPath)
-}
-
-func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err = errs.Combine(err, layer.project.Close())
-	}()
-
-	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return convertError(err, bucketName, objectPath)
-	}
-
-	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
-		return nil
-	}
-
-	newMetadata := object.Custom.Clone()
-	if tags == "" {
-		delete(newMetadata, "s3:tags")
-	} else {
-		newMetadata["s3:tags"] = tags
-	}
-
-	err = layer.project.UpdateObjectMetadata(ctx, bucketName, objectPath, newMetadata, nil)
-	if err != nil {
-		return convertError(err, bucketName, objectPath)
-	}
-
-	return nil
-}
-
-func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		err = errs.Combine(err, layer.project.Close())
-	}()
-
-	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return nil, convertError(err, bucketName, objectPath)
-	}
-
-	t, err = tags.ParseObjectTags(object.Custom["s3:tags"])
-	if err != nil {
-		return nil, convertError(err, bucketName, objectPath)
-	}
-
-	return t, nil
-}
-func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err = errs.Combine(err, layer.project.Close())
-	}()
-
-	object, err := layer.project.StatObject(ctx, bucketName, objectPath)
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return convertError(err, bucketName, objectPath)
-	}
-
-	if _, ok := object.Custom["s3:tags"]; !ok {
-		return nil
-	}
-
-	newMetadata := object.Custom.Clone()
-	delete(newMetadata, "s3:tags")
-
-	err = layer.project.UpdateObjectMetadata(ctx, bucketName, objectPath, newMetadata, nil)
-	if err != nil {
-		return convertError(err, bucketName, objectPath)
-	}
-
-	return nil
-}
-
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	buckets := layer.project.ListBuckets(ctx, nil)
+	project, err := projectFromContext(ctx, "", "")
+	if err != nil {
+		return nil, err
+	}
+
+	buckets := project.ListBuckets(ctx, nil)
 	for buckets.Next() {
 		info := buckets.Item()
 		items = append(items, minio.BucketInfo{
@@ -367,24 +161,69 @@ func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.Bucke
 	return items, nil
 }
 
-func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
+func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO maybe this should be checked by project.ListObjects
-	if bucketName == "" {
-		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{}
+	project, err := projectFromContext(ctx, bucket, "")
+	if err != nil {
+		return err
 	}
 
+	if forceDelete {
+		_, err = project.DeleteBucketWithObjects(ctx, bucket)
+		return convertError(err, bucket, "")
+	}
+
+	_, err = project.DeleteBucket(ctx, bucket)
+	if errs.Is(err, uplink.ErrBucketNotEmpty) {
+		// Check if the bucket contains any non-pending objects. If it doesn't,
+		// this would mean there were initiated non-committed and non-aborted
+		// multipart uploads. Other S3 implementations allow deletion of such
+		// buckets, but with uplink, we need to explicitly force bucket
+		// deletion.
+		it := project.ListObjects(ctx, bucket, nil)
+		if !it.Next() && it.Err() == nil {
+			_, err = project.DeleteBucketWithObjects(ctx, bucket)
+			return convertError(err, bucket, "")
+		}
+	}
+
+	return convertError(err, bucket, "")
+}
+
+// limitMaxKeys returns maxKeys limited to what gateway is configured to limit
+// maxKeys to, aligned with paging limitations on the satellite side. It will
+// also return the highest limit possible if maxKeys is not positive.
+func (layer *gatewayLayer) limitMaxKeys(maxKeys int) int {
+	if maxKeys <= 0 || maxKeys >= layer.compatibilityConfig.MaxKeysLimit {
+		// Return max keys with a buffer to gather the continuation token to
+		// avoid paging problems until we have a method in libuplink to get more
+		// info about page boundaries.
+		return layer.compatibilityConfig.MaxKeysLimit - 1
+	}
+	return maxKeys
+}
+
+func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
+
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsInfo{}, ErrUnsupportedDelimiter
+		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+	}
+
+	project, err := projectFromContext(ctx, bucket, "")
+	if err != nil {
+		return minio.ListObjectsInfo{}, err
 	}
 
 	// TODO this should be removed and implemented on satellite side
 	defer func() {
-		err = checkBucketError(ctx, layer.project, bucketName, "", err)
+		err = checkBucketError(ctx, project, bucket, "", err)
 	}()
 
 	recursive := delimiter == ""
+
+	startAfter := marker
 
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		// N.B.: in this case, the most S3-compatible thing we could do
@@ -401,29 +240,28 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		// 1) return an error here, guaranteeing nothing works
 		// 2) do the full S3 compatible thing, which has terrible
 		//    performance for a really common case (StatObject-like
-		//		functionality)
+		//    functionality)
 		// 3) handle strictly more of the use cases than #1 without
 		//    loss of performance by turning this into a StatObject.
 		// so we do #3 here. it's great!
 
-		return layer.listSingleObject(ctx, bucketName, prefix, marker, recursive, maxKeys)
+		return listSingleObject(ctx, project, bucket, prefix, startAfter, recursive, maxKeys)
 	}
 
-	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
-		Cursor:    strings.TrimPrefix(marker, prefix),
+		Cursor:    strings.TrimPrefix(startAfter, prefix),
 		Recursive: recursive,
 
 		System: true,
-		Custom: true,
+		Custom: layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
 
-	startAfter := marker
 	var objects []minio.ObjectInfo
 	var prefixes []string
 
-	limit := maxKeys
-	for (limit > 0 || maxKeys == 0) && list.Next() {
+	limit := layer.limitMaxKeys(maxKeys)
+	for limit > 0 && list.Next() {
 		object := list.Item()
 
 		limit--
@@ -431,18 +269,18 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 		if object.IsPrefix {
 			prefixes = append(prefixes, object.Key)
 		} else {
-			objects = append(objects, minioObjectInfo(bucketName, "", object))
+			objects = append(objects, minioObjectInfo(bucket, "", object))
 		}
 
 		startAfter = object.Key
 	}
 	if list.Err() != nil {
-		return result, convertError(list.Err(), bucketName, "")
+		return result, convertError(list.Err(), bucket, "")
 	}
 
 	more := list.Next()
 	if list.Err() != nil {
-		return result, convertError(list.Err(), bucketName, "")
+		return result, convertError(list.Err(), bucket, "")
 	}
 
 	result = minio.ListObjectsInfo{
@@ -457,29 +295,21 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucketName, prefix, 
 	return result, nil
 }
 
-func (layer *gatewayLayer) listSingleObject(ctx context.Context, bucketName, key, marker string, recursive bool, maxKeys int) (result minio.ListObjectsInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	isTruncated, nextMarker, objects, prefixes, err := layer.listSingle(ctx, bucketName, key, marker, recursive, maxKeys)
-
-	return minio.ListObjectsInfo{
-		IsTruncated: isTruncated,
-		NextMarker:  nextMarker,
-		Objects:     objects,
-		Prefixes:    prefixes,
-	}, err // already converted/wrapped
-}
-
-func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
+func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsV2Info{}, ErrUnsupportedDelimiter
+		return minio.ListObjectsV2Info{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+	}
+
+	project, err := projectFromContext(ctx, bucket, "")
+	if err != nil {
+		return minio.ListObjectsV2Info{}, err
 	}
 
 	// TODO this should be removed and implemented on satellite side
 	defer func() {
-		err = checkBucketError(ctx, layer.project, bucketName, "", err)
+		err = checkBucketError(ctx, project, bucket, "", err)
 	}()
 
 	recursive := delimiter == ""
@@ -508,28 +338,28 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 		// 1) return an error here, guaranteeing nothing works
 		// 2) do the full S3 compatible thing, which has terrible
 		//    performance for a really common case (StatObject-like
-		//		functionality)
+		//    functionality)
 		// 3) handle strictly more of the use cases than #1 without
 		//    loss of performance by turning this into a StatObject.
 		// so we do #3 here. it's great!
 
-		return layer.listSingleObjectV2(ctx, bucketName, prefix, continuationToken, startAfterPath, recursive, maxKeys)
+		return listSingleObjectV2(ctx, project, bucket, prefix, continuationToken, startAfterPath, recursive, maxKeys)
 	}
 
-	var objects []minio.ObjectInfo
-	var prefixes []string
-
-	list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 		Prefix:    prefix,
 		Cursor:    strings.TrimPrefix(startAfterPath, prefix),
 		Recursive: recursive,
 
 		System: true,
-		Custom: true,
+		Custom: layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
 
-	limit := maxKeys
-	for (limit > 0 || maxKeys == 0) && list.Next() {
+	var objects []minio.ObjectInfo
+	var prefixes []string
+
+	limit := layer.limitMaxKeys(maxKeys)
+	for limit > 0 && list.Next() {
 		object := list.Item()
 
 		limit--
@@ -537,18 +367,18 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 		if object.IsPrefix {
 			prefixes = append(prefixes, object.Key)
 		} else {
-			objects = append(objects, minioObjectInfo(bucketName, "", object))
+			objects = append(objects, minioObjectInfo(bucket, "", object))
 		}
 
 		startAfter = object.Key
 	}
 	if list.Err() != nil {
-		return result, convertError(list.Err(), bucketName, "")
+		return result, convertError(list.Err(), bucket, "")
 	}
 
 	more := list.Next()
 	if list.Err() != nil {
-		return result, convertError(list.Err(), bucketName, "")
+		return result, convertError(list.Err(), bucket, "")
 	}
 
 	result = minio.ListObjectsV2Info{
@@ -564,10 +394,23 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucketName, prefix
 	return result, nil
 }
 
-func (layer *gatewayLayer) listSingleObjectV2(ctx context.Context, bucketName, key, continuationToken, startAfterPath string, recursive bool, maxKeys int) (result minio.ListObjectsV2Info, err error) {
+func listSingleObject(ctx context.Context, project *uplink.Project, bucket, key, marker string, recursive bool, maxKeys int) (result minio.ListObjectsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	isTruncated, nextMarker, objects, prefixes, err := layer.listSingle(ctx, bucketName, key, startAfterPath, recursive, maxKeys)
+	isTruncated, nextMarker, objects, prefixes, err := listSingle(ctx, project, bucket, key, marker, recursive, maxKeys)
+
+	return minio.ListObjectsInfo{
+		IsTruncated: isTruncated,
+		NextMarker:  nextMarker,
+		Objects:     objects,
+		Prefixes:    prefixes,
+	}, err // already converted/wrapped
+}
+
+func listSingleObjectV2(ctx context.Context, project *uplink.Project, bucket, key, continuationToken, startAfterPath string, recursive bool, maxKeys int) (result minio.ListObjectsV2Info, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	isTruncated, nextMarker, objects, prefixes, err := listSingle(ctx, project, bucket, key, startAfterPath, recursive, maxKeys)
 
 	return minio.ListObjectsV2Info{
 		IsTruncated:           isTruncated,
@@ -578,17 +421,17 @@ func (layer *gatewayLayer) listSingleObjectV2(ctx context.Context, bucketName, k
 	}, err // already converted/wrapped
 }
 
-func (layer *gatewayLayer) listSingle(ctx context.Context, bucketName, key, marker string, recursive bool, maxKeys int) (isTruncated bool, nextMarker string, objects []minio.ObjectInfo, prefixes []string, err error) {
+func listSingle(ctx context.Context, project *uplink.Project, bucket, key, marker string, recursive bool, maxKeys int) (isTruncated bool, nextMarker string, objects []minio.ObjectInfo, prefixes []string, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if marker == "" {
-		object, err := layer.project.StatObject(ctx, bucketName, key)
+		object, err := project.StatObject(ctx, bucket, key)
 		if err != nil {
 			if !errors.Is(err, uplink.ErrObjectNotFound) {
-				return false, "", nil, nil, convertError(err, bucketName, key)
+				return false, "", nil, nil, convertError(err, bucket, key)
 			}
 		} else {
-			objects = append(objects, minioObjectInfo(bucketName, "", object))
+			objects = append(objects, minioObjectInfo(bucket, "", object))
 
 			if maxKeys == 1 {
 				return true, key, objects, nil, nil
@@ -597,7 +440,7 @@ func (layer *gatewayLayer) listSingle(ctx context.Context, bucketName, key, mark
 	}
 
 	if !recursive && (marker == "" || marker == key) {
-		list := layer.project.ListObjects(ctx, bucketName, &uplink.ListObjectsOptions{
+		list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 			Prefix:    key + "/",
 			Recursive: true,
 			// Limit: 1, would be nice to set here
@@ -606,25 +449,195 @@ func (layer *gatewayLayer) listSingle(ctx context.Context, bucketName, key, mark
 			prefixes = append(prefixes, key+"/")
 		}
 		if err := list.Err(); err != nil {
-			return false, "", nil, nil, convertError(err, bucketName, key)
+			return false, "", nil, nil, convertError(err, bucket, key)
 		}
 	}
 
 	return false, "", objects, prefixes, nil
 }
 
-func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucketName string, opts minio.BucketOptions) (err error) {
+func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO: maybe this should return an error since we don't support locations
+	project, err := projectFromContext(ctx, bucket, object)
+	if err != nil {
+		return nil, err
+	}
 
-	_, err = layer.project.CreateBucket(ctx, bucketName)
+	// TODO this should be removed and implemented on satellite side
+	defer func() {
+		err = checkBucketError(ctx, project, bucket, object, err)
+	}()
 
-	return convertError(err, bucketName, "")
+	downloadOpts, err := rangeSpecToDownloadOptions(rs)
+	if err != nil {
+		return nil, err
+	}
+
+	download, err := project.DownloadObject(ctx, bucket, object, downloadOpts)
+	if err != nil {
+		return nil, convertError(err, bucket, object)
+	}
+
+	objectInfo := minioObjectInfo(bucket, "", download.Info())
+	downloadCloser := func() { _ = download.Close() }
+
+	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
+}
+
+func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *uplink.DownloadOptions, err error) {
+	switch {
+	// Case 1: Not present -> represented by a nil RangeSpec
+	case rs == nil:
+		return nil, nil
+	// Case 2: bytes=1-10 (absolute start and end offsets) -> RangeSpec{false, 1, 10}
+	case rs.Start >= 0 && rs.End >= 0 && !rs.IsSuffixLength:
+		return &uplink.DownloadOptions{
+			Offset: rs.Start,
+			Length: rs.End - rs.Start + 1,
+		}, nil
+	// Case 3: bytes=10- (absolute start offset with end offset unspecified) -> RangeSpec{false, 10, -1}
+	case rs.Start >= 0 && rs.End == -1 && !rs.IsSuffixLength:
+		return &uplink.DownloadOptions{
+			Offset: rs.Start,
+			Length: -1,
+		}, nil
+	// Case 4: bytes=-30 (suffix length specification) -> RangeSpec{true, -30, -1}
+	case rs.Start <= 0 && rs.End == -1 && rs.IsSuffixLength:
+		if rs.Start == 0 {
+			return &uplink.DownloadOptions{Offset: 0, Length: 0}, nil
+		}
+		return &uplink.DownloadOptions{
+			Offset: rs.Start,
+			Length: -1,
+		}, nil
+	default:
+		return nil, errs.New("Unexpected range specification case: %#v", rs)
+	}
+}
+
+func (layer *gatewayLayer) GetObject(ctx context.Context, bucket, objectPath string, startOffset, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	project, err := projectFromContext(ctx, bucket, objectPath)
+	if err != nil {
+		return err
+	}
+
+	download, err := project.DownloadObject(ctx, bucket, objectPath, &uplink.DownloadOptions{
+		Offset: startOffset,
+		Length: length,
+	})
+	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, project, bucket, objectPath, err)
+		return convertError(err, bucket, objectPath)
+	}
+	defer func() { err = errs.Combine(err, download.Close()) }()
+
+	object := download.Info()
+	if startOffset < 0 || length < -1 {
+		return minio.InvalidRange{
+			OffsetBegin:  startOffset,
+			OffsetEnd:    startOffset + length,
+			ResourceSize: object.System.ContentLength,
+		}
+	}
+
+	_, err = io.Copy(writer, download)
+
+	return convertError(err, bucket, objectPath)
+}
+
+func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	project, err := projectFromContext(ctx, bucket, objectPath)
+	if err != nil {
+		return minio.ObjectInfo{}, err
+	}
+
+	object, err := project.StatObject(ctx, bucket, objectPath)
+	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, project, bucket, objectPath, err)
+		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+	}
+
+	return minioObjectInfo(bucket, "", object), nil
+}
+
+func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if storageClass, ok := opts.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
+		return minio.ObjectInfo{}, minio.NotImplemented{API: "PutObject (storage class)"}
+	}
+
+	project, err := projectFromContext(ctx, bucket, object)
+	if err != nil {
+		return minio.ObjectInfo{}, err
+	}
+
+	// TODO this should be removed and implemented on satellite side
+	defer func() {
+		err = checkBucketError(ctx, project, bucket, object, err)
+	}()
+
+	if data == nil {
+		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0, true)
+		if err != nil {
+			return minio.ObjectInfo{}, convertError(err, bucket, object)
+		}
+		data = minio.NewPutObjReader(hashReader, nil, nil)
+	}
+
+	upload, err := project.UploadObject(ctx, bucket, object, nil)
+	if err != nil {
+		return minio.ObjectInfo{}, convertError(err, bucket, object)
+	}
+
+	_, err = io.Copy(upload, data)
+	if err != nil {
+		abortErr := upload.Abort()
+		err = errs.Combine(err, abortErr)
+		return minio.ObjectInfo{}, convertError(err, bucket, object)
+	}
+
+	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
+		opts.UserDefined["s3:tags"] = tagsStr
+		delete(opts.UserDefined, xhttp.AmzObjectTagging)
+	}
+
+	etag := data.MD5CurrentHexString()
+	opts.UserDefined["s3:etag"] = etag
+
+	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
+	if err != nil {
+		abortErr := upload.Abort()
+		err = errs.Combine(err, abortErr)
+		return minio.ObjectInfo{}, convertError(err, bucket, object)
+	}
+
+	err = upload.Commit()
+	if err != nil {
+		return minio.ObjectInfo{}, convertError(err, bucket, object)
+	}
+
+	return minioObjectInfo(bucket, etag, upload.Info()), nil
 }
 
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	if layer.compatibilityConfig.DisableCopyObject {
+		// Note: In production Gateway-MT, we want to return Not Implemented until we implement server-side copy
+		return minio.ObjectInfo{}, minio.NotImplemented{API: "CopyObject"}
+	}
+
+	if storageClass, ok := srcInfo.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
+		return minio.ObjectInfo{}, minio.NotImplemented{API: "CopyObject (storage class)"}
+	}
 
 	if srcObject == "" {
 		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: srcBucket}
@@ -633,15 +646,20 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: destBucket}
 	}
 
+	project, err := projectFromContext(ctx, srcBucket, srcObject)
+	if err != nil {
+		return minio.ObjectInfo{}, err
+	}
+
 	// TODO this should be removed and implemented on satellite side
-	_, err = layer.project.StatBucket(ctx, srcBucket)
+	_, err = project.StatBucket(ctx, srcBucket)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, srcBucket, "")
 	}
 
 	// TODO this should be removed and implemented on satellite side
 	if srcBucket != destBucket {
-		_, err = layer.project.StatBucket(ctx, destBucket)
+		_, err = project.StatBucket(ctx, destBucket)
 		if err != nil {
 			return minio.ObjectInfo{}, convertError(err, destBucket, "")
 		}
@@ -654,7 +672,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return srcInfo, nil
 	}
 
-	download, err := layer.project.DownloadObject(ctx, srcBucket, srcObject, nil)
+	download, err := project.DownloadObject(ctx, srcBucket, srcObject, nil)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
 	}
@@ -663,7 +681,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		err = errs.Combine(err, download.Close())
 	}()
 
-	upload, err := layer.project.UploadObject(ctx, destBucket, destObject, nil)
+	upload, err := project.UploadObject(ctx, destBucket, destObject, nil)
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
@@ -698,123 +716,145 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	return minioObjectInfo(destBucket, hex.EncodeToString(reader.MD5Current()), upload.Info()), nil
 }
 
-func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO this should be removed and implemented on satellite side
-	defer func() {
-		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-	}()
-
-	if ok := layer.active.tryAdd(bucketName, objectPath); !ok {
-		return minio.ObjectInfo{}, minio.ObjectAlreadyExists{
-			Bucket:    bucketName,
-			Object:    objectPath,
-			VersionID: "",
-			Err:       errors.New("concurrent upload"),
-		}
-	}
-	defer layer.active.remove(bucketName, objectPath)
-
-	if data == nil {
-		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0, true)
-		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-		}
-		data = minio.NewPutObjReader(hashReader, nil, nil)
-	}
-
-	upload, err := layer.project.UploadObject(ctx, bucketName, objectPath, nil)
+	project, err := projectFromContext(ctx, bucket, objectPath)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
+		return minio.ObjectInfo{}, err
 	}
 
-	_, err = io.Copy(upload, data)
+	// TODO this should be removed and implemented on satellite side.
+	// This call needs to occur prior to the DeleteObject call below, because
+	// project.DeleteObject will return a nil error for a missing bucket. To
+	// maintain consistency, we need to manually check if the bucket exists.
+	_, err = project.StatBucket(ctx, bucket)
 	if err != nil {
-		abortErr := upload.Abort()
-		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
+		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
 	}
 
-	if opts.UserDefined == nil {
-		opts.UserDefined = map[string]string{}
-	}
-
-	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
-		opts.UserDefined["s3:tags"] = tagsStr
-		delete(opts.UserDefined, xhttp.AmzObjectTagging)
-	}
-
-	opts.UserDefined["s3:etag"] = hex.EncodeToString(data.MD5Current())
-	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
+	object, err := project.DeleteObject(ctx, bucket, objectPath)
 	if err != nil {
-		abortErr := upload.Abort()
-		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
+		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
 	}
 
-	err = upload.Commit()
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
-	}
-
-	return minioObjectInfo(bucketName, opts.UserDefined["s3:etag"], upload.Info()), nil
+	return minioObjectInfo(bucket, "", object), nil
 }
 
-func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []error) {
+	// TODO: implement multiple object deletion in libuplink API
+	deleted, errs := make([]minio.DeletedObject, len(objects)), make([]error, len(objects))
+	for i, object := range objects {
+		_, deleteErr := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
+		if deleteErr != nil && !errors.As(deleteErr, &minio.ObjectNotFound{}) {
+			errs[i] = convertError(deleteErr, bucket, object.ObjectName)
+			continue
+		}
+		deleted[i].ObjectName = object.ObjectName
+	}
+	return deleted, errs
+}
+
+func (layer *gatewayLayer) IsTaggingSupported() bool {
+	return true
+}
+
+func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath string, tags string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
-	return layer.project.Close()
-}
 
-func (layer *gatewayLayer) StorageInfo(ctx context.Context, _ bool) (minio.StorageInfo, []error) {
-	info := minio.StorageInfo{}
-	info.Backend.Type = minio.BackendGateway
-	info.Backend.GatewayOnline = layer.isSatelliteOnline(ctx)
-	return info, nil
-}
-
-func (layer *gatewayLayer) GetBucketPolicy(ctx context.Context, bucket string) (*policy.Policy, error) {
-	if !layer.gateway.config.Website {
-		return &policy.Policy{}, nil
-	}
-
-	// Allow reading any file from any bucket
-	return &policy.Policy{
-		Version: "2012-10-17",
-		Statements: []policy.Statement{
-			{
-				Effect:    policy.Allow,
-				Principal: policy.NewPrincipal("*"),
-				Actions: policy.NewActionSet(
-					policy.GetBucketLocationAction,
-					policy.ListBucketAction,
-				),
-				Resources: policy.NewResourceSet(
-					policy.NewResource(bucket, ""),
-				),
-			},
-			{
-				Effect:    policy.Allow,
-				Principal: policy.NewPrincipal("*"),
-				Actions: policy.NewActionSet(
-					policy.GetObjectAction,
-				),
-				Resources: policy.NewResourceSet(
-					policy.NewResource(bucket, "*"),
-				),
-			},
-		},
-	}, nil
-}
-
-func (layer *gatewayLayer) isSatelliteOnline(ctx context.Context) bool {
-	project, err := layer.gateway.config.Uplink.OpenProject(ctx, layer.gateway.access)
+	project, err := projectFromContext(ctx, bucket, objectPath)
 	if err != nil {
-		return false
+		return err
 	}
 
-	err = project.Close()
-	return err == nil
+	object, err := project.StatObject(ctx, bucket, objectPath)
+	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, project, bucket, objectPath, err)
+		return convertError(err, bucket, objectPath)
+	}
+
+	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
+		return nil
+	}
+
+	newMetadata := object.Custom.Clone()
+	if tags == "" {
+		delete(newMetadata, "s3:tags")
+	} else {
+		newMetadata["s3:tags"] = tags
+	}
+
+	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, newMetadata, nil)
+	if err != nil {
+		return convertError(err, bucket, objectPath)
+	}
+
+	return nil
+}
+
+func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	project, err := projectFromContext(ctx, bucket, objectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	object, err := project.StatObject(ctx, bucket, objectPath)
+	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, project, bucket, objectPath, err)
+		return nil, convertError(err, bucket, objectPath)
+	}
+
+	t, err = tags.ParseObjectTags(object.Custom["s3:tags"])
+	if err != nil {
+		return nil, convertError(err, bucket, objectPath)
+	}
+
+	return t, nil
+}
+
+func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	project, err := projectFromContext(ctx, bucket, objectPath)
+	if err != nil {
+		return err
+	}
+
+	object, err := project.StatObject(ctx, bucket, objectPath)
+	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, project, bucket, objectPath, err)
+		return convertError(err, bucket, objectPath)
+	}
+
+	if _, ok := object.Custom["s3:tags"]; !ok {
+		return nil
+	}
+
+	newMetadata := object.Custom.Clone()
+	delete(newMetadata, "s3:tags")
+
+	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, newMetadata, nil)
+	if err != nil {
+		return convertError(err, bucket, objectPath)
+	}
+
+	return nil
+}
+
+func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
+	v := ctx.Value(UplinkProject)
+
+	pr, ok := v.(*uplink.Project)
+	if !ok {
+		return nil, convertError(ErrNoUplinkProject.New("access key is empty"), bucket, object)
+	}
+
+	return pr, nil
 }
 
 // checkBucketError will stat the bucket if the provided error is not nil, in
@@ -832,35 +872,32 @@ func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, 
 }
 
 func convertError(err error, bucket, object string) error {
-	if errors.Is(err, uplink.ErrBucketNameInvalid) {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, uplink.ErrBucketNameInvalid):
 		return minio.BucketNameInvalid{Bucket: bucket}
-	}
-
-	if errors.Is(err, uplink.ErrBucketAlreadyExists) {
+	case errors.Is(err, uplink.ErrBucketAlreadyExists):
 		return minio.BucketAlreadyExists{Bucket: bucket}
-	}
-
-	if errors.Is(err, uplink.ErrBucketNotFound) {
+	case errors.Is(err, uplink.ErrBucketNotFound):
 		return minio.BucketNotFound{Bucket: bucket}
-	}
-
-	if errors.Is(err, uplink.ErrBucketNotEmpty) {
+	case errors.Is(err, uplink.ErrBucketNotEmpty):
 		return minio.BucketNotEmpty{Bucket: bucket}
-	}
-
-	if errors.Is(err, uplink.ErrObjectKeyInvalid) {
+	case errors.Is(err, uplink.ErrObjectKeyInvalid):
 		return minio.ObjectNameInvalid{Bucket: bucket, Object: object}
-	}
-
-	if errors.Is(err, uplink.ErrObjectNotFound) {
+	case errors.Is(err, uplink.ErrObjectNotFound):
 		return minio.ObjectNotFound{Bucket: bucket, Object: object}
+	case errors.Is(err, uplink.ErrBandwidthLimitExceeded):
+		return ErrProjectUsageLimit
+	case errors.Is(err, uplink.ErrPermissionDenied):
+		return minio.PrefixAccessDenied{Bucket: bucket, Object: object}
+	case errors.Is(err, uplink.ErrTooManyRequests):
+		return ErrSlowDown
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return minio.IncompleteBody{Bucket: bucket, Object: object}
+	default:
+		return err
 	}
-
-	if errors.Is(err, uplink.ErrBandwidthLimitExceeded) {
-		return minio.BucketQuotaExceeded{Bucket: bucket}
-	}
-
-	return err
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {

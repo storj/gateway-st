@@ -40,6 +40,7 @@ type GatewayFlags struct {
 
 	Server miniogw.ServerConfig
 	Minio  miniogw.MinioConfig
+	S3     miniogw.S3CompatibilityConfig
 
 	Config
 
@@ -220,28 +221,26 @@ func (flags GatewayFlags) Run(ctx context.Context) (err error) {
 }
 
 func (flags GatewayFlags) action(ctx context.Context, cliCtx *cli.Context) (err error) {
+	access, err := flags.GetAccess()
+	if err != nil {
+		return Error.Wrap(err)
+	}
+
+	config := flags.newUplinkConfig(ctx)
+
 	gw, err := flags.NewGateway(ctx)
 	if err != nil {
 		return err
 	}
 
-	minio.StartGateway(cliCtx, miniogw.Logging(gw, zap.L()))
+	minio.StartGateway(cliCtx, miniogw.NewSingleTenantGateway(zap.L(), access, config, gw, flags.Website))
+
 	return errs.New("unexpected minio exit")
 }
 
 // NewGateway creates a new minio Gateway.
 func (flags GatewayFlags) NewGateway(ctx context.Context) (gw minio.Gateway, err error) {
-	access, err := flags.GetAccess()
-	if err != nil {
-		return nil, Error.Wrap(err)
-	}
-
-	config := flags.newUplinkConfig(ctx)
-
-	return miniogw.NewStorjGateway(access, miniogw.Config{
-		Uplink:  config,
-		Website: flags.Website,
-	}), nil
+	return miniogw.NewStorjGateway(flags.S3), nil
 }
 
 func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {

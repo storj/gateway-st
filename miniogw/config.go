@@ -14,3 +14,12 @@ type MinioConfig struct {
 type ServerConfig struct {
 	Address string `help:"address to serve S3 api over" default:"127.0.0.1:7777" basic-help:"true"`
 }
+
+// S3CompatibilityConfig is a configuration struct that determines details about
+// how strict the gateway should be S3-compatible.
+type S3CompatibilityConfig struct {
+	IncludeCustomMetadataListing bool `help:"include custom metadata in S3's ListObjects, ListObjectsV2 and ListMultipartUploads responses" default:"true"`
+	MaxKeysLimit                 int  `help:"MaxKeys parameter limit for S3's ListObjects and ListObjectsV2 responses" default:"1000"`
+	DisableCopyObject            bool `help:"return 501 (Not Implemented) for CopyObject calls" devDefault:"false" releaseDefault:"true"`
+	MinPartSize                  int  `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
+}

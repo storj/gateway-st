@@ -6,6 +6,9 @@ package miniogw_test
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,77 +20,127 @@ import (
 
 	"github.com/btcsuite/btcutil/base58"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/cmd/config/storageclass"
 	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/hash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/common/memory"
 	"storj.io/common/pb"
 	"storj.io/common/storj"
 	"storj.io/common/testcontext"
+	"storj.io/common/testrand"
 	"storj.io/gateway/miniogw"
 	"storj.io/storj/private/testplanet"
 	"storj.io/uplink"
 )
 
 const (
-	TestEncKey = "test-encryption-key"
-	TestBucket = "test-bucket"
-	TestFile   = "test-file"
-	TestFile2  = "test-file-2"
-	TestFile3  = "test-file-3"
-	DestBucket = "dest-bucket"
-	DestFile   = "dest-file"
-	TestAPIKey = "test-api-key"
+	testBucket = "test-bucket"
+	testFile   = "test-file"
+	testFile2  = "test-file-2"
+	testFile3  = "test-file-3"
+	destBucket = "dest-bucket"
+	destFile   = "dest-file"
 )
 
 func TestMakeBucketWithLocation(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when creating bucket with empty name
 		err := layer.MakeBucketWithLocation(ctx, "", minio.BucketOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Create a bucket with the Minio API
-		err = layer.MakeBucketWithLocation(ctx, TestBucket, minio.BucketOptions{})
-		assert.NoError(t, err)
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
+		require.NoError(t, err)
 
 		// Check that the bucket is created using the Uplink API
-		bucket, err := project.StatBucket(ctx, TestBucket)
-		assert.NoError(t, err)
-		assert.Equal(t, TestBucket, bucket.Name)
+		bucket, err := project.StatBucket(ctx, testBucket)
+		require.NoError(t, err)
+		assert.Equal(t, testBucket, bucket.Name)
 		assert.True(t, time.Since(bucket.Created) < 1*time.Minute)
 
 		// Check the error when trying to create an existing bucket
-		err = layer.MakeBucketWithLocation(ctx, TestBucket, minio.BucketOptions{})
-		assert.Equal(t, minio.BucketAlreadyExists{Bucket: TestBucket}, err)
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
+		assert.Equal(t, minio.BucketAlreadyExists{Bucket: testBucket}, err)
 	})
 }
 
 func TestGetBucketInfo(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting info about bucket with empty name
 		_, err := layer.GetBucketInfo(ctx, "")
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting info about non-existing bucket
-		_, err = layer.GetBucketInfo(ctx, TestBucket)
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.GetBucketInfo(ctx, testBucket)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		info, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		info, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the bucket info using the Minio API
-		bucket, err := layer.GetBucketInfo(ctx, TestBucket)
-		if assert.NoError(t, err) {
-			assert.Equal(t, TestBucket, bucket.Name)
-			assert.Equal(t, info.Created, bucket.Created)
-		}
+		bucket, err := layer.GetBucketInfo(ctx, testBucket)
+		require.NoError(t, err)
+		assert.Equal(t, testBucket, bucket.Name)
+		assert.Equal(t, info.Created, bucket.Created)
 	})
 }
 
+func maybeAbortPartUpload(t *testing.T, err error, part *uplink.PartUpload) {
+	if err != nil {
+		assert.NoError(t, part.Abort())
+	}
+}
+
+func maybeAbortMultipartUpload(ctx context.Context, t *testing.T, err error, project *uplink.Project, bucket, key, uploadID string) {
+	if err != nil {
+		assert.NoError(t, err, project.AbortUpload(ctx, bucket, key, uploadID))
+	}
+}
+
+func addPendingMultipartUpload(ctx context.Context, t *testing.T, project *uplink.Project, bucket *uplink.Bucket) {
+	for i := 0; i < 2; i++ {
+		upload, err := project.BeginUpload(ctx, bucket.Name, testFile2, nil)
+		require.NoError(t, err)
+
+		t.Logf("%d: started upload of %s with ID=%s", i, upload.Key, upload.UploadID)
+
+		for j := uint32(0); j < 3; j++ {
+			part, err := project.UploadPart(ctx, bucket.Name, testFile2, upload.UploadID, j)
+			maybeAbortPartUpload(t, err, part)
+			maybeAbortMultipartUpload(ctx, t, err, project, bucket.Name, testFile2, upload.UploadID)
+			require.NoError(t, err)
+
+			t.Logf("%d/%d: started part upload", i, part.Info().PartNumber)
+
+			_, err = part.Write(make([]byte, 4*memory.KiB))
+			maybeAbortPartUpload(t, err, part)
+			maybeAbortMultipartUpload(ctx, t, err, project, bucket.Name, testFile2, upload.UploadID)
+			require.NoError(t, err)
+
+			err = part.Commit()
+			maybeAbortPartUpload(t, err, part)
+			maybeAbortMultipartUpload(ctx, t, err, project, bucket.Name, testFile2, upload.UploadID)
+			require.NoError(t, err)
+
+			t.Logf("%d/%d: finished part upload (uploaded %d bytes)", i, part.Info().PartNumber, part.Info().Size)
+		}
+
+		t.Logf("%d: finished uploading parts of %s (ID=%s)", i, upload.Key, upload.UploadID)
+	}
+}
+
 func TestDeleteBucket(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		{
 			// Check the error when deleting bucket with empty name
@@ -95,60 +148,87 @@ func TestDeleteBucket(t *testing.T) {
 			assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 			// Check the error when deleting non-existing bucket
-			err = layer.DeleteBucket(ctx, TestBucket, false)
-			assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+			err = layer.DeleteBucket(ctx, testBucket, false)
+			assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 			// Create a bucket with a file using the Uplink API
-			bucket, err := project.CreateBucket(ctx, TestBucket)
-			assert.NoError(t, err)
+			bucket, err := project.CreateBucket(ctx, testBucket)
+			require.NoError(t, err)
 
-			_, err = createFile(ctx, project, bucket.Name, TestFile, nil, nil)
-			assert.NoError(t, err)
+			_, err = createFile(ctx, project, bucket.Name, testFile, nil, nil)
+			require.NoError(t, err)
 
 			// Check the error when deleting non-empty bucket
-			err = layer.DeleteBucket(ctx, TestBucket, false)
-			assert.Equal(t, minio.BucketNotEmpty{Bucket: TestBucket}, err)
+			err = layer.DeleteBucket(ctx, testBucket, false)
+			assert.Equal(t, minio.BucketNotEmpty{Bucket: testBucket}, err)
 
 			// Delete the file using the Uplink API, so the bucket becomes empty
-			_, err = project.DeleteObject(ctx, bucket.Name, TestFile)
-			assert.NoError(t, err)
+			_, err = project.DeleteObject(ctx, bucket.Name, testFile)
+			require.NoError(t, err)
 
 			// Delete the bucket info using the Minio API
-			err = layer.DeleteBucket(ctx, TestBucket, false)
-			assert.NoError(t, err)
+			err = layer.DeleteBucket(ctx, testBucket, false)
+			require.NoError(t, err)
 
 			// Check that the bucket is deleted using the Uplink API
-			_, err = project.StatBucket(ctx, TestBucket)
+			_, err = project.StatBucket(ctx, testBucket)
 			assert.True(t, errors.Is(err, uplink.ErrBucketNotFound))
 		}
 		{
 			// Create a bucket with a file using the Uplink API
-			bucket, err := project.CreateBucket(ctx, TestBucket)
-			assert.NoError(t, err)
+			bucket, err := project.CreateBucket(ctx, testBucket)
+			require.NoError(t, err)
 
-			_, err = createFile(ctx, project, bucket.Name, TestFile, nil, nil)
-			assert.NoError(t, err)
+			_, err = createFile(ctx, project, bucket.Name, testFile, nil, nil)
+			require.NoError(t, err)
 
 			// Check deleting bucket with force flag
-			err = layer.DeleteBucket(ctx, TestBucket, true)
-			assert.NoError(t, err)
+			err = layer.DeleteBucket(ctx, testBucket, true)
+			require.NoError(t, err)
 
 			// Check that the bucket is deleted using the Uplink API
-			_, err = project.StatBucket(ctx, TestBucket)
+			_, err = project.StatBucket(ctx, testBucket)
 			assert.True(t, errors.Is(err, uplink.ErrBucketNotFound))
 
 			// Check the error when deleting non-existing bucket
-			err = layer.DeleteBucket(ctx, TestBucket, true)
-			assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+			err = layer.DeleteBucket(ctx, testBucket, true)
+			assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+		}
+		{
+			// Test deletion of the empty bucket with pending multipart uploads.
+			bucket, err := project.CreateBucket(ctx, testBucket)
+			require.NoError(t, err)
+
+			addPendingMultipartUpload(ctx, t, project, bucket)
+
+			// Initiate bucket deletion with forceDelete=false because this flag
+			// isn't passed from non-minio clients to the bucket deletion
+			// handler anyway.
+			require.NoError(t, layer.DeleteBucket(ctx, bucket.Name, false))
+		}
+		{
+			// Test deletion of the empty bucket with pending multipart uploads,
+			// but there's an additional non-pending object.
+			bucket, err := project.CreateBucket(ctx, testBucket)
+			require.NoError(t, err)
+
+			_, err = createFile(ctx, project, bucket.Name, testFile, nil, nil)
+			require.NoError(t, err)
+
+			addPendingMultipartUpload(ctx, t, project, bucket)
+
+			assert.ErrorIs(t, layer.DeleteBucket(ctx, bucket.Name, false), minio.BucketNotEmpty{Bucket: bucket.Name})
 		}
 	})
 }
 
 func TestListBuckets(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check that empty list is return if no buckets exist yet
 		bucketInfos, err := layer.ListBuckets(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Empty(t, bucketInfos)
 
 		// Create all expected buckets using the Uplink API
@@ -157,22 +237,23 @@ func TestListBuckets(t *testing.T) {
 		for i, bucketName := range bucketNames {
 			bucket, err := project.CreateBucket(ctx, bucketName)
 			buckets[i] = bucket
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		}
 
 		// Check that the expected buckets can be listed using the Minio API
 		bucketInfos, err = layer.ListBuckets(ctx)
-		if assert.NoError(t, err) {
-			assert.Equal(t, len(bucketNames), len(bucketInfos))
-			for i, bucketInfo := range bucketInfos {
-				assert.Equal(t, bucketNames[i], bucketInfo.Name)
-				assert.Equal(t, buckets[i].Created, bucketInfo.Created)
-			}
+		require.NoError(t, err)
+		assert.Equal(t, len(bucketNames), len(bucketInfos))
+		for i, bucketInfo := range bucketInfos {
+			assert.Equal(t, bucketNames[i], bucketInfo.Name)
+			assert.Equal(t, buckets[i].Created, bucketInfo.Created)
 		}
 	})
 }
 
 func TestPutObject(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		hashReader, err := hash.NewReader(bytes.NewReader([]byte("test")),
 			int64(len("test")),
@@ -205,76 +286,115 @@ func TestPutObject(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when putting an object to a non-existing bucket
-		_, err = layer.PutObject(ctx, TestBucket, TestFile, nil, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.PutObject(ctx, testBucket, testFile, nil, minio.ObjectOptions{UserDefined: metadata})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the error when putting an object with empty name
-		_, err = layer.PutObject(ctx, TestBucket, "", nil, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		_, err = layer.PutObject(ctx, testBucket, "", nil, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Put the object using the Minio API
-		info, err := layer.PutObject(ctx, TestBucket, TestFile, data, minio.ObjectOptions{UserDefined: metadata})
-		if assert.NoError(t, err) {
-			assert.Equal(t, TestFile, info.Name)
-			assert.Equal(t, TestBucket, info.Bucket)
-			assert.False(t, info.IsDir)
-			assert.True(t, time.Since(info.ModTime) < 1*time.Minute)
-			assert.Equal(t, data.Size(), info.Size)
-			assert.NotEmpty(t, info.ETag)
-			assert.Equal(t, expectedMetaInfo.ContentType, info.ContentType)
+		info, err := layer.PutObject(ctx, testBucket, testFile, data, minio.ObjectOptions{UserDefined: metadata})
+		require.NoError(t, err)
+		assert.Equal(t, testFile, info.Name)
+		assert.Equal(t, testBucket, info.Bucket)
+		assert.False(t, info.IsDir)
+		assert.True(t, time.Since(info.ModTime) < 1*time.Minute)
+		assert.Equal(t, data.Size(), info.Size)
+		assert.NotEmpty(t, info.ETag)
+		assert.Equal(t, expectedMetaInfo.ContentType, info.ContentType)
 
-			expectedMetaInfo.UserDefined["s3:etag"] = info.ETag
-			expectedMetaInfo.UserDefined["content-type"] = info.ContentType
-			assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
-		}
+		expectedMetaInfo.UserDefined["s3:etag"] = info.ETag
+		expectedMetaInfo.UserDefined["content-type"] = info.ContentType
+		assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
 
 		// Check that the object is uploaded using the Uplink API
-		obj, err := project.StatObject(ctx, testBucketInfo.Name, TestFile)
-		if assert.NoError(t, err) {
-			assert.Equal(t, TestFile, obj.Key)
-			assert.False(t, obj.IsPrefix)
+		obj, err := project.StatObject(ctx, testBucketInfo.Name, testFile)
+		require.NoError(t, err)
+		assert.Equal(t, testFile, obj.Key)
+		assert.False(t, obj.IsPrefix)
 
-			// TODO upload.Info() is using StreamID creation time but this value is different
-			// than last segment creation time, CommitObject request should return latest info
-			// about object and those values should be used with upload.Info()
-			// This should be working after final fix
-			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+		// TODO upload.Info() is using StreamID creation time but this value is different
+		// than last segment creation time, CommitObject request should return latest info
+		// about object and those values should be used with upload.Info()
+		// This should be working after final fix
+		// assert.Equal(t, info.ModTime, obj.Info.Created)
+		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
 
-			assert.Equal(t, info.Size, obj.System.ContentLength)
-			// TODO disabled until we will store ETag with object
-			// assert.Equal(t, info.ETag, hex.EncodeToString(obj.Checksum))
-			assert.Equal(t, info.ContentType, obj.Custom["content-type"])
-			assert.EqualValues(t, info.UserDefined, obj.Custom)
+		assert.Equal(t, info.Size, obj.System.ContentLength)
+		// TODO disabled until we will store ETag with object
+		// assert.Equal(t, info.ETag, hex.EncodeToString(obj.Checksum))
+		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
+		assert.EqualValues(t, info.UserDefined, obj.Custom)
+	})
+}
+
+func TestPutObjectZeroBytes(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		h, err := hash.NewReader(
+			bytes.NewReader(make([]byte, 0)),
+			0,
+			"d41d8cd98f00b204e9800998ecf8427e",
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			0,
+			true)
+		require.NoError(t, err)
+
+		r := minio.NewPutObjReader(h, nil, nil)
+
+		opts := minio.ObjectOptions{
+			UserDefined: make(map[string]string),
 		}
+
+		obj, err := layer.PutObject(ctx, bucket.Name, testFile, r, opts)
+		require.NoError(t, err)
+
+		assert.Zero(t, obj.Size)
+
+		downloaded, err := project.DownloadObject(ctx, obj.Bucket, obj.Name, nil)
+		require.NoError(t, err)
+
+		_, err = downloaded.Read(make([]byte, 1))
+		assert.ErrorIs(t, err, io.EOF)
+
+		assert.Zero(t, downloaded.Info().System.ContentLength)
+
+		require.NoError(t, downloaded.Close())
 	})
 }
 
 func TestGetObjectInfo(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting an object from a bucket with empty name
 		_, err := layer.GetObjectInfo(ctx, "", "", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting an object from non-existing bucket
-		_, err = layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the error when getting an object with empty name
-		_, err = layer.GetObjectInfo(ctx, TestBucket, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		_, err = layer.GetObjectInfo(ctx, testBucket, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Check the error when getting a non-existing object
-		_, err = layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		_, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
 
 		// Create the object using the Uplink API
 		metadata := map[string]string{
@@ -282,52 +402,53 @@ func TestGetObjectInfo(t *testing.T) {
 			"key1":         "value1",
 			"key2":         "value2",
 		}
-		obj, err := createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
-		assert.NoError(t, err)
+		obj, err := createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
+		require.NoError(t, err)
 
 		// Get the object info using the Minio API
-		info, err := layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		if assert.NoError(t, err) {
-			assert.Equal(t, TestFile, info.Name)
-			assert.Equal(t, TestBucket, info.Bucket)
-			assert.False(t, info.IsDir)
+		info, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, testFile, info.Name)
+		assert.Equal(t, testBucket, info.Bucket)
+		assert.False(t, info.IsDir)
 
-			// TODO upload.Info() is using StreamID creation time but this value is different
-			// than last segment creation time, CommitObject request should return latest info
-			// about object and those values should be used with upload.Info()
-			// This should be working after final fix
-			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+		// TODO upload.Info() is using StreamID creation time but this value is different
+		// than last segment creation time, CommitObject request should return latest info
+		// about object and those values should be used with upload.Info()
+		// This should be working after final fix
+		// assert.Equal(t, info.ModTime, obj.Info.Created)
+		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
 
-			assert.Equal(t, obj.System.ContentLength, info.Size)
-			assert.Equal(t, obj.Custom["s3:etag"], info.ETag)
-			assert.Equal(t, "text/plain", info.ContentType)
-			assert.Equal(t, metadata, info.UserDefined)
-		}
+		assert.Equal(t, obj.System.ContentLength, info.Size)
+		assert.Equal(t, obj.Custom["s3:etag"], info.ETag)
+		assert.Equal(t, "text/plain", info.ContentType)
+		assert.Equal(t, metadata, info.UserDefined)
 	})
 }
 
 func TestGetObjectNInfo(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting an object from a bucket with empty name
 		_, err := layer.GetObjectNInfo(ctx, "", "", nil, nil, 0, minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting an object from non-existing bucket
-		_, err = layer.GetObjectNInfo(ctx, TestBucket, TestFile, nil, nil, 0, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.GetObjectNInfo(ctx, testBucket, testFile, nil, nil, 0, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the error when getting an object with empty name
-		_, err = layer.GetObjectNInfo(ctx, TestBucket, "", nil, nil, 0, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		_, err = layer.GetObjectNInfo(ctx, testBucket, "", nil, nil, 0, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Check the error when getting a non-existing object
-		_, err = layer.GetObjectNInfo(ctx, TestBucket, TestFile, nil, nil, 0, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		_, err = layer.GetObjectNInfo(ctx, testBucket, testFile, nil, nil, 0, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
 
 		// Create the object using the Uplink API
 		metadata := map[string]string{
@@ -335,8 +456,8 @@ func TestGetObjectNInfo(t *testing.T) {
 			"key1":         "value1",
 			"key2":         "value2",
 		}
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("abcdef"), metadata)
-		assert.NoError(t, err)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("abcdef"), metadata)
+		require.NoError(t, err)
 
 		for i, tt := range []struct {
 			rangeSpec *minio.HTTPRangeSpec
@@ -365,16 +486,16 @@ func TestGetObjectNInfo(t *testing.T) {
 			errTag := fmt.Sprintf("%d. %v", i, tt)
 
 			// Get the object info using the Minio API
-			reader, err := layer.GetObjectNInfo(ctx, TestBucket, TestFile, tt.rangeSpec, nil, 0, minio.ObjectOptions{})
+			reader, err := layer.GetObjectNInfo(ctx, testBucket, testFile, tt.rangeSpec, nil, 0, minio.ObjectOptions{})
 
 			if tt.err {
 				assert.Error(t, err, errTag)
 			} else if assert.NoError(t, err) {
 				data, err := ioutil.ReadAll(reader)
-				assert.NoError(t, err, errTag)
+				require.NoError(t, err, errTag)
 
 				err = reader.Close()
-				assert.NoError(t, err, errTag)
+				require.NoError(t, err, errTag)
 
 				assert.Equal(t, tt.substr, string(data), errTag)
 			}
@@ -382,23 +503,93 @@ func TestGetObjectNInfo(t *testing.T) {
 	})
 }
 
+func TestGetObject(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Check the error when getting an object from a bucket with empty name
+		err := layer.GetObject(ctx, "", "", 0, 0, nil, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		// Check the error when getting an object from non-existing bucket
+		err = layer.GetObject(ctx, testBucket, testFile, 0, 0, nil, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
+		// Create the bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		// Check the error when getting an object with empty name
+		err = layer.GetObject(ctx, testBucket, "", 0, 0, nil, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
+
+		// Check the error when getting a non-existing object
+		err = layer.GetObject(ctx, testBucket, testFile, 0, 0, nil, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
+
+		// Create the object using the Uplink API
+		metadata := map[string]string{
+			"content-type": "text/plain",
+			"key1":         "value1",
+			"key2":         "value2",
+		}
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("abcdef"), metadata)
+		require.NoError(t, err)
+
+		for i, tt := range []struct {
+			offset, length int64
+			substr         string
+			err            bool
+		}{
+			{offset: 0, length: 0, substr: ""},
+			{offset: 0, length: -1, substr: "abcdef"},
+			{offset: 0, length: 100, substr: "abcdef"},
+			{offset: 3, length: 0, substr: ""},
+			{offset: 3, length: -1, substr: "def"},
+			{offset: 3, length: 100, substr: "def"},
+			{offset: 0, length: 6, substr: "abcdef"},
+			{offset: 0, length: 5, substr: "abcde"},
+			{offset: 0, length: 4, substr: "abcd"},
+			{offset: 1, length: 4, substr: "bcde"},
+			{offset: 2, length: 4, substr: "cdef"},
+			{offset: -1, length: 7, err: true},
+			{offset: 0, length: -2, err: true},
+		} {
+			errTag := fmt.Sprintf("%d. %+v", i, tt)
+
+			var buf bytes.Buffer
+
+			// Get the object info using the Minio API
+			err = layer.GetObject(ctx, testBucket, testFile, tt.offset, tt.length, &buf, "", minio.ObjectOptions{})
+
+			if tt.err {
+				assert.Error(t, err, errTag)
+			} else if assert.NoError(t, err) {
+				assert.Equal(t, tt.substr, buf.String(), errTag)
+			}
+		}
+	})
+}
+
 func TestCopyObject(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when copying an object from a bucket with empty name
-		_, err := layer.CopyObject(ctx, "", TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		_, err := layer.CopyObject(ctx, "", testFile, destBucket, destFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when copying an object from non-existing bucket
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the source bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the error when copying an object with empty name
-		_, err = layer.CopyObject(ctx, TestBucket, "", DestBucket, DestFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		_, err = layer.CopyObject(ctx, testBucket, "", destBucket, destFile, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Create the source object using the Uplink API
 		metadata := map[string]string{
@@ -406,65 +597,65 @@ func TestCopyObject(t *testing.T) {
 			"key1":         "value1",
 			"key2":         "value2",
 		}
-		obj, err := createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
-		assert.NoError(t, err)
+		obj, err := createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
+		require.NoError(t, err)
 
 		// Get the source object info using the Minio API
-		srcInfo, err := layer.GetObjectInfo(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.NoError(t, err)
+		srcInfo, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
 
 		// Check the error when copying an object to a bucket with empty name
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, "", DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		_, err = layer.CopyObject(ctx, testBucket, testFile, "", destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when copying an object to a non-existing bucket
-		_, err = layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: DestBucket}, err)
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: destBucket}, err)
 
 		// Create the destination bucket using the Uplink API
-		destBucketInfo, err := project.CreateBucket(ctx, DestBucket)
-		assert.NoError(t, err)
+		destBucketInfo, err := project.CreateBucket(ctx, destBucket)
+		require.NoError(t, err)
 
 		// Copy the object using the Minio API
-		info, err := layer.CopyObject(ctx, TestBucket, TestFile, DestBucket, DestFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
-		if assert.NoError(t, err) {
-			assert.Equal(t, DestFile, info.Name)
-			assert.Equal(t, DestBucket, info.Bucket)
-			assert.False(t, info.IsDir)
+		info, err := layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, destFile, info.Name)
+		assert.Equal(t, destBucket, info.Bucket)
+		assert.False(t, info.IsDir)
 
-			// TODO upload.Info() is using StreamID creation time but this value is different
-			// than last segment creation time, CommitObject request should return latest info
-			// about object and those values should be used with upload.Info()
-			// This should be working after final fix
-			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+		// TODO upload.Info() is using StreamID creation time but this value is different
+		// than last segment creation time, CommitObject request should return latest info
+		// about object and those values should be used with upload.Info()
+		// This should be working after final fix
+		// assert.Equal(t, info.ModTime, obj.Info.Created)
+		assert.WithinDuration(t, info.ModTime, obj.System.Created, 5*time.Second)
 
-			assert.Equal(t, obj.System.ContentLength, info.Size)
-			assert.Equal(t, "text/plain", info.ContentType)
-			assert.EqualValues(t, obj.Custom, info.UserDefined)
-		}
+		assert.Equal(t, obj.System.ContentLength, info.Size)
+		assert.Equal(t, "text/plain", info.ContentType)
+		assert.EqualValues(t, obj.Custom, info.UserDefined)
 
 		// Check that the destination object is uploaded using the Uplink API
-		obj, err = project.StatObject(ctx, destBucketInfo.Name, DestFile)
-		if assert.NoError(t, err) {
-			assert.Equal(t, DestFile, obj.Key)
-			assert.False(t, obj.IsPrefix)
+		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)
+		require.NoError(t, err)
+		assert.Equal(t, destFile, obj.Key)
+		assert.False(t, obj.IsPrefix)
 
-			// TODO upload.Info() is using StreamID creation time but this value is different
-			// than last segment creation time, CommitObject request should return latest info
-			// about object and those values should be used with upload.Info()
-			// This should be working after final fix
-			// assert.Equal(t, info.ModTime, obj.Info.Created)
-			assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
+		// TODO upload.Info() is using StreamID creation time but this value is different
+		// than last segment creation time, CommitObject request should return latest info
+		// about object and those values should be used with upload.Info()
+		// This should be working after final fix
+		// assert.Equal(t, info.ModTime, obj.Info.Created)
+		assert.WithinDuration(t, info.ModTime, obj.System.Created, 2*time.Second)
 
-			assert.Equal(t, info.Size, obj.System.ContentLength)
-			assert.Equal(t, info.ContentType, obj.Custom["content-type"])
-			assert.EqualValues(t, info.UserDefined, obj.Custom)
-		}
+		assert.Equal(t, info.Size, obj.System.ContentLength)
+		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
+		assert.EqualValues(t, info.UserDefined, obj.Custom)
 	})
 }
 
 func TestDeleteObject(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting an object from a bucket with empty name
 		deleted, err := layer.DeleteObject(ctx, "", "", minio.ObjectOptions{})
@@ -472,96 +663,98 @@ func TestDeleteObject(t *testing.T) {
 		assert.Empty(t, deleted)
 
 		// Check the error when deleting an object from non-existing bucket
-		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		deleted, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 		assert.Empty(t, deleted)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the error when deleting an object with empty name
-		deleted, err = layer.DeleteObject(ctx, TestBucket, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		deleted, err = layer.DeleteObject(ctx, testBucket, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 		assert.Empty(t, deleted)
 
 		// Check that no error being returned when deleting a non-existing object
-		_, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		_, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		// Create the object using the Uplink API
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
-		assert.NoError(t, err)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, nil, nil)
+		require.NoError(t, err)
 
 		// Delete the object info using the Minio API
-		deleted, err = layer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.NoError(t, err)
-		assert.Equal(t, TestBucket, deleted.Bucket)
-		assert.Equal(t, TestFile, deleted.Name)
+		deleted, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, testBucket, deleted.Bucket)
+		assert.Equal(t, testFile, deleted.Name)
 
 		// Check that the object is deleted using the Uplink API
-		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
+		_, err = project.StatObject(ctx, testBucketInfo.Name, testFile)
 		assert.True(t, errors.Is(err, uplink.ErrObjectNotFound))
 	})
 }
 
 func TestDeleteObjects(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting an object from a bucket with empty name
-		deletedObjects, deleteErrors := layer.DeleteObjects(ctx, "", []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		deletedObjects, deleteErrors := layer.DeleteObjects(ctx, "", []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 1)
 		assert.Equal(t, minio.BucketNameInvalid{}, deleteErrors[0])
 		require.Len(t, deletedObjects, 1)
 		assert.Empty(t, deletedObjects[0])
 
 		// Check the error when deleting an object from non-existing bucket
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, deleteErrors[0])
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, deleteErrors[0])
 		require.Len(t, deletedObjects, 1)
 		assert.Empty(t, deletedObjects[0])
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		// Check the error when deleting an object with empty name
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: ""}}, minio.ObjectOptions{})
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: ""}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, deleteErrors[0])
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, deleteErrors[0])
 		require.Len(t, deletedObjects, 1)
 		assert.Empty(t, deletedObjects[0])
 
 		// Check that there is NO error when deleting a non-existing object
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}}, minio.ObjectOptions{})
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 1)
 		assert.Empty(t, deleteErrors[0])
 		require.Len(t, deletedObjects, 1)
-		assert.Equal(t, deletedObjects, []minio.DeletedObject{{ObjectName: TestFile}})
+		assert.Equal(t, deletedObjects, []minio.DeletedObject{{ObjectName: testFile}})
 
 		// Create the 3 objects using the Uplink API
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
-		assert.NoError(t, err)
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile2, nil, nil)
-		assert.NoError(t, err)
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile3, nil, nil)
-		assert.NoError(t, err)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, nil, nil)
+		require.NoError(t, err)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile2, nil, nil)
+		require.NoError(t, err)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile3, nil, nil)
+		require.NoError(t, err)
 
 		// Delete the 1st and the 3rd object using the Minio API
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, TestBucket, []minio.ObjectToDelete{{ObjectName: TestFile}, {ObjectName: TestFile3}}, minio.ObjectOptions{})
+		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}, {ObjectName: testFile3}}, minio.ObjectOptions{})
 		require.Len(t, deleteErrors, 2)
-		assert.NoError(t, deleteErrors[0])
-		assert.NoError(t, deleteErrors[1])
+		require.NoError(t, deleteErrors[0])
+		require.NoError(t, deleteErrors[1])
 		require.Len(t, deletedObjects, 2)
 		assert.NotEmpty(t, deletedObjects[0])
 		assert.NotEmpty(t, deletedObjects[1])
 
 		// Check using the Uplink API that the 1st and the 3rd objects are deleted, but the 2nd is still there
-		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
+		_, err = project.StatObject(ctx, testBucketInfo.Name, testFile)
 		assert.True(t, errors.Is(err, uplink.ErrObjectNotFound))
-		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile2)
-		assert.NoError(t, err)
-		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile3)
+		_, err = project.StatObject(ctx, testBucketInfo.Name, testFile2)
+		require.NoError(t, err)
+		_, err = project.StatObject(ctx, testBucketInfo.Name, testFile3)
 		assert.True(t, errors.Is(err, uplink.ErrObjectNotFound))
 	})
 }
@@ -569,70 +762,98 @@ func TestDeleteObjects(t *testing.T) {
 type listObjectsFunc func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error)
 
 func TestListObjects(t *testing.T) {
-	testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
-		if err != nil {
-			return nil, nil, "", "", false, err
-		}
-		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	t.Parallel()
+
+	t.Run("once", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+		})
 	})
-	testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
-		if err != nil {
-			return nil, nil, "", "", false, err
-		}
-		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	t.Run("loop", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+		})
 	})
-	testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjects(ctx, TestBucket, prefix, marker, delimiter, maxKeys)
-		if err != nil {
-			return nil, nil, "", "", false, err
-		}
-		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	t.Run("stat", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+		})
 	})
 }
 
 func TestListObjectsV2(t *testing.T) {
-	testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
-		if err != nil {
-			return nil, nil, "", "", false, err
-		}
-		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+	t.Parallel()
+
+	t.Run("once", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+		})
 	})
-	testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
-		if err != nil {
-			return nil, nil, "", "", false, err
-		}
-		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+	t.Run("loop", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+		})
 	})
-	testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjectsV2(ctx, TestBucket, prefix, marker, delimiter, maxKeys, false, "")
-		if err != nil {
-			return nil, nil, "", "", false, err
-		}
-		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+	t.Run("stat", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+		})
 	})
 }
 
 func testListObjects(t *testing.T, listObjects listObjectsFunc) {
-	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects with unsupported delimiter
-		_, err := layer.ListObjects(ctx, TestBucket, "", "", "#", 0)
-		assert.Equal(t, miniogw.ErrUnsupportedDelimiter, err)
+		_, err := layer.ListObjects(ctx, testBucket, "", "", "#", 0)
+		assert.Equal(t, minio.UnsupportedDelimiter{Delimiter: "#"}, err)
 
 		// Check the error when listing objects in a bucket with empty name
 		_, err = layer.ListObjects(ctx, "", "", "", "/", 0)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when listing objects in a non-existing bucket
-		_, err = layer.ListObjects(ctx, TestBucket, "", "", "", 0)
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.ListObjects(ctx, testBucket, "", "", "", 0)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket and files using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		filePaths := []string{
 			"a", "aa", "b", "bb", "c",
@@ -660,7 +881,7 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				object:   file,
 				metadata: metadata,
 			}
-			assert.NoError(t, err)
+			require.NoError(t, err)
 		}
 
 		sort.Strings(filePaths)
@@ -890,37 +1111,36 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 			errTag := fmt.Sprintf("%d. %+v", i, tt)
 
 			// Check that the expected objects can be listed using the Minio API
-			prefixes, objects, marker, _, isTruncated, err := listObjects(ctx, layer, TestBucket, tt.prefix, tt.marker, tt.delimiter, tt.maxKeys)
-			if assert.NoError(t, err, errTag) {
-				assert.Equal(t, tt.more, isTruncated, errTag)
-				assert.Equal(t, tt.marker, marker, errTag)
-				assert.Equal(t, tt.prefixes, prefixes, errTag)
-				require.Equal(t, len(tt.objects), len(objects), errTag)
-				for i, objectInfo := range objects {
-					path := objectInfo.Name
-					expected, found := files[path]
+			prefixes, objects, marker, _, isTruncated, err := listObjects(ctx, layer, testBucket, tt.prefix, tt.marker, tt.delimiter, tt.maxKeys)
+			require.NoError(t, err, errTag)
+			assert.Equal(t, tt.more, isTruncated, errTag)
+			assert.Equal(t, tt.marker, marker, errTag)
+			assert.Equal(t, tt.prefixes, prefixes, errTag)
+			require.Equal(t, len(tt.objects), len(objects), errTag)
+			for i, objectInfo := range objects {
+				path := objectInfo.Name
+				expected, found := files[path]
 
-					if assert.True(t, found) {
-						if tt.prefix != "" && strings.HasSuffix(tt.prefix, "/") {
-							assert.Equal(t, tt.prefix+tt.objects[i], objectInfo.Name, errTag)
-						} else {
-							assert.Equal(t, tt.objects[i], objectInfo.Name, errTag)
-						}
-						assert.Equal(t, TestBucket, objectInfo.Bucket, errTag)
-						assert.False(t, objectInfo.IsDir, errTag)
-
-						// TODO upload.Info() is using StreamID creation time but this value is different
-						// than last segment creation time, CommitObject request should return latest info
-						// about object and those values should be used with upload.Info()
-						// This should be working after final fix
-						// assert.Equal(t, info.ModTime, obj.Info.Created)
-						assert.WithinDuration(t, objectInfo.ModTime, expected.object.System.Created, 1*time.Second)
-
-						assert.Equal(t, expected.object.System.ContentLength, objectInfo.Size, errTag)
-						// assert.Equal(t, hex.EncodeToString(obj.Checksum), objectInfo.ETag, errTag)
-						assert.Equal(t, expected.metadata["content-type"], objectInfo.ContentType, errTag)
-						assert.Equal(t, expected.metadata, objectInfo.UserDefined, errTag)
+				if assert.True(t, found) {
+					if tt.prefix != "" && strings.HasSuffix(tt.prefix, "/") {
+						assert.Equal(t, tt.prefix+tt.objects[i], objectInfo.Name, errTag)
+					} else {
+						assert.Equal(t, tt.objects[i], objectInfo.Name, errTag)
 					}
+					assert.Equal(t, testBucket, objectInfo.Bucket, errTag)
+					assert.False(t, objectInfo.IsDir, errTag)
+
+					// TODO upload.Info() is using StreamID creation time but this value is different
+					// than last segment creation time, CommitObject request should return latest info
+					// about object and those values should be used with upload.Info()
+					// This should be working after final fix
+					// assert.Equal(t, info.ModTime, obj.Info.Created)
+					assert.WithinDuration(t, objectInfo.ModTime, expected.object.System.Created, 1*time.Second)
+
+					assert.Equal(t, expected.object.System.ContentLength, objectInfo.Size, errTag)
+					// assert.Equal(t, hex.EncodeToString(obj.Checksum), objectInfo.ETag, errTag)
+					assert.Equal(t, expected.metadata["content-type"], objectInfo.ContentType, errTag)
+					assert.Equal(t, expected.metadata, objectInfo.UserDefined, errTag)
 				}
 			}
 		}
@@ -928,8 +1148,8 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 }
 
 func testListObjectsLoop(t *testing.T, listObjects listObjectsFunc) {
-	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		wantObjects := make(map[string]struct{})
@@ -1012,8 +1232,8 @@ func testListObjectsLoop(t *testing.T, listObjects listObjectsFunc) {
 }
 
 func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
-	runTestWithPathCipher(t, storj.EncNull, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		for i := 1; i <= 2; i++ {
@@ -1124,7 +1344,7 @@ func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer m
 			marker = startAfter
 		}
 
-		prefixes, objects, _, nextContinuationToken, isTruncated, err := listObjects(ctx, layer, TestBucket, prefix, marker, delimiter, maxKeys)
+		prefixes, objects, _, nextContinuationToken, isTruncated, err := listObjects(ctx, layer, testBucket, prefix, marker, delimiter, maxKeys)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1159,6 +1379,8 @@ func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer m
 }
 
 func TestListMultipartUploads(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing an object from a bucket with empty name
 		uploads, err := layer.ListMultipartUploads(ctx, "", "", "", "", "", 1)
@@ -1166,30 +1388,30 @@ func TestListMultipartUploads(t *testing.T) {
 		assert.Empty(t, uploads)
 
 		// Check the error when listing objects from non-existing bucket
-		uploads, err = layer.ListMultipartUploads(ctx, TestBucket, "", "", "", "", 1)
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		uploads, err = layer.ListMultipartUploads(ctx, testBucket, "", "", "", "", 1)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 		assert.Empty(t, uploads)
 
 		// Create the bucket using the Uplink API
-		_, err = project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		userDefined := make(map[string]string)
 
 		userDefined["something"] = "a-value"
 		for _, uploadName := range []string{"multipart-upload", "a/prefixed/multipart-upload"} {
 			now := time.Now()
-			upload, err := layer.NewMultipartUpload(ctx, TestBucket, uploadName, minio.ObjectOptions{
+			upload, err := layer.NewMultipartUpload(ctx, testBucket, uploadName, minio.ObjectOptions{
 				UserDefined: userDefined,
 			})
 			require.NoError(t, err)
 			require.NotEmpty(t, upload)
 
-			uploads, err = layer.ListMultipartUploads(ctx, TestBucket, uploadName, "", "", "", 10)
+			uploads, err = layer.ListMultipartUploads(ctx, testBucket, uploadName, "", "", "", 10)
 			require.NoError(t, err)
 			require.Len(t, uploads.Uploads, 1)
 
-			assert.Equal(t, TestBucket, uploads.Uploads[0].Bucket)
+			assert.Equal(t, testBucket, uploads.Uploads[0].Bucket)
 			assert.Equal(t, uploadName, uploads.Uploads[0].Object)
 			assert.Equal(t, upload, uploads.Uploads[0].UploadID)
 			assert.WithinDuration(t, now, uploads.Uploads[0].Initiated, time.Minute)
@@ -1200,58 +1422,100 @@ func TestListMultipartUploads(t *testing.T) {
 }
 
 func TestNewMultipartUpload(t *testing.T) {
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		bucket, err := project.CreateBucket(ctx, TestBucket)
-		require.NoError(t, err)
-		require.Equal(t, bucket.Name, TestBucket)
+	t.Parallel()
 
-		listParts, err := layer.ListMultipartUploads(ctx, TestBucket, "", "", "", "", 1)
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+		require.Equal(t, bucket.Name, testBucket)
+
+		listParts, err := layer.ListMultipartUploads(ctx, testBucket, "", "", "", "", 1)
 		require.NoError(t, err)
 		require.Empty(t, listParts.Uploads)
 
-		_, err = layer.NewMultipartUpload(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		_, err = layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
-		_, err = layer.NewMultipartUpload(ctx, TestBucket, TestFile2, minio.ObjectOptions{})
+		_, err = layer.NewMultipartUpload(ctx, testBucket, testFile2, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		listParts, err = layer.ListMultipartUploads(ctx, TestBucket, "", "", "", "", 2)
+		listParts, err = layer.ListMultipartUploads(ctx, testBucket, "", "", "", "", 2)
 		require.NoError(t, err)
 		require.Len(t, listParts.Uploads, 2)
 	})
 }
 
 func TestCopyObjectPart(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		_, err := layer.CopyObjectPart(ctx, "srcBucket", "srcObject", "destBucket", "destObject", "uploadID", 0, 0, 10, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
 		require.EqualError(t, err, minio.NotImplemented{}.Error())
 	})
 }
 
-func TestPutObjectPart(t *testing.T) {
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		bucket, err := project.CreateBucket(ctx, TestBucket)
-		require.NoError(t, err)
-		require.Equal(t, bucket.Name, TestBucket)
+func TestStorageClassSupport(t *testing.T) {
+	t.Parallel()
 
-		listInfo, err := layer.ListMultipartUploads(ctx, TestBucket, "", "", "", "", 1)
+	const (
+		apiPutObjectStorageClass          = "PutObject (storage class)"
+		apiNewMultipartUploadStorageClass = "NewMultipartUpload (storage class)"
+		apiCopyObjectStorageClass         = "CopyObject (storage class)"
+	)
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		for _, class := range []string{
+			storageclass.RRS,
+			storageclass.STANDARD,
+			storageclass.DMA,
+		} {
+			userDefined := map[string]string{xhttp.AmzStorageClass: class}
+			opts := minio.ObjectOptions{UserDefined: userDefined}
+			info := minio.ObjectInfo{UserDefined: userDefined}
+
+			_, errPutObject := layer.PutObject(ctx, "b", "o", nil, opts)
+			_, errNewMultipartUpload := layer.NewMultipartUpload(ctx, "b", "o", opts)
+			_, errCopyObject := layer.CopyObject(ctx, "sb", "so", "db", "do", info, minio.ObjectOptions{}, minio.ObjectOptions{})
+
+			if class != storageclass.STANDARD {
+				assert.ErrorIs(t, errPutObject, minio.NotImplemented{API: apiPutObjectStorageClass})
+				assert.ErrorIs(t, errNewMultipartUpload, minio.NotImplemented{API: apiNewMultipartUploadStorageClass})
+				assert.ErrorIs(t, errCopyObject, minio.NotImplemented{API: apiCopyObjectStorageClass})
+			} else {
+				assert.NotErrorIs(t, errPutObject, minio.NotImplemented{API: apiPutObjectStorageClass})
+				assert.NotErrorIs(t, errNewMultipartUpload, minio.NotImplemented{API: apiNewMultipartUploadStorageClass})
+				assert.NotErrorIs(t, errCopyObject, minio.NotImplemented{API: apiCopyObjectStorageClass})
+			}
+		}
+	})
+}
+
+func TestPutObjectPart(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+		require.Equal(t, bucket.Name, testBucket)
+
+		listInfo, err := layer.ListMultipartUploads(ctx, testBucket, "", "", "", "", 1)
 		require.NoError(t, err)
 		require.Empty(t, listInfo.Uploads)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		totalPartsCount := 3
 		for i := 1; i <= totalPartsCount; i++ {
-			info, err := layer.PutObjectPart(ctx, TestBucket, TestFile, uploadID, i, newMinioPutObjReader(t), minio.ObjectOptions{})
+			info, err := layer.PutObjectPart(ctx, testBucket, testFile, uploadID, i, newMinioPutObjReader(t), minio.ObjectOptions{})
 			require.NoError(t, err)
 			require.Equal(t, i, info.PartNumber)
 		}
 
-		listParts, err := layer.ListObjectParts(ctx, TestBucket, TestFile, uploadID, 0, totalPartsCount, minio.ObjectOptions{})
+		listParts, err := layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 0, totalPartsCount, minio.ObjectOptions{})
 		require.NoError(t, err)
 		require.Len(t, listParts.Parts, totalPartsCount)
-		require.Equal(t, TestBucket, listParts.Bucket)
-		require.Equal(t, TestFile, listParts.Object)
+		require.Equal(t, testBucket, listParts.Bucket)
+		require.Equal(t, testFile, listParts.Object)
 		require.Equal(t, uploadID, listParts.UploadID)
 
 		require.Equal(t, listParts.Parts[0].PartNumber, 1)
@@ -1260,7 +1524,174 @@ func TestPutObjectPart(t *testing.T) {
 	})
 }
 
+func TestPutObjectPartZeroBytesOnlyPart(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		uploadID, err := layer.NewMultipartUpload(ctx, bucket.Name, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		defer func() {
+			if err = layer.AbortMultipartUpload(ctx, bucket.Name, testFile, uploadID, minio.ObjectOptions{}); err != nil {
+				assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucket.Name, Object: testFile, UploadID: uploadID})
+			}
+		}()
+
+		h, err := hash.NewReader(
+			bytes.NewReader(make([]byte, 0)),
+			0,
+			"d41d8cd98f00b204e9800998ecf8427e",
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			0,
+			true)
+		require.NoError(t, err)
+
+		r := minio.NewPutObjReader(h, nil, nil)
+
+		opts := minio.ObjectOptions{
+			UserDefined: make(map[string]string),
+		}
+
+		part, err := layer.PutObjectPart(ctx, bucket.Name, testFile, uploadID, 1, r, opts)
+		require.NoError(t, err)
+
+		assert.Zero(t, part.Size)
+		assert.Zero(t, part.ActualSize)
+
+		parts := []minio.CompletePart{
+			{
+				PartNumber: part.PartNumber,
+				ETag:       part.ETag,
+			},
+		}
+
+		obj, err := layer.CompleteMultipartUpload(ctx, bucket.Name, testFile, uploadID, parts, opts)
+		require.NoError(t, err)
+
+		assert.Zero(t, obj.Size)
+
+		downloaded, err := project.DownloadObject(ctx, obj.Bucket, obj.Name, nil)
+		require.NoError(t, err)
+
+		_, err = downloaded.Read(make([]byte, 1))
+		assert.ErrorIs(t, err, io.EOF)
+
+		assert.Zero(t, downloaded.Info().System.ContentLength)
+
+		require.NoError(t, downloaded.Close())
+	})
+}
+
+func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		uploadID, err := layer.NewMultipartUpload(ctx, bucket.Name, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		defer func() {
+			if err = layer.AbortMultipartUpload(ctx, bucket.Name, testFile, uploadID, minio.ObjectOptions{}); err != nil {
+				assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucket.Name, Object: testFile, UploadID: uploadID})
+			}
+		}()
+
+		const (
+			nonZeroContent          = "test"
+			nonZeroContentLen       = int64(4)
+			nonZeroContentMD5Hex    = "098f6bcd4621d373cade4e832627b4f6"
+			nonZeroContentSHA256Hex = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+		)
+
+		var parts []minio.CompletePart
+
+		// Upload two non-zero parts:
+		for i := 0; i < 2; i++ {
+
+			h, err := hash.NewReader(
+				bytes.NewReader([]byte(nonZeroContent)),
+				nonZeroContentLen,
+				nonZeroContentMD5Hex,
+				nonZeroContentSHA256Hex,
+				nonZeroContentLen,
+				true)
+			require.NoError(t, err)
+
+			r := minio.NewPutObjReader(h, nil, nil)
+
+			opts := minio.ObjectOptions{
+				UserDefined: make(map[string]string),
+			}
+
+			part, err := layer.PutObjectPart(ctx, bucket.Name, testFile, uploadID, i+1, r, opts)
+			require.NoError(t, err)
+
+			assert.Equal(t, nonZeroContentLen, part.Size)
+			assert.Equal(t, nonZeroContentLen, part.ActualSize)
+
+			parts = append(parts, minio.CompletePart{PartNumber: part.PartNumber, ETag: part.ETag})
+		}
+
+		// Upload one (last) zero-byte part:
+
+		h, err := hash.NewReader(
+			bytes.NewReader(make([]byte, 0)),
+			0,
+			"d41d8cd98f00b204e9800998ecf8427e",
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			0,
+			true)
+		require.NoError(t, err)
+
+		r := minio.NewPutObjReader(h, nil, nil)
+
+		opts := minio.ObjectOptions{
+			UserDefined: make(map[string]string),
+		}
+
+		part, err := layer.PutObjectPart(ctx, bucket.Name, testFile, uploadID, 3, r, opts)
+		require.NoError(t, err)
+
+		assert.Zero(t, part.Size)
+		assert.Zero(t, part.ActualSize)
+
+		parts = append(parts, minio.CompletePart{PartNumber: part.PartNumber, ETag: part.ETag})
+
+		obj, err := layer.CompleteMultipartUpload(ctx, bucket.Name, testFile, uploadID, parts, opts)
+		require.NoError(t, err)
+
+		// The uplink library contains unresolved TODO for returning real
+		// objects after committing. TODO(amwolff): enable this check after
+		// mentioned TODO is completed.
+		//
+		// assert.Equal(t, 2*nonZeroContentLen, obj.Size)
+
+		// Verify state:
+
+		downloaded, err := project.DownloadObject(ctx, obj.Bucket, obj.Name, nil)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, downloaded.Close()) }()
+
+		buf := new(bytes.Buffer)
+
+		_, err = io.Copy(buf, downloaded)
+		require.NoError(t, err)
+
+		assert.Equal(t, nonZeroContent+nonZeroContent, buf.String())
+
+		assert.Equal(t, 2*nonZeroContentLen, downloaded.Info().System.ContentLength)
+	})
+}
+
 func TestGetMultipartInfo(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when using an empty bucket name
 		multipartInfo, err := layer.GetMultipartInfo(ctx, "", "object", "uploadid", minio.ObjectOptions{})
@@ -1268,40 +1699,40 @@ func TestGetMultipartInfo(t *testing.T) {
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 		assert.Empty(t, multipartInfo)
 
-		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "", "uploadid", minio.ObjectOptions{})
+		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "", "uploadid", minio.ObjectOptions{})
 		require.Error(t, err)
 		assert.Equal(t, minio.ObjectNameInvalid{}, err)
 		assert.Empty(t, multipartInfo)
 
-		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "object", "", minio.ObjectOptions{})
+		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "object", "", minio.ObjectOptions{})
 		require.Error(t, err)
 		assert.Equal(t, minio.InvalidUploadID{}, err)
 		assert.Empty(t, multipartInfo)
 
 		// Check the error when getting MultipartInfo from non-existing bucket
-		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "object", "uploadid", minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "object", "uploadid", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 		assert.Empty(t, multipartInfo)
 
 		// Create the bucket using the Uplink API
-		_, err = project.CreateBucket(ctx, TestBucket)
-		assert.NoError(t, err)
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
 
 		now := time.Now()
 		// TODO when we can have two multipart uploads for the same object key, make tests for this case
-		upload, err := layer.NewMultipartUpload(ctx, TestBucket, "multipart-upload", minio.ObjectOptions{})
+		upload, err := layer.NewMultipartUpload(ctx, testBucket, "multipart-upload", minio.ObjectOptions{})
 		require.NoError(t, err)
 		require.NotEmpty(t, upload)
 
 		// Check the error when getting MultipartInfo from non-existing object
-		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "object", upload, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: "object"}, err)
+		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "object", upload, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: "object"}, err)
 		assert.Empty(t, multipartInfo)
 
-		multipartInfo, err = layer.GetMultipartInfo(ctx, TestBucket, "multipart-upload", upload, minio.ObjectOptions{})
+		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "multipart-upload", upload, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		require.Equal(t, TestBucket, multipartInfo.Bucket)
+		require.Equal(t, testBucket, multipartInfo.Bucket)
 		require.Equal(t, "multipart-upload", multipartInfo.Object)
 		require.Equal(t, upload, multipartInfo.UploadID)
 		require.WithinDuration(t, now, multipartInfo.Initiated, time.Minute)
@@ -1309,6 +1740,8 @@ func TestGetMultipartInfo(t *testing.T) {
 }
 
 func TestListObjectParts(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing parts from a bucket with empty name
 		parts, err := layer.ListObjectParts(ctx, "", "", "", 0, 1, minio.ObjectOptions{})
@@ -1316,13 +1749,13 @@ func TestListObjectParts(t *testing.T) {
 		assert.Empty(t, parts)
 
 		// Check the error when listing parts of an object with empty key
-		parts, err = layer.ListObjectParts(ctx, TestBucket, "", "", 0, 1, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		parts, err = layer.ListObjectParts(ctx, testBucket, "", "", 0, 1, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 		assert.Empty(t, parts)
 
 		// Check the error when listing parts of a multipart upload is empty upload ID
-		parts, err = layer.ListObjectParts(ctx, TestBucket, TestFile, "", 0, 1, minio.ObjectOptions{})
-		assert.Equal(t, minio.InvalidUploadID{Bucket: TestBucket, Object: TestFile}, err)
+		parts, err = layer.ListObjectParts(ctx, testBucket, testFile, "", 0, 1, minio.ObjectOptions{})
+		assert.Equal(t, minio.InvalidUploadID{Bucket: testBucket, Object: testFile}, err)
 		assert.Empty(t, parts)
 
 		// TODO: This fails because InvalidUploadID is returned instead of BucketNotFound. Check if this is a bug.
@@ -1331,15 +1764,15 @@ func TestListObjectParts(t *testing.T) {
 		// assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 		// assert.Empty(t, parts)
 
-		bucket, err := project.CreateBucket(ctx, TestBucket)
+		bucket, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
-		require.Equal(t, bucket.Name, TestBucket)
+		require.Equal(t, bucket.Name, testBucket)
 
-		listInfo, err := layer.ListMultipartUploads(ctx, TestBucket, "", "", "", "", 1)
+		listInfo, err := layer.ListMultipartUploads(ctx, testBucket, "", "", "", "", 1)
 		require.NoError(t, err)
 		require.Empty(t, listInfo.Uploads)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		now := time.Now()
@@ -1347,7 +1780,7 @@ func TestListObjectParts(t *testing.T) {
 		minioReaders := make([]*minio.PutObjReader, 3)
 		for i := 0; i < totalPartsCount; i++ {
 			minioReaders[i] = newMinioPutObjReader(t)
-			info, err := layer.PutObjectPart(ctx, TestBucket, TestFile, uploadID, i+1, minioReaders[i], minio.ObjectOptions{})
+			info, err := layer.PutObjectPart(ctx, testBucket, testFile, uploadID, i+1, minioReaders[i], minio.ObjectOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, i+1, info.PartNumber)
 			assert.Equal(t, minioReaders[i].Size(), info.Size)
@@ -1355,10 +1788,10 @@ func TestListObjectParts(t *testing.T) {
 			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), info.ETag)
 		}
 
-		listParts, err := layer.ListObjectParts(ctx, TestBucket, TestFile, uploadID, 0, totalPartsCount, minio.ObjectOptions{})
+		listParts, err := layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 0, totalPartsCount, minio.ObjectOptions{})
 		require.NoError(t, err)
-		require.Equal(t, TestBucket, listParts.Bucket)
-		require.Equal(t, TestFile, listParts.Object)
+		require.Equal(t, testBucket, listParts.Bucket)
+		require.Equal(t, testFile, listParts.Object)
 		require.Equal(t, uploadID, listParts.UploadID)
 		require.Len(t, listParts.Parts, totalPartsCount)
 		for i := 0; i < totalPartsCount; i++ {
@@ -1372,43 +1805,47 @@ func TestListObjectParts(t *testing.T) {
 }
 
 func TestAbortMultipartUpload(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// invalid upload
-		err := layer.AbortMultipartUpload(ctx, TestBucket, TestFile, "uploadID", minio.ObjectOptions{})
+		err := layer.AbortMultipartUpload(ctx, testBucket, testFile, "uploadID", minio.ObjectOptions{})
 		require.Error(t, err)
 
-		bucket, err := project.CreateBucket(ctx, TestBucket)
+		bucket, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
-		require.Equal(t, bucket.Name, TestBucket)
+		require.Equal(t, bucket.Name, testBucket)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		err = layer.AbortMultipartUpload(ctx, TestBucket, TestFile, uploadID, minio.ObjectOptions{})
+		err = layer.AbortMultipartUpload(ctx, testBucket, testFile, uploadID, minio.ObjectOptions{})
 		require.NoError(t, err)
 	})
 }
 
 func TestCompleteMultipartUpload(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		_, err := layer.CompleteMultipartUpload(ctx, "bucket", "object", "invalid-upload", nil, minio.ObjectOptions{})
 		require.Error(t, err)
 
-		bucket, err := project.CreateBucket(ctx, TestBucket)
+		bucket, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
-		require.Equal(t, bucket.Name, TestBucket)
+		require.Equal(t, bucket.Name, testBucket)
 
-		listInfo, err := layer.ListMultipartUploads(ctx, TestBucket, "", "", "", "", 1)
+		listInfo, err := layer.ListMultipartUploads(ctx, testBucket, "", "", "", "", 1)
 		require.NoError(t, err)
 		require.Empty(t, listInfo.Uploads)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		totalPartsCount := 3
 		completeParts := make([]minio.CompletePart, 0, totalPartsCount)
 		for i := 1; i <= totalPartsCount; i++ {
-			info, err := layer.PutObjectPart(ctx, TestBucket, TestFile, uploadID, i, newMinioPutObjReader(t), minio.ObjectOptions{})
+			info, err := layer.PutObjectPart(ctx, testBucket, testFile, uploadID, i, newMinioPutObjReader(t), minio.ObjectOptions{})
 			require.NoError(t, err)
 			require.Equal(t, i, info.PartNumber)
 			completeParts = append(completeParts, minio.CompletePart{
@@ -1421,62 +1858,87 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			"content-type":         "text/plain",
 			xhttp.AmzObjectTagging: "key1=value1&key2=value2",
 		}
+
 		expectedMetadata := map[string]string{
 			"content-type": "text/plain",
 			"s3:tags":      "key1=value1&key2=value2",
 		}
-		_, err = layer.CompleteMultipartUpload(ctx, TestBucket, TestFile, uploadID, completeParts, minio.ObjectOptions{UserDefined: metadata})
+
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{UserDefined: metadata})
 		require.NoError(t, err)
 
-		obj, err := layer.ListObjects(ctx, TestBucket, TestFile, "", "", 2)
+		obj, err := layer.ListObjects(ctx, testBucket, testFile, "", "", 2)
 		require.NoError(t, err)
 		require.Len(t, obj.Objects, 1)
-		require.Equal(t, TestBucket, obj.Objects[0].Bucket)
-		require.Equal(t, TestFile, obj.Objects[0].Name)
+		require.Equal(t, testBucket, obj.Objects[0].Bucket)
+		require.Equal(t, testFile, obj.Objects[0].Name)
+
 		expectedMetadata["s3:etag"] = obj.Objects[0].ETag
+
 		require.Equal(t, expectedMetadata, obj.Objects[0].UserDefined)
 	})
 }
 
 func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
+	t.Parallel()
+
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
-		NonParallel: true,
+		SatelliteCount: 1, UplinkCount: 1,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		_, project, err := initEnv(ctx, t, planet, storj.EncNull)
+		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
 		require.NoError(t, err)
 
+		project, err := uplink.OpenProject(ctx, access)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, project.Close()) }()
+
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		// Create the object using the Uplink API
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, nil, nil)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, nil, nil)
 		require.NoError(t, err)
 
-		// Create an access grant that only has delete permission
-		restrictedAccess, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.Permission{AllowDelete: true})
+		// Restrict the access grant to deletes only
+		restrictedAccess, err := access.Share(uplink.Permission{AllowDelete: true})
 		require.NoError(t, err)
 
-		// Create a new gateway with the restrictedAccess
-		gateway := miniogw.NewStorjGateway(restrictedAccess, miniogw.Config{})
-		restrictedLayer, err := gateway.NewGatewayLayer(auth.Credentials{})
+		projectWithRestrictedAccess, err := uplink.OpenProject(ctx, restrictedAccess)
 		require.NoError(t, err)
+
+		defer func() { require.NoError(t, projectWithRestrictedAccess.Close()) }()
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := context.WithValue(ctx, miniogw.UplinkProject, projectWithRestrictedAccess)
 
 		// Delete the object info using the Minio API
-		deleted, err := restrictedLayer.DeleteObject(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		deleted, err := layer.DeleteObject(ctxWithProject, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
-		require.Equal(t, TestBucket, deleted.Bucket)
+
+		require.Equal(t, testBucket, deleted.Bucket)
 		require.Empty(t, deleted.Name)
 
 		// Check that the object is deleted using the Uplink API
-		_, err = project.StatObject(ctx, testBucketInfo.Name, TestFile)
-		require.True(t, errors.Is(err, uplink.ErrObjectNotFound))
-
+		_, err = project.StatObject(ctx, testBucketInfo.Name, testFile)
+		require.ErrorIs(t, err, uplink.ErrObjectNotFound)
 	})
 }
 
 func TestListObjectVersions(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		_, err := layer.ListObjectVersions(ctx, "bucket", "prefix", "marker", "versionMarker", "delimiter", 0)
 		require.EqualError(t, err, minio.NotImplemented{}.Error())
@@ -1484,26 +1946,28 @@ func TestListObjectVersions(t *testing.T) {
 }
 
 func TestPutObjectTags(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when putting object tags from a bucket with empty name
 		err := layer.PutObjectTags(ctx, "", "", "key1=value1", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when putting object tags with a non-existent bucket
-		err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		err = layer.PutObjectTags(ctx, testBucket, testFile, "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		// Check the error when putting object tags for an object with empty name
-		err = layer.PutObjectTags(ctx, TestBucket, "", "key1=value1", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		err = layer.PutObjectTags(ctx, testBucket, "", "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Check the error when putting object tags with a non-existing object
-		err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		err = layer.PutObjectTags(ctx, testBucket, testFile, "key1=value1", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
 
 		// These are the object tags we want to put
 		objectTags := "key3=value3&key4=value4"
@@ -1515,47 +1979,49 @@ func TestPutObjectTags(t *testing.T) {
 		}
 
 		// Create the object using the Uplink API
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), nil)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), nil)
 		require.NoError(t, err)
 
-		err = layer.PutObjectTags(ctx, TestBucket, TestFile, objectTags, minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, testBucket, testFile, objectTags, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		ts, err := layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, expectedObjectTags, ts.ToMap())
 
 		// Test that sending an empty tag set is effectively the same as deleting them
-		err = layer.PutObjectTags(ctx, TestBucket, TestFile, "", minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, testBucket, testFile, "", minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		ts, err = layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, ts.ToMap())
 	})
 }
 
 func TestGetObjectTags(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting object tags from a bucket with empty name
 		_, err := layer.GetObjectTags(ctx, "", "", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when getting object tags with a non-existent bucket
-		_, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		_, err = layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		// Check the error when getting object tags for an object with empty name
-		_, err = layer.GetObjectTags(ctx, TestBucket, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		_, err = layer.GetObjectTags(ctx, testBucket, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Check the error when getting object tags with a non-existent object
-		_, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		_, err = layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
 
 		// This is the custom metadata for the object.
 		metadata := map[string]string{
@@ -1570,10 +2036,10 @@ func TestGetObjectTags(t *testing.T) {
 		}
 
 		// Create the object using the Uplink API
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
 
-		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		ts, err := layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, expected, ts.ToMap())
 
@@ -1581,10 +2047,10 @@ func TestGetObjectTags(t *testing.T) {
 			"content-type": "text/plain",
 		}
 
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadataNoObjectTags)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadataNoObjectTags)
 		require.NoError(t, err)
 
-		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		ts, err = layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, ts.ToMap())
 
@@ -1593,51 +2059,140 @@ func TestGetObjectTags(t *testing.T) {
 			"s3:tags":      "",
 		}
 
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadataEmptyObjectTags)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadataEmptyObjectTags)
 		require.NoError(t, err)
 
-		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		ts, err = layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, ts.ToMap())
 	})
 }
 
 func TestDeleteObjectTags(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting object tags from a bucket with empty name
 		err := layer.DeleteObjectTags(ctx, "", "", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when deleting object tags with a non-existent bucket
-		err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
+		err = layer.DeleteObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket using the Uplink API
-		testBucketInfo, err := project.CreateBucket(ctx, TestBucket)
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		// Check the error when deleting object tags for an object with empty name
-		err = layer.DeleteObjectTags(ctx, TestBucket, "", minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
+		err = layer.DeleteObjectTags(ctx, testBucket, "", minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
 
 		// Check the error when deleting object tags for a non-existing object
-		err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
+		err = layer.DeleteObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
 
 		metadata := map[string]string{
 			"s3:tags": "key5=value5&key6=value6",
 		}
 
 		// Create the object using the Uplink API
-		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
 
-		err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		err = layer.DeleteObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		ts, err := layer.GetObjectTags(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, ts.ToMap())
+	})
+}
+
+// md5Hex returns MD5 hash in hex encoding of given data.
+func md5Hex(data []byte) string {
+	sum := md5.Sum(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// sha256Hex returns SHA-256 hash in hex encoding of given data.
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestProjectUsageLimit(t *testing.T) {
+	t.Parallel()
+
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		satDB := planet.Satellites[0].DB
+		acctDB := satDB.ProjectAccounting()
+
+		now := time.Now()
+
+		// set custom bandwidth limit for project 512 Kb
+		bandwidthLimit := 500 * memory.KiB
+		err := acctDB.UpdateProjectBandwidthLimit(ctx, planet.Uplinks[0].Projects[0].ID, bandwidthLimit)
+		require.NoError(t, err)
+
+		dataSize := 100 * memory.KiB
+		data := testrand.Bytes(dataSize)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		require.NoError(t, err)
+
+		project, err := uplink.OpenProject(ctx, access)
+		require.NoError(t, err)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := context.WithValue(ctx, miniogw.UplinkProject, project)
+
+		// Create a bucket with the Minio API
+		err = layer.MakeBucketWithLocation(ctxWithProject, "testbucket", minio.BucketOptions{})
+		require.NoError(t, err)
+
+		hashReader, err := hash.NewReader(bytes.NewReader(data), int64(dataSize), md5Hex(data), sha256Hex(data), int64(dataSize), true)
+		require.NoError(t, err)
+		putObjectReader := minio.NewPutObjReader(hashReader, nil, nil)
+
+		info, err := layer.PutObject(ctxWithProject, "testbucket", "test/path1", putObjectReader, minio.ObjectOptions{UserDefined: make(map[string]string)})
+		require.NoError(t, err)
+		assert.Equal(t, "test/path1", info.Name)
+		assert.Equal(t, "testbucket", info.Bucket)
+		assert.False(t, info.IsDir)
+		assert.True(t, time.Since(info.ModTime) < 1*time.Minute)
+		assert.NotEmpty(t, info.ETag)
+
+		time.Sleep(10 * time.Second)
+		// We'll be able to download 5X before reach the limit.
+		for i := 0; i < 5; i++ {
+			err = layer.GetObject(ctxWithProject, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
+			require.NoError(t, err)
+		}
+
+		// An extra download should return 'Exceeded Usage Limit' error
+		err = layer.GetObject(ctxWithProject, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
+		require.Error(t, err)
+		require.ErrorIs(t, err, miniogw.ErrProjectUsageLimit)
+
+		// Simulate new billing cycle (next month)
+		planet.Satellites[0].API.Accounting.ProjectUsage.SetNow(func() time.Time {
+			return time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+		})
+
+		// Should not return an error since it's a new month
+		err = layer.GetObject(ctxWithProject, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
+		require.NoError(t, err)
 	})
 }
 
@@ -1648,32 +2203,30 @@ func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLa
 func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
-		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		layer, project, err := initEnv(ctx, t, planet, pathCipher)
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
-		test(t, ctx, layer, project)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
+		require.NoError(t, err)
+
+		project, err := uplink.OpenProject(ctx, access)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, project.Close()) }()
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := context.WithValue(ctx, miniogw.UplinkProject, project)
+
+		test(t, ctxWithProject, layer, project)
 	})
-}
-
-func initEnv(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite) (minio.ObjectLayer, *uplink.Project, error) {
-	access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	project, err := uplink.OpenProject(ctx, access)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	gateway := miniogw.NewStorjGateway(access, miniogw.Config{})
-	layer, err := gateway.NewGatewayLayer(auth.Credentials{})
-	if err != nil {
-		return nil, nil, err
-	}
-	return layer, project, err
 }
 
 func setupAccess(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite, permission uplink.Permission) (*uplink.Access, error) {
@@ -1693,17 +2246,21 @@ func setupAccess(ctx context.Context, t *testing.T, planet *testplanet.Planet, p
 	if err != nil || version != 0 {
 		return nil, errors.New("invalid access grant format")
 	}
+
 	p := new(pb.Scope)
+
 	if err := pb.Unmarshal(data, p); err != nil {
 		return nil, err
 
 	}
 
 	p.EncryptionAccess.DefaultPathCipher = pb.CipherSuite(pathCipher)
+
 	accessData, err := pb.Marshal(p)
 	if err != nil {
 		return nil, err
 	}
+
 	serializedAccess = base58.CheckEncode(accessData, 0)
 
 	// workaround to set proper path cipher for uplink.Access
@@ -1743,7 +2300,6 @@ func newMinioPutObjReader(t *testing.T) *minio.PutObjReader {
 		true,
 	)
 	require.NoError(t, err)
-	data := minio.NewPutObjReader(hashReader, nil, nil)
 
-	return data
+	return minio.NewPutObjReader(hashReader, nil, nil)
 }
