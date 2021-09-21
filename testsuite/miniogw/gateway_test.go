@@ -179,9 +179,10 @@ func TestPutObject(t *testing.T) {
 			"098f6bcd4621d373cade4e832627b4f6",
 			"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 			int64(len("test")),
+			true,
 		)
 		require.NoError(t, err)
-		data := minio.NewPutObjReader(hashReader)
+		data := minio.NewPutObjReader(hashReader, nil, nil)
 
 		metadata := map[string]string{
 			"content-type":         "media/foo",
@@ -1485,11 +1486,11 @@ func TestListObjectVersions(t *testing.T) {
 func TestPutObjectTags(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when putting object tags from a bucket with empty name
-		_, err := layer.PutObjectTags(ctx, "", "", "key1=value1", minio.ObjectOptions{})
+		err := layer.PutObjectTags(ctx, "", "", "key1=value1", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when putting object tags with a non-existent bucket
-		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the bucket using the Uplink API
@@ -1497,11 +1498,11 @@ func TestPutObjectTags(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check the error when putting object tags for an object with empty name
-		_, err = layer.PutObjectTags(ctx, TestBucket, "", "key1=value1", minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, TestBucket, "", "key1=value1", minio.ObjectOptions{})
 		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
 
 		// Check the error when putting object tags with a non-existing object
-		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, TestBucket, TestFile, "key1=value1", minio.ObjectOptions{})
 		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
 
 		// These are the object tags we want to put
@@ -1517,7 +1518,7 @@ func TestPutObjectTags(t *testing.T) {
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), nil)
 		require.NoError(t, err)
 
-		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, objectTags, minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, TestBucket, TestFile, objectTags, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
@@ -1525,7 +1526,7 @@ func TestPutObjectTags(t *testing.T) {
 		assert.Equal(t, expectedObjectTags, ts.ToMap())
 
 		// Test that sending an empty tag set is effectively the same as deleting them
-		_, err = layer.PutObjectTags(ctx, TestBucket, TestFile, "", minio.ObjectOptions{})
+		err = layer.PutObjectTags(ctx, TestBucket, TestFile, "", minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		ts, err = layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
@@ -1604,11 +1605,11 @@ func TestGetObjectTags(t *testing.T) {
 func TestDeleteObjectTags(t *testing.T) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting object tags from a bucket with empty name
-		_, err := layer.DeleteObjectTags(ctx, "", "", minio.ObjectOptions{})
+		err := layer.DeleteObjectTags(ctx, "", "", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when deleting object tags with a non-existent bucket
-		_, err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNotFound{Bucket: TestBucket}, err)
 
 		// Create the bucket using the Uplink API
@@ -1616,11 +1617,11 @@ func TestDeleteObjectTags(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check the error when deleting object tags for an object with empty name
-		_, err = layer.DeleteObjectTags(ctx, TestBucket, "", minio.ObjectOptions{})
+		err = layer.DeleteObjectTags(ctx, TestBucket, "", minio.ObjectOptions{})
 		assert.Equal(t, minio.ObjectNameInvalid{Bucket: TestBucket}, err)
 
 		// Check the error when deleting object tags for a non-existing object
-		_, err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		assert.Equal(t, minio.ObjectNotFound{Bucket: TestBucket, Object: TestFile}, err)
 
 		metadata := map[string]string{
@@ -1631,7 +1632,7 @@ func TestDeleteObjectTags(t *testing.T) {
 		_, err = createFile(ctx, project, testBucketInfo.Name, TestFile, []byte("test"), metadata)
 		require.NoError(t, err)
 
-		_, err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
+		err = layer.DeleteObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		ts, err := layer.GetObjectTags(ctx, TestBucket, TestFile, minio.ObjectOptions{})
@@ -1739,9 +1740,10 @@ func newMinioPutObjReader(t *testing.T) *minio.PutObjReader {
 		"098f6bcd4621d373cade4e832627b4f6",
 		"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 		int64(len("test")),
+		true,
 	)
 	require.NoError(t, err)
-	data := minio.NewPutObjReader(hashReader)
+	data := minio.NewPutObjReader(hashReader, nil, nil)
 
 	return data
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/minio/minio/pkg/hash"
-	"github.com/minio/minio/pkg/madmin"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 
@@ -35,7 +34,7 @@ var (
 	// ErrUnsupportedDelimiter is a custom "not implemented" error type
 	// for when an unsupported delimiter is given in a request.
 	ErrUnsupportedDelimiter = minio.NotImplemented{
-		Message: "Delimiters other than '/' are unsupported",
+		API: "Delimiters other than '/' are unsupported",
 	}
 )
 
@@ -231,11 +230,39 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucketName, object
 	return minioObjectInfo(bucketName, "", object), nil
 }
 
-func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) GetObject(ctx context.Context, bucketName, objectPath string, startOffset int64, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	download, err := layer.project.DownloadObject(ctx, bucketName, objectPath, &uplink.DownloadOptions{
+		Offset: startOffset,
+		Length: length,
+	})
+	if err != nil {
+		// TODO this should be removed and implemented on satellite side
+		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
+		return convertError(err, bucketName, objectPath)
+	}
+	defer func() { err = errs.Combine(err, download.Close()) }()
+
+	object := download.Info()
+	if startOffset < 0 || length < -1 {
+		return minio.InvalidRange{
+			OffsetBegin:  startOffset,
+			OffsetEnd:    startOffset + length,
+			ResourceSize: object.System.ContentLength,
+		}
+	}
+
+	_, err = io.Copy(writer, download)
+
+	return convertError(err, bucketName, objectPath)
+}
+
+func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err != nil {
-		return objInfo, err
+		return err
 	}
 	defer func() {
 		err = errs.Combine(err, layer.project.Close())
@@ -245,11 +272,11 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucketName, object
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return objInfo, convertError(err, bucketName, objectPath)
+		return convertError(err, bucketName, objectPath)
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
-		return objInfo, nil
+		return nil
 	}
 
 	newMetadata := object.Custom.Clone()
@@ -261,10 +288,10 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucketName, object
 
 	err = layer.project.UpdateObjectMetadata(ctx, bucketName, objectPath, newMetadata, nil)
 	if err != nil {
-		return objInfo, convertError(err, bucketName, objectPath)
+		return convertError(err, bucketName, objectPath)
 	}
 
-	return minioObjectInfo(bucketName, "", object), nil
+	return nil
 }
 
 func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
@@ -291,11 +318,11 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucketName, object
 
 	return t, nil
 }
-func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err != nil {
-		return objInfo, err
+		return err
 	}
 	defer func() {
 		err = errs.Combine(err, layer.project.Close())
@@ -305,11 +332,11 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucketName, obj
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, layer.project, bucketName, objectPath, err)
-		return objInfo, convertError(err, bucketName, objectPath)
+		return convertError(err, bucketName, objectPath)
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok {
-		return objInfo, nil
+		return nil
 	}
 
 	newMetadata := object.Custom.Clone()
@@ -317,10 +344,10 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucketName, obj
 
 	err = layer.project.UpdateObjectMetadata(ctx, bucketName, objectPath, newMetadata, nil)
 	if err != nil {
-		return objInfo, convertError(err, bucketName, objectPath)
+		return convertError(err, bucketName, objectPath)
 	}
 
-	return minioObjectInfo(bucketName, "", object), nil
+	return nil
 }
 
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
@@ -649,7 +676,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
 
-	reader, err := hash.NewReader(download, info.System.ContentLength, "", "", info.System.ContentLength)
+	reader, err := hash.NewReader(download, info.System.ContentLength, "", "", info.System.ContentLength, true)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -690,11 +717,11 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucketName, objectPath
 	defer layer.active.remove(bucketName, objectPath)
 
 	if data == nil {
-		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0)
+		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0, true)
 		if err != nil {
 			return minio.ObjectInfo{}, convertError(err, bucketName, objectPath)
 		}
-		data = minio.NewPutObjReader(hashReader)
+		data = minio.NewPutObjReader(hashReader, nil, nil)
 	}
 
 	upload, err := layer.project.UploadObject(ctx, bucketName, objectPath, nil)
@@ -739,9 +766,9 @@ func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 	return layer.project.Close()
 }
 
-func (layer *gatewayLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
+func (layer *gatewayLayer) StorageInfo(ctx context.Context, _ bool) (minio.StorageInfo, []error) {
 	info := minio.StorageInfo{}
-	info.Backend.Type = madmin.Gateway
+	info.Backend.Type = minio.BackendGateway
 	info.Backend.GatewayOnline = layer.isSatelliteOnline(ctx)
 	return info, nil
 }

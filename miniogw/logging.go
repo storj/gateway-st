@@ -5,8 +5,8 @@ package miniogw
 
 import (
 	"context"
+	"io"
 	"net/http"
-	"reflect"
 
 	"github.com/minio/minio-go/v7/pkg/tags"
 	minio "github.com/minio/minio/cmd"
@@ -45,11 +45,6 @@ func (log *layerLogging) IsTaggingSupported() bool {
 	return log.layer.IsTaggingSupported()
 }
 
-// minioError checks if the given error is a minio error.
-func minioError(err error) bool {
-	return reflect.TypeOf(err).ConvertibleTo(reflect.TypeOf(minio.GenericError{}))
-}
-
 // log unexpected errors, i.e. non-minio errors. It will return the given error
 // to allow method chaining.
 func (log *layerLogging) log(err error) error {
@@ -74,8 +69,8 @@ func (log *layerLogging) Shutdown(ctx context.Context) error {
 	return log.log(log.layer.Shutdown(ctx))
 }
 
-func (log *layerLogging) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
-	return log.layer.StorageInfo(ctx)
+func (log *layerLogging) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
+	return log.layer.StorageInfo(ctx, local)
 }
 
 func (log *layerLogging) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) error {
@@ -112,14 +107,17 @@ func (log *layerLogging) GetObjectNInfo(ctx context.Context, bucket, object stri
 	return reader, log.log(err)
 }
 
+func (log *layerLogging) GetObject(ctx context.Context, bucket, object string, startOffset, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) error {
+	return log.log(log.layer.GetObject(ctx, bucket, object, startOffset, length, writer, etag, opts))
+}
+
 func (log *layerLogging) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	objInfo, err = log.layer.GetObjectInfo(ctx, bucket, object, opts)
 	return objInfo, log.log(err)
 }
 
-func (log *layerLogging) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = log.layer.PutObjectTags(ctx, bucketName, objectPath, tags, opts)
-	return objInfo, log.log(err)
+func (log *layerLogging) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) error {
+	return log.log(log.layer.PutObjectTags(ctx, bucketName, objectPath, tags, opts))
 }
 
 func (log *layerLogging) GetObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
@@ -127,9 +125,8 @@ func (log *layerLogging) GetObjectTags(ctx context.Context, bucketName, objectPa
 	return t, log.log(err)
 }
 
-func (log *layerLogging) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = log.layer.DeleteObjectTags(ctx, bucketName, objectPath, opts)
-	return objInfo, log.log(err)
+func (log *layerLogging) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) error {
+	return log.log(log.layer.DeleteObjectTags(ctx, bucketName, objectPath, opts))
 }
 
 func (log *layerLogging) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -234,7 +231,7 @@ func (log *layerLogging) IsCompressionSupported() bool {
 	return log.layer.IsCompressionSupported()
 }
 
-func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.BackendMetrics, error) {
+func (log *layerLogging) GetMetrics(ctx context.Context) (*minio.Metrics, error) {
 	metrics, err := log.layer.GetMetrics(ctx)
 	return metrics, log.log(err)
 }
