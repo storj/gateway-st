@@ -847,13 +847,10 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 }
 
 func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
-	v := ctx.Value(UplinkProject)
-
-	pr, ok := v.(*uplink.Project)
+	pr, ok := GetUplinkProject(ctx)
 	if !ok {
-		return nil, convertError(ErrNoUplinkProject.New("access key is empty"), bucket, object)
+		return nil, convertError(ErrNoUplinkProject.New("not found"), bucket, object)
 	}
-
 	return pr, nil
 }
 

@@ -1910,6 +1910,9 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 
 		defer func() { require.NoError(t, projectWithRestrictedAccess.Close()) }()
 
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, projectWithRestrictedAccess)
+
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
 			MaxKeysLimit:                 1000,
@@ -1918,10 +1921,7 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
-		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
-
-		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := context.WithValue(ctx, miniogw.UplinkProject, projectWithRestrictedAccess)
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
 
 		// Delete the object info using the Minio API
 		deleted, err := layer.DeleteObject(ctxWithProject, testBucket, testFile, minio.ObjectOptions{})
@@ -2140,6 +2140,17 @@ func TestProjectUsageLimit(t *testing.T) {
 		dataSize := 100 * memory.KiB
 		data := testrand.Bytes(dataSize)
 
+		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		require.NoError(t, err)
+
+		project, err := uplink.OpenProject(ctx, access)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, project.Close()) }()
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
 			MaxKeysLimit:                 1000,
@@ -2148,14 +2159,7 @@ func TestProjectUsageLimit(t *testing.T) {
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
-		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
-		require.NoError(t, err)
-
-		project, err := uplink.OpenProject(ctx, access)
-		require.NoError(t, err)
-
-		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := context.WithValue(ctx, miniogw.UplinkProject, project)
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
 
 		// Create a bucket with the Minio API
 		err = layer.MakeBucketWithLocation(ctxWithProject, "testbucket", minio.BucketOptions{})
@@ -2204,16 +2208,6 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
-		require.NoError(t, err)
-
-		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
-
 		access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
 		require.NoError(t, err)
 
@@ -2223,7 +2217,17 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 		defer func() { require.NoError(t, project.Close()) }()
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := context.WithValue(ctx, miniogw.UplinkProject, project)
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
 
 		test(t, ctxWithProject, layer, project)
 	})
