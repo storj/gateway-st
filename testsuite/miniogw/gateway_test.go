@@ -35,15 +35,17 @@ import (
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/uplink"
+	"storj.io/uplink/private/testuplink"
 )
 
 const (
-	testBucket = "test-bucket"
-	testFile   = "test-file"
-	testFile2  = "test-file-2"
-	testFile3  = "test-file-3"
-	destBucket = "dest-bucket"
-	destFile   = "dest-file"
+	testBucket  = "test-bucket"
+	testFile    = "test-file"
+	testFile2   = "test-file-2"
+	testFile3   = "test-file-3"
+	destBucket  = "dest-bucket"
+	destFile    = "dest-file"
+	segmentSize = 640 * memory.KiB
 )
 
 func TestMakeBucketWithLocation(t *testing.T) {
@@ -1690,8 +1692,8 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 		var parts []minio.CompletePart
 
 		// Upload two non-zero parts:
-		for i := 0; i < 2; i++ {
 
+		for i := 0; i < 2; i++ {
 			h, err := hash.NewReader(
 				bytes.NewReader([]byte(nonZeroContent)),
 				nonZeroContentLen,
@@ -1745,8 +1747,9 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 		require.NoError(t, err)
 
 		// The uplink library contains unresolved TODO for returning real
-		// objects after committing. TODO(amwolff): enable this check after
-		// mentioned TODO is completed.
+		// objects after committing.
+		//
+		// TODO(amwolff): enable this check after mentioned TODO is completed.
 		//
 		// assert.Equal(t, 2*nonZeroContentLen, obj.Size)
 
@@ -1765,6 +1768,74 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 		assert.Equal(t, nonZeroContent+nonZeroContent, buf.String())
 
 		assert.Equal(t, 2*nonZeroContentLen, downloaded.Info().System.ContentLength)
+	})
+}
+
+// TestPutObjectPartSegmentSize ensures that completing multipart upload after
+// uploading parts of segment size will not return an error. This has happened
+// before because of bad encryption/decryption of ETag in libuplink, so this
+// test mainly assures it doesn't happen again.
+//
+// Related fix: https://review.dev.storj.io/c/storj/uplink/+/5710
+func TestPutObjectPartSegmentSize(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket, err := project.CreateBucket(ctx, testrand.BucketName())
+		require.NoError(t, err)
+
+		object := testrand.Path()
+
+		uploadID, err := layer.NewMultipartUpload(ctx, bucket.Name, object, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		defer func() {
+			if err = layer.AbortMultipartUpload(ctx, bucket.Name, object, uploadID, minio.ObjectOptions{}); err != nil {
+				assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucket.Name, Object: object, UploadID: uploadID})
+			}
+		}()
+
+		var parts []minio.CompletePart
+
+		for i, s := range []memory.Size{segmentSize, memory.KiB} { // 641 KiB file
+			data := testrand.Bytes(s)
+
+			h, err := hash.NewReader(bytes.NewReader(data), s.Int64(), md5Hex(data), sha256Hex(data), s.Int64(), true)
+			require.NoError(t, err)
+
+			r := minio.NewPutObjReader(h, nil, nil)
+
+			opts := minio.ObjectOptions{
+				UserDefined: make(map[string]string),
+			}
+
+			part, err := layer.PutObjectPart(ctx, bucket.Name, object, uploadID, i+1, r, opts)
+			require.NoError(t, err)
+
+			parts = append(parts, minio.CompletePart{PartNumber: part.PartNumber, ETag: part.ETag})
+		}
+
+		opts := minio.ObjectOptions{
+			UserDefined: make(map[string]string),
+		}
+
+		obj, err := layer.CompleteMultipartUpload(ctx, bucket.Name, object, uploadID, parts, opts)
+		require.NoError(t, err)
+
+		downloaded, err := project.DownloadObject(ctx, obj.Bucket, obj.Name, nil)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, downloaded.Close()) }()
+
+		buf := new(bytes.Buffer)
+
+		_, err = io.Copy(buf, downloaded)
+		require.NoError(t, err)
+
+		expectedSize := segmentSize + memory.KiB
+
+		assert.Equal(t, expectedSize, memory.Size(len(buf.Bytes())))
+		assert.Equal(t, expectedSize, memory.Size(downloaded.Info().System.ContentLength))
 	})
 }
 
@@ -2290,13 +2361,15 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 		access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
 		require.NoError(t, err)
 
-		project, err := uplink.OpenProject(ctx, access)
+		maxSegmentSizeCtx := testuplink.WithMaxSegmentSize(ctx, segmentSize)
+
+		project, err := uplink.OpenProject(maxSegmentSizeCtx, access)
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, project.Close()) }()
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithUplinkProject(maxSegmentSizeCtx, project)
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
