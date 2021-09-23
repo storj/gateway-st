@@ -24,9 +24,9 @@ require (
 	google.golang.org/api v0.20.0 // indirect
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
-	storj.io/common v0.0.0-20210915201516-56ad343b6a7e
+	storj.io/common v0.0.0-20210916151047-6aaeb34bb916
 	storj.io/private v0.0.0-20210810102517-434aeab3f17d
-	storj.io/uplink v1.5.0-rc.1.0.20210915202907-4aeb0a767a86
+	storj.io/uplink v1.6.0
 )
 
 replace github.com/minio/minio => storj.io/minio v0.0.0-20210914060719-27c1b4bf0b74

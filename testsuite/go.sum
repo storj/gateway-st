@@ -1386,13 +1386,13 @@ storj.io/common v0.0.0-20200424175742-65ac59022f4f/go.mod h1:pZyXiIE7bGETIRXtfs0
 storj.io/common v0.0.0-20201026135900-1aaeec90670b/go.mod h1:GqdmNf3fLm2UZX/7Zr0BLFCJ4gFjgm6eHrk/fnmr5jQ=
 storj.io/common v0.0.0-20210805073808-8e0feb09e92a/go.mod h1:mhZYWpTojKsACxWE66RfXNz19zbyr/uEDVWHJH8dHog=
 storj.io/common v0.0.0-20210913064233-1b2b6b3e7a2f/go.mod h1:hK0ykFYEolCalWZ+od8AzpxwQrZ72WkqwhxmH4rQYAY=
-storj.io/common v0.0.0-20210915201516-56ad343b6a7e h1:oakUxrgZIk08wV/C+D0jsnU14JkGCVDh0LN10pYkVKk=
-storj.io/common v0.0.0-20210915201516-56ad343b6a7e/go.mod h1:i35B7Zr9WpXWSePOUAQXffRgvt0fWKpdfiB5mtbBbaA=
+storj.io/common v0.0.0-20210916151047-6aaeb34bb916 h1:G+EqGYEbW4lUBSkdt2uQE2BRc2ZvnhJSj0czlqL3SuA=
+storj.io/common v0.0.0-20210916151047-6aaeb34bb916/go.mod h1:objobGrIWQwhmTSpSm6Y7ykd40wZjB7CezNfic5YLKg=
 storj.io/drpc v0.0.11/go.mod h1:TiFc2obNjL9/3isMW1Rpxjy8V9uE0B2HMeMFGiiI7Iw=
 storj.io/drpc v0.0.14/go.mod h1:82nfl+6YwRwF6UG31cEWWUqv/FaKvP5SGqUvoqTxCMA=
 storj.io/drpc v0.0.24/go.mod h1:ofQUDPQbbIymRDKE0tms48k8bLP5Y+dsI9CbXGv3gko=
-storj.io/drpc v0.0.25 h1:Crey+clfi7zAjwvTDg65dMOwTZRhKwghqM6OwEp/+zE=
-storj.io/drpc v0.0.25/go.mod h1:ofQUDPQbbIymRDKE0tms48k8bLP5Y+dsI9CbXGv3gko=
+storj.io/drpc v0.0.26 h1:T6jJzjby7QUa/2XHR1qMxTCENpDHEw4/o+kfDfZQqQI=
+storj.io/drpc v0.0.26/go.mod h1:ofQUDPQbbIymRDKE0tms48k8bLP5Y+dsI9CbXGv3gko=
 storj.io/minio v0.0.0-20210914060719-27c1b4bf0b74 h1:NPp2LyZmjiu9V1bJw5mNiQRdT0R4vXd4cZBa8pN06GA=
 storj.io/minio v0.0.0-20210914060719-27c1b4bf0b74/go.mod h1:d+D4kBy+2ZRTFwItga3T6BPlLWiWX9a7YO/u39RAXp0=
 storj.io/monkit-jaeger v0.0.0-20210225162224-66fb37637bf6/go.mod h1:gj4vuCeyCRjRmH8LIrgoyU9Dc9uR6H+/GcDUXmTbf80=
@@ -1404,5 +1404,5 @@ storj.io/private v0.0.0-20210810102517-434aeab3f17d/go.mod h1:wvudoWSyOyB2daZNaM
 storj.io/storj v0.12.1-0.20210915191439-b160ec4c1b87 h1:UqehlF7M4ABjOX7AEKVnVXrcY0U2tGE94ldO15YmL54=
 storj.io/storj v0.12.1-0.20210915191439-b160ec4c1b87/go.mod h1:hCEmEdHqFGXStNmydDGr4PA1jtjrEX5tnasfIWuQqMM=
 storj.io/uplink v1.5.0-rc.1.0.20210820085250-799c214b35ac/go.mod h1:oIb5Fhc2MoWJOUZkt6Ll0KXzCpJvVMpJHvUBGQ1JdZs=
-storj.io/uplink v1.5.0-rc.1.0.20210915202907-4aeb0a767a86 h1:bid/bndO+AH706rPfeNKZoMahyikOmA1zE48rttaezE=
-storj.io/uplink v1.5.0-rc.1.0.20210915202907-4aeb0a767a86/go.mod h1:K/7QKH1K0LydqrqmrifHH6NFm47Xth6Mp0AhBZzXUEs=
+storj.io/uplink v1.6.0 h1:jikWj7Ca8hOR1kiuuP3GapdYCQG2bFngfG9AJX7/reE=
+storj.io/uplink v1.6.0/go.mod h1:zqj/LFDxa6RMaSRSHOmukg3mMgesOry0iHSjNldDMGo=
