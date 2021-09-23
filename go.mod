@@ -6,7 +6,7 @@ require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/minio/cli v1.22.0
-	github.com/minio/minio v0.0.0-20210423172742-e0d3a8c1f4e5
+	github.com/minio/minio v0.0.0-20201216013454-c606c7632365
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.6
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
@@ -28,5 +28,3 @@ require (
 	storj.io/private v0.0.0-20210810102517-434aeab3f17d
 	storj.io/uplink v1.6.0
 )
-
-replace github.com/minio/minio => storj.io/minio v0.0.0-20210914060719-27c1b4bf0b74
