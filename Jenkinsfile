@@ -8,11 +8,11 @@ pipeline {
         }
     }
     options {
-          timeout(time: 26, unit: 'MINUTES')
+        timeout(time: 26, unit: 'MINUTES')
     }
     environment {
         NPM_CONFIG_CACHE = '/tmp/npm/cache'
-        COCKROACH_MEMPROF_INTERVAL=0
+        COCKROACH_MEMPROF_INTERVAL = 0
     }
     stages {
         stage('Build') {
@@ -23,7 +23,7 @@ pipeline {
 
                 sh 'service postgresql start'
 
-                dir(".build") {
+                dir('.build') {
                     sh 'cockroach start-single-node --insecure --store=\'/tmp/crdb\' --listen-addr=localhost:26257 --http-addr=localhost:8080 --cache 512MiB --max-sql-memory 512MiB --background'
                 }
             }
@@ -44,13 +44,39 @@ pipeline {
                         sh 'check-errs ./...'
                         sh 'staticcheck ./...'
                         sh 'golangci-lint --config /go/ci/.golangci.yml -j=2 run'
-                        dir("testsuite") {
+                        dir('testsuite') {
                             sh 'staticcheck ./...'
                             sh 'golangci-lint --config /go/ci/.golangci.yml -j=2 run'
                         }
                         // TODO: reenable,
                         //    currently there are few packages that contain non-standard license formats.
                         //sh 'go-licenses check ./...'
+                    }
+                }
+
+                stage('Test') {
+                    environment {
+                        COVERFLAGS = "${ env.BRANCH_NAME != 'main' ? '' : '-coverprofile=.build/coverprofile -coverpkg=./...'}"
+                    }
+                    steps {
+                        sh 'go test -parallel 16 -p 16 -vet=off ${COVERFLAGS} -timeout 20m -json -race ./... 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'
+                        // TODO enable this later
+                        // sh 'check-clean-directory'
+                    }
+                    post {
+                        always {
+                            sh script: 'cat .build/tests.json | tparse -all -top -slow 100', returnStatus: true
+                            archiveArtifacts artifacts: '.build/tests.json'
+                            junit '.build/tests.xml'
+                            script {
+                                if (fileExists('.build/coverprofile')) {
+                                    sh script: 'filter-cover-profile < .build/coverprofile > .build/clean.coverprofile', returnStatus: true
+                                    sh script: 'gocov convert .build/clean.coverprofile > .build/cover.json', returnStatus: true
+                                    sh script: 'gocov-xml  < .build/cover.json > .build/cobertura.xml', returnStatus: true
+                                    cobertura coberturaReportFile: '.build/cobertura.xml'
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -64,7 +90,7 @@ pipeline {
                         sh 'cockroach sql --insecure --host=localhost:26257 -e \'create database testcockroach;\''
                         sh 'psql -U postgres -c \'create database teststorj;\''
                         sh 'use-ports -from 1024 -to 10000 &'
-                        dir('testsuite'){
+                        dir('testsuite') {
                             sh 'go vet ./...'
                             sh 'go test -parallel 4 -p 6 -vet=off $COVERFLAGS -timeout 20m -json -race ./... 2>&1 | tee ../.build/testsuite.json | xunit -out ../.build/testsuite.xml'
                         }
@@ -81,7 +107,7 @@ pipeline {
                     }
                 }
 
-                stage("Integration") {
+                stage('Integration') {
                     environment {
                         // use different hostname to avoid port conflicts
                         STORJ_NETWORK_HOST4 = '127.0.0.2'
@@ -115,7 +141,7 @@ pipeline {
 
     post {
         always {
-            sh "chmod -R 777 ." // ensure Jenkins agent can delete the working directory
+            sh 'chmod -R 777 .' // ensure Jenkins agent can delete the working directory
             deleteDir()
         }
     }
