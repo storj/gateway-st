@@ -1,0 +1,40 @@
+<!--
+Please answer these questions before submitting your issue. Thanks!
+For questions please use our forum: https://forum.storj.io/
+-->
+
+### What version of Gateway-ST are you using (`gateway version`)?
+
+<!--
+If the binary is a development build, please provide a commit tree hash or a Docker image digest.
+-->
+
+<pre>
+$ gateway version
+
+</pre>
+
+### Does this issue reproduce with the latest release?
+
+
+
+### What operating system and processor architecture are you using (`uname -mrsv`)?
+
+<details><summary><code>uname -mrsv</code> Output</summary><br><pre>
+$ uname -mrsv
+
+</pre></details>
+
+### What did you do?
+
+<!--
+If possible, provide a recipe for reproducing the error.
+-->
+
+
+
+### What did you expect to see?
+
+
+
+### What did you see instead?
