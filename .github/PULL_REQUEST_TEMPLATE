@@ -1,0 +1,40 @@
+## PR Checklist
+
+- [ ] The PR title is formatted as follows: `miniogw: add TestXYZ for XYZ`
+  - [ ] The package name goes before the colon
+  - [ ] The part after the colon uses the verb tense + phrase that completes the blank in, "This change modifies Gateway-ST to ___________"
+  - [ ] Lowercase verb after the colon
+  - [ ] No trailing period
+  - [ ] Keep the title as short as possible. Ideally under 72 characters or shorter
+  - [ ] No Markdown
+
+## Commit Message Body
+
+- What, why, please describe the tests and the performance impact (if any)
+- No Markdown
+- The body is wrapped at 72 characters unless it's really needed (ASCII art, table, or long link)
+- If there is a corresponding issue, add either `Closes #1234`, `Fixes #1234`, `Resolves #1234` or `Updates #1234` (the latter if this is not a complete fix) to this comment
+- If referring to a repo other than `storj/gateway-st`, you can use the `owner/repo#issue_number` syntax: `Fixes storj/common#1234`
+- We do not use Signed-off-by lines. Please don't add them. Our Gerrit server & GitHub bots enforce CLA compliance instead
+- More: https://github.com/storj/docs/blob/main/code/Git.md
+- Delete these instructions once you have read and applied them
+
+## Related Issue
+
+<!--
+- If there is a corresponding issue, add either `Closes #1234`, `Fixes #1234`, `Resolves #1234` or `Updates #1234` (the latter if this is not a complete fix) to this comment
+- If referring to a repo other than `storj/gateway-st`, you can use the `owner/repo#issue_number` syntax: `Fixes storj/common#1234`
+-->
+
+## Code Review Checklist (to be filled out by reviewer)
+
+ - [ ] Does the PR describe what changes are being made?
+ - [ ] Does the PR describe why the changes are being made?
+ - [ ] Does the code follow [our style guide](https://github.com/storj/docs/blob/main/code/Style.md)?
+ - [ ] Does the code follow [our testing guide](https://github.com/storj/docs/blob/main/code/Testing.md)?
+ - [ ] Is the PR appropriately sized? (If it could be broken into smaller PRs, it should be)
+ - [ ] Does the new code have enough tests? (*every* PR should have tests or justification otherwise. Bug-fix PRs especially)
+ - [ ] Does the new code have enough documentation that answers "how do I use it?" and "what does it do?"? (both source documentation and [higher level](https://github.com/storj/docs), diagrams?)
+ - [ ] Does any documentation needs updating?
+ - [ ] Do the database access patterns make sense?
+ - [ ] Copy the Commit Message Body section contents into the submit prompt upon PR completion
