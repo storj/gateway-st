@@ -6,7 +6,6 @@ require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/minio/cli v1.22.0
-	github.com/minio/minio v0.0.0-20201216013454-c606c7632365
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.6
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
@@ -26,6 +25,7 @@ require (
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
 	storj.io/common v0.0.0-20210916151047-6aaeb34bb916
+	storj.io/minio v0.0.0-20211001113105-a621e66615dd
 	storj.io/private v0.0.0-20210810102517-434aeab3f17d
 	storj.io/uplink v1.6.0
 )

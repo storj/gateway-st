@@ -14,14 +14,14 @@ import (
 
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
-	minio "github.com/minio/minio/cmd"
-	"github.com/minio/minio/cmd/config/storageclass"
-	xhttp "github.com/minio/minio/cmd/http"
-	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/hash"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 
+	minio "storj.io/minio/cmd"
+	"storj.io/minio/cmd/config/storageclass"
+	xhttp "storj.io/minio/cmd/http"
+	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/hash"
 	"storj.io/private/version"
 	"storj.io/uplink"
 )

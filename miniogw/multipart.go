@@ -9,12 +9,12 @@ import (
 	"math"
 	"sort"
 
-	minio "github.com/minio/minio/cmd"
-	"github.com/minio/minio/cmd/config/storageclass"
-	xhttp "github.com/minio/minio/cmd/http"
 	"github.com/zeebo/errs"
 
 	"storj.io/common/sync2"
+	minio "storj.io/minio/cmd"
+	"storj.io/minio/cmd/config/storageclass"
+	xhttp "storj.io/minio/cmd/http"
 	"storj.io/uplink"
 )
 

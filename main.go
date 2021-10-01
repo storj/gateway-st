@@ -17,7 +17,6 @@ import (
 
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/minio/cli"
-	minio "github.com/minio/minio/cmd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/zeebo/errs"
@@ -26,6 +25,7 @@ import (
 	"storj.io/common/fpath"
 	"storj.io/gateway/internal/wizard"
 	"storj.io/gateway/miniogw"
+	minio "storj.io/minio/cmd"
 	"storj.io/private/cfgstruct"
 	"storj.io/private/process"
 	"storj.io/uplink"

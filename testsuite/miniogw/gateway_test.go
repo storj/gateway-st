@@ -19,11 +19,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcutil/base58"
-	minio "github.com/minio/minio/cmd"
-	"github.com/minio/minio/cmd/config/storageclass"
-	xhttp "github.com/minio/minio/cmd/http"
-	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/hash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,6 +28,11 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/miniogw"
+	minio "storj.io/minio/cmd"
+	"storj.io/minio/cmd/config/storageclass"
+	xhttp "storj.io/minio/cmd/http"
+	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/uplink"
 )

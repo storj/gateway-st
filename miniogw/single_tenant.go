@@ -12,13 +12,13 @@ import (
 
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
-	minio "github.com/minio/minio/cmd"
-	"github.com/minio/minio/pkg/auth"
-	"github.com/minio/minio/pkg/bucket/policy"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 
 	"storj.io/common/errs2"
+	minio "storj.io/minio/cmd"
+	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/bucket/policy"
 	"storj.io/uplink"
 )
 
