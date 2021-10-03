@@ -287,26 +287,30 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return minio.ObjectInfo{}, err
 	}
 
-	sort.Slice(uploadedParts, func(i, k int) bool {
-		return uploadedParts[i].PartNumber < uploadedParts[k].PartNumber
-	})
+	// todo: part size validation has been disabled, as we have concerns that
+	// it's causing problems in production since minio expects CompleteMultipartUpload
+	// to finish quickly.
 
-	list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{})
-	for list.Next() {
-		part := list.Item()
-		uploadedPart := uploadedParts[int(part.PartNumber)]
-		if uploadedPart.ETag != string(part.ETag) {
-			return minio.ObjectInfo{}, minio.InvalidPart{PartNumber: int(part.PartNumber), GotETag: uploadedPart.ETag}
-		}
-		if int(part.PartNumber) != len(uploadedParts)-1 {
-			if part.Size < int64(layer.compatibilityConfig.MinPartSize) {
-				return minio.ObjectInfo{}, minio.PartTooSmall{PartNumber: int(part.PartNumber), PartSize: part.Size, PartETag: string(part.ETag)}
-			}
-		}
-	}
-	if list.Err() != nil {
-		return minio.ObjectInfo{}, convertMultipartError(list.Err(), bucket, object, uploadID)
-	}
+	// sort.Slice(uploadedParts, func(i, k int) bool {
+	// 	return uploadedParts[i].PartNumber < uploadedParts[k].PartNumber
+	// })
+
+	// list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{})
+	// for list.Next() {
+	// 	part := list.Item()
+	// 	uploadedPart := uploadedParts[int(part.PartNumber)]
+	// 	if uploadedPart.ETag != string(part.ETag) {
+	// 		return minio.ObjectInfo{}, minio.InvalidPart{PartNumber: int(part.PartNumber), GotETag: uploadedPart.ETag}
+	// 	}
+	// 	if int(part.PartNumber) != len(uploadedParts)-1 {
+	// 		if part.Size < int64(layer.compatibilityConfig.MinPartSize) {
+	// 			return minio.ObjectInfo{}, minio.PartTooSmall{PartNumber: int(part.PartNumber), PartSize: part.Size, PartETag: string(part.ETag)}
+	// 		}
+	// 	}
+	// }
+	// if list.Err() != nil {
+	// 	return minio.ObjectInfo{}, convertMultipartError(list.Err(), bucket, object, uploadID)
+	// }
 
 	etag := minio.ComputeCompleteMultipartMD5(uploadedParts)
 
