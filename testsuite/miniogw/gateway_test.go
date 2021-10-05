@@ -596,6 +596,7 @@ func TestCopyObject(t *testing.T) {
 			"content-type": "text/plain",
 			"key1":         "value1",
 			"key2":         "value2",
+			"s3:etag":      "123",
 		}
 		obj, err := createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
@@ -650,6 +651,84 @@ func TestCopyObject(t *testing.T) {
 		assert.Equal(t, info.Size, obj.System.ContentLength)
 		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
 		assert.EqualValues(t, info.UserDefined, obj.Custom)
+	})
+}
+
+func TestCopyObjectMetadata(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Create the source bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		// Create the destination bucket using the Uplink API
+		destBucketInfo, err := project.CreateBucket(ctx, destBucket)
+		require.NoError(t, err)
+
+		// Create the source object using the Uplink API
+		srcMetadata := map[string]string{
+			"content-type": "text/plain",
+			"key1":         "value1",
+			"key2":         "value2",
+			"s3:etag":      "123",
+			"s3:tags":      "key=value",
+		}
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), srcMetadata)
+		require.NoError(t, err)
+
+		// Get the source object info using the Minio API
+		srcInfo, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		// Copy the object. Metadata and tagging copied from source to destination.
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		obj, err := project.StatObject(ctx, destBucketInfo.Name, destFile)
+		require.NoError(t, err)
+		require.EqualValues(t, obj.Custom, srcMetadata)
+
+		// Copy the object with metadata in request. This will be set on the copied object.
+		srcInfo.UserDefined = map[string]string{
+			"key3": "value3",
+		}
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)
+		require.NoError(t, err)
+		require.EqualValues(t, obj.Custom, map[string]string{
+			"key3":    "value3",
+			"s3:etag": srcMetadata["s3:etag"],
+			"s3:tags": srcMetadata["s3:tags"],
+		})
+
+		// Tagging directive "REPLACE" will set new tags on the copied object.
+		srcInfo.UserDefined = map[string]string{
+			xhttp.AmzTagDirective:  "REPLACE",
+			xhttp.AmzObjectTagging: "key1=value1,key2=value2",
+		}
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)
+		require.NoError(t, err)
+		require.EqualValues(t, obj.Custom, map[string]string{
+			"s3:etag": srcMetadata["s3:etag"],
+			"s3:tags": "key1=value1,key2=value2",
+		})
+
+		// Tagging directive "COPY" will copy existing tags to the copied object.
+		srcInfo.UserDefined = map[string]string{
+			xhttp.AmzTagDirective:  "COPY",
+			xhttp.AmzObjectTagging: "no=effect",
+		}
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)
+		require.NoError(t, err)
+		require.EqualValues(t, obj.Custom, map[string]string{
+			"s3:etag": srcMetadata["s3:etag"],
+			"s3:tags": srcMetadata["s3:tags"],
+		})
 	})
 }
 

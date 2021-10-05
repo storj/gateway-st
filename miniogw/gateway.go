@@ -687,7 +687,31 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	info := download.Info()
-	err = upload.SetCustomMetadata(ctx, info.Custom)
+
+	// if X-Amz-Metadata-Directive header is provided and is set to "REPLACE",
+	// then srcInfo.UserDefined will contain new metadata from the copy request.
+	// If the directive is "COPY", or undefined, the source object's metadata
+	// will be contained in srcInfo.UserDefined instead. This is done by the
+	// caller handler in minio.
+
+	// if X-Amz-Tagging-Directive is set to "REPLACE", we need to set the copied
+	// object's tags to the tags provided in the copy request. If the directive
+	// is "COPY", or undefined, copy over any existing tags from the source
+	// object.
+	if td, ok := srcInfo.UserDefined[xhttp.AmzTagDirective]; ok && td == "REPLACE" {
+		srcInfo.UserDefined["s3:tags"] = srcInfo.UserDefined[xhttp.AmzObjectTagging]
+	} else if tags, ok := info.Custom["s3:tags"]; ok {
+		srcInfo.UserDefined["s3:tags"] = tags
+	}
+
+	delete(srcInfo.UserDefined, xhttp.AmzObjectTagging)
+	delete(srcInfo.UserDefined, xhttp.AmzTagDirective)
+
+	// if X-Amz-Metadata-Directive header is set to "REPLACE", then
+	// srcInfo.UserDefined will be missing s3:etag, so make sure it's copied.
+	srcInfo.UserDefined["s3:etag"] = info.Custom["s3:etag"]
+
+	err = upload.SetCustomMetadata(ctx, srcInfo.UserDefined)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
