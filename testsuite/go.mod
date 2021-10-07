@@ -12,7 +12,7 @@ require (
 	go.uber.org/zap v1.16.0
 	storj.io/common v0.0.0-20210916151047-6aaeb34bb916
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20211001113105-a621e66615dd
+	storj.io/minio v0.0.0-20211007171754-df6c27823c8a
 	storj.io/storj v0.12.1-0.20210915191439-b160ec4c1b87
 	storj.io/uplink v1.7.0
 )

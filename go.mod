@@ -25,7 +25,7 @@ require (
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
 	storj.io/common v0.0.0-20210916151047-6aaeb34bb916
-	storj.io/minio v0.0.0-20211001113105-a621e66615dd
+	storj.io/minio v0.0.0-20211007171754-df6c27823c8a
 	storj.io/private v0.0.0-20210810102517-434aeab3f17d
 	storj.io/uplink v1.7.0
 )
