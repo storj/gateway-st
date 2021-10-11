@@ -100,11 +100,12 @@ func (l *singleTenancyLayer) log(err error) error {
 	if err != nil && !minioError(err) {
 		l.logger.Error("error:", zap.Error(err))
 	}
+
 	return err
 }
 
 func (l *singleTenancyLayer) Shutdown(ctx context.Context) error {
-	return l.log(errs.Combine(l.layer.Shutdown(WithUplinkProject(ctx, l.project)), l.project.Close()))
+	return l.log(l.project.Close())
 }
 
 func (l *singleTenancyLayer) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
