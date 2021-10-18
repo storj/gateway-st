@@ -57,7 +57,6 @@ func (g *singleTenantGateway) NewGatewayLayer(creds auth.Credentials) (minio.Obj
 		project: project,
 		layer:   layer,
 		website: g.website,
-		active:  newActiveUploads(),
 	}, err
 }
 
@@ -71,8 +70,6 @@ type singleTenancyLayer struct {
 	layer   minio.ObjectLayer
 
 	website bool
-
-	active *activeUploads
 }
 
 // minioError checks if the given error is a minio error.
@@ -161,18 +158,7 @@ func (l *singleTenancyLayer) GetObjectInfo(ctx context.Context, bucket, object s
 }
 
 func (l *singleTenancyLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	if ok := l.active.tryAdd(bucket, object); !ok {
-		return minio.ObjectInfo{}, minio.ObjectAlreadyExists{
-			Bucket:    bucket,
-			Object:    object,
-			VersionID: "",
-			Err:       errs.New("concurrent upload"),
-		}
-	}
-	defer l.active.remove(bucket, object)
-
 	objInfo, err = l.layer.PutObject(WithUplinkProject(ctx, l.project), bucket, object, data, opts)
-
 	return objInfo, l.log(err)
 }
 
