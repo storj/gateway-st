@@ -11,6 +11,7 @@ import (
 
 	"github.com/zeebo/errs"
 
+	"storj.io/common/memory"
 	"storj.io/common/sync2"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
@@ -97,6 +98,10 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	if len(object) > memory.KiB.Int() { // https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+		return "", minio.ObjectNameTooLong{Bucket: bucket, Object: object}
+	}
 
 	if storageClass, ok := opts.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
 		return "", minio.NotImplemented{API: "NewMultipartUpload (storage class)"}

@@ -2259,6 +2259,28 @@ func TestDeleteObjectTags(t *testing.T) {
 	})
 }
 
+func TestObjectNameTooLong(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, _ *uplink.Project) {
+		bucket := testrand.BucketName()
+		object := string(testrand.Bytes(memory.KiB + 1))
+
+		_, err := layer.PutObject(ctx, bucket, object, nil, minio.ObjectOptions{})
+		require.ErrorIs(t, err, minio.ObjectNameTooLong{Bucket: bucket, Object: object})
+
+		object = string(testrand.Bytes(10 * memory.KiB))
+
+		_, err = layer.NewMultipartUpload(ctx, bucket, object, minio.ObjectOptions{})
+		require.ErrorIs(t, err, minio.ObjectNameTooLong{Bucket: bucket, Object: object})
+
+		object = string(testrand.Bytes(memory.MiB))
+
+		_, err = layer.CopyObject(ctx, "", "", bucket, object, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.ErrorIs(t, err, minio.ObjectNameTooLong{Bucket: bucket, Object: object})
+	})
+}
+
 // md5Hex returns MD5 hash in hex encoding of given data.
 func md5Hex(data []byte) string {
 	sum := md5.Sum(data)

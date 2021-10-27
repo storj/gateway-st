@@ -17,6 +17,7 @@ import (
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 
+	"storj.io/common/memory"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -570,6 +571,10 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
+	if len(object) > memory.KiB.Int() { // https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+		return minio.ObjectInfo{}, minio.ObjectNameTooLong{Bucket: bucket, Object: object}
+	}
+
 	if storageClass, ok := opts.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
 		return minio.ObjectInfo{}, minio.NotImplemented{API: "PutObject (storage class)"}
 	}
@@ -633,6 +638,10 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	if layer.compatibilityConfig.DisableCopyObject {
 		// Note: In production Gateway-MT, we want to return Not Implemented until we implement server-side copy
 		return minio.ObjectInfo{}, minio.NotImplemented{API: "CopyObject"}
+	}
+
+	if len(destObject) > memory.KiB.Int() { // https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+		return minio.ObjectInfo{}, minio.ObjectNameTooLong{Bucket: destBucket, Object: destObject}
 	}
 
 	if storageClass, ok := srcInfo.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
