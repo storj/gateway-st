@@ -28,6 +28,7 @@ import (
 	minio "storj.io/minio/cmd"
 	"storj.io/private/cfgstruct"
 	"storj.io/private/process"
+	"storj.io/private/version"
 	"storj.io/uplink"
 )
 
@@ -48,6 +49,8 @@ type GatewayFlags struct {
 }
 
 var (
+	gatewayUserAgent = "Gateway-ST/" + version.Build.Version.String()
+
 	// Error is the default gateway setup errs class.
 	Error = errs.Class("gateway setup error")
 	// rootCmd represents the base gateway command when called without any subcommands.
@@ -247,7 +250,10 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 	// Transform the gateway config flags to the uplink config object
 	config := uplink.Config{}
 	config.DialTimeout = flags.Client.DialTimeout
-	config.UserAgent = flags.Client.UserAgent
+	config.UserAgent = gatewayUserAgent
+	if flags.Client.UserAgent != "" {
+		config.UserAgent = flags.Client.UserAgent + " " + config.UserAgent
+	}
 	return config
 }
 
