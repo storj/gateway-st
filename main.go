@@ -251,6 +251,9 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 	config := uplink.Config{}
 	config.DialTimeout = flags.Client.DialTimeout
 	config.UserAgent = gatewayUserAgent
+	if flags.Client.AdditionalUserAgent != "" {
+		config.UserAgent = flags.Client.AdditionalUserAgent + " " + config.UserAgent
+	}
 	if flags.Client.UserAgent != "" {
 		config.UserAgent = flags.Client.UserAgent + " " + config.UserAgent
 	}
