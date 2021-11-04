@@ -53,6 +53,10 @@ var (
 
 	// Error is the default gateway setup errs class.
 	Error = errs.Class("gateway setup error")
+
+	// ConfigError is a class of errors relating to config validation.
+	ConfigError = errs.Class("gateway configuration error")
+
 	// rootCmd represents the base gateway command when called without any subcommands.
 	rootCmd = &cobra.Command{
 		Use:   "gateway",
@@ -158,7 +162,6 @@ func cmdRun(cmd *cobra.Command, args []string) (err error) {
 
 	err = checkCfg(ctx)
 	if err != nil {
-		zap.S().Warn("Failed to contact Satellite. Perhaps your configuration is invalid?")
 		return err
 	}
 
@@ -177,20 +180,23 @@ func generateKey() (key string, err error) {
 func checkCfg(ctx context.Context) (err error) {
 	access, err := runCfg.GetAccess()
 	if err != nil {
-		return Error.Wrap(err)
+		return ConfigError.New("failed parsing access config: %w", err)
 	}
 
 	config := runCfg.newUplinkConfig(ctx)
 
 	project, err := config.OpenProject(ctx, access)
 	if err != nil {
-		return Error.Wrap(err)
+		return ConfigError.New("failed to open project: %w", err)
 	}
 	defer func() { err = errs.Combine(err, project.Close()) }()
 
 	buckets := project.ListBuckets(ctx, nil)
 	_ = buckets.Next()
-	return buckets.Err()
+	if buckets.Err() != nil {
+		return ConfigError.New("failed to contact Satellite: %w", buckets.Err())
+	}
+	return nil
 }
 
 // Run starts a Minio Gateway given proper config.
