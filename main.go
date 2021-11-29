@@ -52,10 +52,10 @@ var (
 	gatewayUserAgent = "Gateway-ST/" + version.Build.Version.String()
 
 	// Error is the default gateway setup errs class.
-	Error = errs.Class("gateway setup error")
+	Error = errs.Class("gateway setup")
 
 	// ConfigError is a class of errors relating to config validation.
-	ConfigError = errs.Class("gateway configuration error")
+	ConfigError = errs.Class("gateway configuration")
 
 	// rootCmd represents the base gateway command when called without any subcommands.
 	rootCmd = &cobra.Command{
