@@ -85,7 +85,6 @@ pipeline {
                             sh 'check-errs ./...'
                             sh 'staticcheck ./...'
                             sh 'golangci-lint run --config /go/ci/.golangci.yml'
-                            sh 'check-downgrades'
                             sh 'check-mod-tidy -mod ../.build/testsuite.go.mod.orig'
                         }
                     }
