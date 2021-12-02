@@ -635,7 +635,9 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if layer.compatibilityConfig.DisableCopyObject {
+	srcAndDestSame := srcBucket == destBucket && srcObject == destObject
+
+	if layer.compatibilityConfig.DisableCopyObject && !srcAndDestSame {
 		// Note: In production Gateway-MT, we want to return Not Implemented until we implement server-side copy
 		return minio.ObjectInfo{}, minio.NotImplemented{API: "CopyObject"}
 	}
@@ -674,10 +676,24 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		}
 	}
 
-	if srcBucket == destBucket && srcObject == destObject {
-		// Source and destination are the same. Do nothing, otherwise copying
-		// the same object over itself may destroy it, especially if it is a
-		// larger one.
+	if srcAndDestSame {
+		// Source and destination are the same. Do nothing, apart from ensuring
+		// metadata is updated. Tools like rclone sync use CopyObject with the
+		// same source and destination as a way of updating existing metadata
+		// like last modified date/time, as there's no S3 endpoint for
+		// manipulating existing object's metadata.
+		info, err := project.StatObject(ctx, srcBucket, srcObject)
+		if err != nil {
+			return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
+		}
+
+		upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
+
+		err = project.UpdateObjectMetadata(ctx, srcBucket, srcObject, srcInfo.UserDefined, nil)
+		if err != nil {
+			return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
+		}
+
 		return srcInfo, nil
 	}
 
@@ -697,28 +713,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 
 	info := download.Info()
 
-	// if X-Amz-Metadata-Directive header is provided and is set to "REPLACE",
-	// then srcInfo.UserDefined will contain new metadata from the copy request.
-	// If the directive is "COPY", or undefined, the source object's metadata
-	// will be contained in srcInfo.UserDefined instead. This is done by the
-	// caller handler in minio.
-
-	// if X-Amz-Tagging-Directive is set to "REPLACE", we need to set the copied
-	// object's tags to the tags provided in the copy request. If the directive
-	// is "COPY", or undefined, copy over any existing tags from the source
-	// object.
-	if td, ok := srcInfo.UserDefined[xhttp.AmzTagDirective]; ok && td == "REPLACE" {
-		srcInfo.UserDefined["s3:tags"] = srcInfo.UserDefined[xhttp.AmzObjectTagging]
-	} else if tags, ok := info.Custom["s3:tags"]; ok {
-		srcInfo.UserDefined["s3:tags"] = tags
-	}
-
-	delete(srcInfo.UserDefined, xhttp.AmzObjectTagging)
-	delete(srcInfo.UserDefined, xhttp.AmzTagDirective)
-
-	// if X-Amz-Metadata-Directive header is set to "REPLACE", then
-	// srcInfo.UserDefined will be missing s3:etag, so make sure it's copied.
-	srcInfo.UserDefined["s3:etag"] = info.Custom["s3:etag"]
+	upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
 
 	err = upload.SetCustomMetadata(ctx, srcInfo.UserDefined)
 	if err != nil {
@@ -885,6 +880,31 @@ func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Pro
 		return nil, convertError(ErrNoUplinkProject.New("not found"), bucket, object)
 	}
 	return pr, nil
+}
+
+func upsertObjectMetadata(metadata map[string]string, existingMetadata uplink.CustomMetadata) {
+	// if X-Amz-Metadata-Directive header is provided and is set to "REPLACE",
+	// then srcInfo.UserDefined will contain new metadata from the copy request.
+	// If the directive is "COPY", or undefined, the source object's metadata
+	// will be contained in srcInfo.UserDefined instead. This is done by the
+	// caller handler in minio.
+
+	// if X-Amz-Tagging-Directive is set to "REPLACE", we need to set the copied
+	// object's tags to the tags provided in the copy request. If the directive
+	// is "COPY", or undefined, copy over any existing tags from the source
+	// object.
+	if td, ok := metadata[xhttp.AmzTagDirective]; ok && td == "REPLACE" {
+		metadata["s3:tags"] = metadata[xhttp.AmzObjectTagging]
+	} else if tags, ok := existingMetadata["s3:tags"]; ok {
+		metadata["s3:tags"] = tags
+	}
+
+	delete(metadata, xhttp.AmzObjectTagging)
+	delete(metadata, xhttp.AmzTagDirective)
+
+	// if X-Amz-Metadata-Directive header is set to "REPLACE", then
+	// srcInfo.UserDefined will be missing s3:etag, so make sure it's copied.
+	metadata["s3:etag"] = existingMetadata["s3:etag"]
 }
 
 // checkBucketError will stat the bucket if the provided error is not nil, in

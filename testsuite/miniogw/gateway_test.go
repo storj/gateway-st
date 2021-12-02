@@ -734,6 +734,65 @@ func TestCopyObjectMetadata(t *testing.T) {
 	})
 }
 
+func TestCopyObjectSameSourceAndDestUpdatesMetadata(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// Explicitly disable CopyObject, as we want to test that copying metadata
+		// for same source and destination works even if the endpoint is disabled
+		// as it's an exceptional case.
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			DisableCopyObject:            true,
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		// Create the source bucket using the Uplink API
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		// Create the source object using the Uplink API
+		metadata := map[string]string{
+			"content-type": "text/plain",
+			"mykey":        "originalvalue",
+			"s3:etag":      "123",
+			"s3:tags":      "key=value",
+		}
+		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
+		require.NoError(t, err)
+
+		// Get the source object info using the Minio API
+		srcInfo, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		// Copy the object. Metadata and tagging copied from source to destination.
+		_, err = layer.CopyObject(ctx, testBucket, testFile, testBucket, testFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		obj, err := project.StatObject(ctx, testBucketInfo.Name, testFile)
+		require.NoError(t, err)
+		require.EqualValues(t, obj.Custom, metadata)
+
+		// Copy the object with new metadata in request. This will be set on the copied object.
+		srcInfo.UserDefined = map[string]string{
+			"mykey": "newvalue",
+		}
+		_, err = layer.CopyObject(ctx, testBucket, testFile, testBucket, testFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		obj, err = project.StatObject(ctx, testBucketInfo.Name, testFile)
+		require.NoError(t, err)
+		require.EqualValues(t, obj.Custom, map[string]string{
+			"mykey":   "newvalue",
+			"s3:etag": metadata["s3:etag"],
+			"s3:tags": metadata["s3:tags"],
+		})
+	})
+}
+
 func TestDeleteObject(t *testing.T) {
 	t.Parallel()
 
