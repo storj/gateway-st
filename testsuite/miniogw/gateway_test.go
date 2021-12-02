@@ -979,12 +979,8 @@ func TestListObjectsV2(t *testing.T) {
 
 func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		// Check the error when listing objects with unsupported delimiter
-		_, err := layer.ListObjects(ctx, testBucket, "", "", "#", 0)
-		assert.Equal(t, minio.UnsupportedDelimiter{Delimiter: "#"}, err)
-
 		// Check the error when listing objects in a bucket with empty name
-		_, err = layer.ListObjects(ctx, "", "", "", "/", 0)
+		_, err := layer.ListObjects(ctx, "", "", "", "/", 0)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when listing objects in a non-existing bucket
@@ -1161,80 +1157,90 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 			}, {
 				name:     "list as stat, recursive, object, prefix, and object-with-prefix exist",
 				prefix:   "i",
+				more:     true,
 				prefixes: nil,
 				objects:  []string{"i"},
 			}, {
 				name:      "list as stat, nonrecursive, object, prefix, and object-with-prefix exist",
 				prefix:    "i",
 				delimiter: "/",
+				more:      true,
 				prefixes:  []string{"i/"},
 				objects:   []string{"i"},
 			}, {
 				name:     "list as stat, recursive, object and prefix exist, no object-with-prefix",
 				prefix:   "j",
+				more:     true,
 				prefixes: nil,
 				objects:  []string{"j"},
 			}, {
 				name:      "list as stat, nonrecursive, object and prefix exist, no object-with-prefix",
 				prefix:    "j",
 				delimiter: "/",
+				more:      true,
 				prefixes:  []string{"j/"},
 				objects:   []string{"j"},
 			}, {
 				name:     "list as stat, recursive, object and object-with-prefix exist, no prefix",
 				prefix:   "k",
+				more:     true,
 				prefixes: nil,
 				objects:  []string{"k"},
 			}, {
 				name:      "list as stat, nonrecursive, object and object-with-prefix exist, no prefix",
 				prefix:    "k",
 				delimiter: "/",
+				more:      true,
 				prefixes:  nil,
 				objects:   []string{"k"},
 			}, {
 				name:     "list as stat, recursive, object exists, no object-with-prefix or prefix",
 				prefix:   "l",
+				more:     true,
 				prefixes: nil,
 				objects:  []string{"l"},
 			}, {
 				name:      "list as stat, nonrecursive, object exists, no object-with-prefix or prefix",
 				prefix:    "l",
 				delimiter: "/",
+				more:      true,
 				prefixes:  nil,
 				objects:   []string{"l"},
 			}, {
-				name:     "list as stat, recursive, prefix, and object-with-prefix exist, no object",
+				name:     "list as stat, recursive, prefix, and object-with-prefix exist, no object (fallback to exhaustive)",
 				prefix:   "m",
 				prefixes: nil,
-				objects:  nil,
+				objects:  []string{"m/i", "mm"},
 			}, {
 				name:      "list as stat, nonrecursive, prefix, and object-with-prefix exist, no object",
 				prefix:    "m",
 				delimiter: "/",
+				more:      true,
 				prefixes:  []string{"m/"},
 				objects:   nil,
 			}, {
-				name:     "list as stat, recursive, prefix exists, no object-with-prefix, no object",
+				name:     "list as stat, recursive, prefix exists, no object-with-prefix, no object (fallback to exhaustive)",
 				prefix:   "n",
 				prefixes: nil,
-				objects:  nil,
+				objects:  []string{"n/i"},
 			}, {
 				name:      "list as stat, nonrecursive, prefix exists, no object-with-prefix, no object",
 				prefix:    "n",
 				delimiter: "/",
+				more:      true,
 				prefixes:  []string{"n/"},
 				objects:   nil,
 			}, {
-				name:     "list as stat, recursive, object-with-prefix exists, no prefix, no object",
+				name:     "list as stat, recursive, object-with-prefix exists, no prefix, no object (fallback to exhaustive)",
 				prefix:   "o",
 				prefixes: nil,
-				objects:  nil,
+				objects:  []string{"oo"},
 			}, {
-				name:      "list as stat, nonrecursive, object-with-prefix exists, no prefix, no object",
+				name:      "list as stat, nonrecursive, object-with-prefix exists, no prefix, no object (fallback to exhaustive)",
 				prefix:    "o",
 				delimiter: "/",
 				prefixes:  nil,
-				objects:   nil,
+				objects:   []string{"oo"},
 			}, {
 				name:     "list as stat, recursive, no object-with-prefix or prefix or object",
 				prefix:   "p",

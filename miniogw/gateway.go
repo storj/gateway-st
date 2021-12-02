@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	miniogo "github.com/minio/minio-go/v7"
@@ -205,12 +206,391 @@ func (layer *gatewayLayer) limitMaxKeys(maxKeys int) int {
 	return maxKeys
 }
 
-func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
+func (layer *gatewayLayer) listObjectsFast(
+	ctx context.Context,
+	project *uplink.Project,
+	bucket, prefix, continuationToken, delimiter string,
+	maxKeys int,
+	startAfter string,
+) (
+	prefixes []string,
+	objects []minio.ObjectInfo,
+	nextContinuationToken string,
+	err error,
+) {
 	defer mon.Task()(&ctx)(&err)
 
-	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+	after := startAfter
+
+	if continuationToken != "" {
+		after = continuationToken
 	}
+
+	recursive := delimiter == ""
+
+	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
+		Prefix:    prefix,
+		Cursor:    strings.TrimPrefix(after, prefix),
+		Recursive: recursive,
+		System:    true,
+		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
+	})
+
+	limit := layer.limitMaxKeys(maxKeys)
+
+	for limit > 0 && list.Next() {
+		item := list.Item()
+
+		limit--
+
+		if item.IsPrefix {
+			prefixes = append(prefixes, item.Key)
+		} else {
+			objects = append(objects, minioObjectInfo(bucket, "", item))
+		}
+
+		nextContinuationToken = item.Key
+	}
+	if list.Err() != nil {
+		return nil, nil, "", list.Err()
+	}
+
+	more := list.Next()
+	if list.Err() != nil {
+		return nil, nil, "", list.Err()
+	}
+
+	if !more {
+		nextContinuationToken = ""
+	}
+
+	return prefixes, objects, nextContinuationToken, nil
+}
+
+func (layer *gatewayLayer) listObjectsSingle(
+	ctx context.Context,
+	project *uplink.Project,
+	bucket, prefix, continuationToken, delimiter string,
+	maxKeys int,
+	startAfter string,
+) (
+	prefixes []string,
+	objects []minio.ObjectInfo,
+	nextContinuationToken string,
+	err error,
+) {
+	defer mon.Task()(&ctx)(&err)
+
+	after := startAfter
+
+	if continuationToken != "" {
+		after = continuationToken
+	}
+
+	if after == "" {
+		object, err := project.StatObject(ctx, bucket, prefix)
+		if err != nil {
+			if !errors.Is(err, uplink.ErrObjectNotFound) {
+				return nil, nil, "", err
+			}
+		} else {
+			objects = append(objects, minioObjectInfo(bucket, "", object))
+
+			if layer.limitMaxKeys(maxKeys) == 1 {
+				return prefixes, objects, object.Key, nil
+			}
+		}
+	}
+
+	if delimiter == "/" && (after == "" || after == prefix) {
+		p := prefix + "/"
+
+		list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
+			Prefix:    p,
+			Recursive: true,
+			// Limit: 1, would be nice to set here
+		})
+
+		if list.Next() {
+			prefixes = append(prefixes, p)
+		}
+		if list.Err() != nil {
+			return nil, nil, "", list.Err()
+		}
+	}
+
+	if len(prefixes) > 0 {
+		nextContinuationToken = prefixes[0]
+	} else if len(objects) > 0 {
+		nextContinuationToken = objects[0].Name
+	}
+
+	return prefixes, objects, nextContinuationToken, nil
+}
+
+// itemsToPrefixesAndObjects dispatches items into prefixes and objects. It
+// collapses all keys into common prefixes that share a path between prefix and
+// delimiter. If there are more items than the limit, nextContinuationToken will
+// be the last non-truncated item.
+func (layer *gatewayLayer) itemsToPrefixesAndObjects(
+	items []*uplink.Object,
+	bucket, prefix, delimiter string,
+	maxKeys int,
+) (
+	prefixes []string,
+	objects []minio.ObjectInfo,
+	nextContinuationToken string,
+) {
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Key < items[j].Key
+	})
+
+	var truncated bool
+
+	limit := layer.limitMaxKeys(maxKeys)
+	prefixesLookup := make(map[string]struct{})
+
+	for _, item := range items {
+		// There's a possibility that we managed to get libuplink to get the
+		// necessary prefixes for us. If that's true, just add it.
+		if item.IsPrefix {
+			if limit == 0 {
+				truncated = true
+				break
+			}
+			prefixes = append(prefixes, item.Key)
+			limit--
+			continue
+		}
+
+		i := strings.Index(item.Key[len(prefix):], delimiter)
+
+		if i < 0 || delimiter == "" {
+			if limit == 0 {
+				truncated = true
+				break
+			}
+			objects = append(objects, minioObjectInfo(bucket, "", item))
+			limit--
+			continue
+		}
+
+		commonPrefix := item.Key[:i+len(prefix)] + delimiter
+		// Check with prefixesLookup whether we already collapsed the same
+		// commonPrefix as we can't have two same common prefixes in the output.
+		if _, ok := prefixesLookup[commonPrefix]; !ok {
+			if limit == 0 {
+				truncated = true
+				break
+			}
+			prefixesLookup[commonPrefix] = struct{}{}
+			prefixes = append(prefixes, commonPrefix)
+			limit--
+		}
+	}
+
+	if truncated {
+		var lastPrefix, lastObject string
+
+		if len(prefixes) > 0 {
+			lastPrefix = prefixes[len(prefixes)-1]
+		}
+		if len(objects) > 0 {
+			lastObject = objects[len(objects)-1].Name
+		}
+
+		if lastPrefix > lastObject {
+			nextContinuationToken = lastPrefix
+		} else {
+			nextContinuationToken = lastObject
+		}
+	}
+
+	return prefixes, objects, nextContinuationToken
+}
+
+// listObjectsExhaustive lists the entire bucket discarding keys that do not
+// begin with the necessary prefix and come before continuationToken/startAfter.
+// It calls itemsToPrefixesAndObjects to dispatch results into prefixes and
+// objects.
+//
+// TODO(artur): listObjectsExhaustive should have a hard stop after listing more
+// than, e.g., 10k items.
+func (layer *gatewayLayer) listObjectsExhaustive(
+	ctx context.Context,
+	project *uplink.Project,
+	bucket, prefix, continuationToken, delimiter string,
+	maxKeys int,
+	startAfter string,
+) (
+	prefixes []string,
+	objects []minio.ObjectInfo,
+	nextContinuationToken string,
+	err error,
+) {
+	defer mon.Task()(&ctx)(&err)
+
+	// From where listObjectsExhaustive is called, only one of the following can
+	// be true (or should be):
+	//
+	//  - prefix is empty or ends with "/";
+	//  - delimiter is empty or is "/".
+	//
+	// Filling Prefix and Recursive are a few optimizations that try to exploit
+	// this fact.
+	var listPrefix string
+
+	if strings.HasSuffix(prefix, "/") {
+		listPrefix = prefix
+	}
+
+	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
+		Prefix:    listPrefix,
+		Recursive: delimiter != "/" && !strings.Contains(prefix, "/"),
+		System:    true,
+		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
+	})
+
+	// Cursor priority: ContinuationToken > StartAfter == Marker
+	after := startAfter
+
+	if continuationToken != "" {
+		after = continuationToken
+	}
+
+	var items []*uplink.Object
+
+	for list.Next() {
+		item := list.Item()
+
+		// We don't care about keys before ContinuationToken/StartAfter/Marker.
+		// Skip them. Also, omit keys that do not begin with the given prefix.
+		if item.Key <= after || !strings.HasPrefix(item.Key, prefix) {
+			continue
+		}
+
+		items = append(items, item)
+	}
+	if list.Err() != nil {
+		return nil, nil, "", err
+	}
+
+	prefixes, objects, nextContinuationToken = layer.itemsToPrefixesAndObjects(items, bucket, prefix, delimiter, maxKeys)
+
+	return prefixes, objects, nextContinuationToken, nil
+}
+
+// listObjectsGeneral lists bucket trying to best-effort conform to AWS S3's
+// listing APIs behavior.
+//
+// It tries to list the bucket in three, mutually-exclusive ways:
+//
+//  1. Fast;
+//  2. Optimized for non-terminated prefix;
+//  3. Exhaustive.
+//
+// If prefix is empty or terminated with a forward slash and delimiter is empty
+// or a forward slash, it will call listObjectsFast to list items the fastest
+// way possible. For requests that come with prefix non-terminated with a
+// forward slash, it will call listObjectsSingle to perform a specific
+// optimization for this type of listing. Finally, for all other requests, e.g.,
+// these that come with a non-forward slash delimiter, it will perform an
+// exhaustive listing calling listObjectsExhaustive as it's the only way to make
+// such bucket listing using libuplink.
+//
+// Optimization for non-terminated prefixes relies on the fact that much of
+// S3-compatible software uses a call to ListObjects(V2) with a non-terminated
+// prefix to check whether a key that is equal to this prefix exists. It only
+// cares about the first result. Since we can't do such listing with libuplink
+// directly and making an exhaustive listing for this kind of query has terrible
+// performance, we only check if an object exists. We additionally check if
+// there's a prefix object for this prefix because it doesn't cost much more. We
+// return these items in a list alone, setting continuation token to one of
+// them, signaling that there might be more (S3 only guarantees to return not
+// too many items and not as many as possible). If we didn't find anything, we
+// fall back to the exhaustive listing.
+//
+// The only S3-incompatible thing that listObjectsGeneral represents is that for
+// fast listing, it will not return items lexicographically ordered, but it is a
+// burden we must all bear.
+func (layer *gatewayLayer) listObjectsGeneral(
+	ctx context.Context,
+	project *uplink.Project,
+	bucket, prefix, continuationToken, delimiter string,
+	maxKeys int,
+	startAfter string,
+) (_ minio.ListObjectsV2Info, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	var (
+		prefixes []string
+		objects  []minio.ObjectInfo
+		token    string
+	)
+
+	supportedPrefix := prefix == "" || strings.HasSuffix(prefix, "/")
+
+	if supportedPrefix && (delimiter == "" || delimiter == "/") {
+		prefixes, objects, token, err = layer.listObjectsFast(
+			ctx,
+			project,
+			bucket, prefix, continuationToken, delimiter,
+			maxKeys,
+			startAfter)
+		if err != nil {
+			return minio.ListObjectsV2Info{}, err
+		}
+	} else if !supportedPrefix {
+		prefixes, objects, token, err = layer.listObjectsSingle(
+			ctx,
+			project,
+			bucket, prefix, continuationToken, delimiter,
+			maxKeys,
+			startAfter)
+		if err != nil {
+			return minio.ListObjectsV2Info{}, err
+		}
+		// Prefix optimization did not work; we need to fall back to exhaustive.
+		if prefixes == nil && objects == nil {
+			prefixes, objects, token, err = layer.listObjectsExhaustive(
+				ctx,
+				project,
+				bucket, prefix, continuationToken, delimiter,
+				maxKeys,
+				startAfter)
+			if err != nil {
+				return minio.ListObjectsV2Info{}, err
+			}
+		}
+	} else {
+		prefixes, objects, token, err = layer.listObjectsExhaustive(
+			ctx,
+			project,
+			bucket, prefix, continuationToken, delimiter,
+			maxKeys,
+			startAfter)
+		if err != nil {
+			return minio.ListObjectsV2Info{}, err
+		}
+	}
+
+	return minio.ListObjectsV2Info{
+		IsTruncated:           token != "",
+		ContinuationToken:     continuationToken,
+		NextContinuationToken: token,
+		Objects:               objects,
+		Prefixes:              prefixes,
+	}, nil
+}
+
+// ListObjects calls listObjectsGeneral and translates response from
+// ListObjectsV2Info to ListObjectsInfo.
+//
+// NOTE: For ListObjects (v1), AWS S3 returns NextMarker only if you have
+// delimiter request parameter specified; MinIO always returns NextMarker.
+// ListObjects does what MinIO does.
+func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (_ minio.ListObjectsInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
 
 	project, err := projectFromContext(ctx, bucket, "")
 	if err != nil {
@@ -222,86 +602,22 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, mark
 		err = checkBucketError(ctx, project, bucket, "", err)
 	}()
 
-	recursive := delimiter == ""
+	// For V1, marker is V2's startAfter and continuationToken does not exist.
+	v2, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, "", delimiter, maxKeys, marker)
 
-	startAfter := marker
-
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		// N.B.: in this case, the most S3-compatible thing we could do
-		// is ask the satellite to list all siblings of this prefix that
-		// share the same parent encryption key, decrypt all of them,
-		// then only return the ones that have this same unencrypted
-		// prefix.
-		// this is terrible from a performance perspective, and it turns
-		// out, many of the usages of listing without a /-suffix are
-		// simply to provide a sort of StatObject like feature. in fact,
-		// for example, duplicity never calls list without a /-suffix
-		// in a case where it expects to get back more than one result.
-		// so, we could either
-		// 1) return an error here, guaranteeing nothing works
-		// 2) do the full S3 compatible thing, which has terrible
-		//    performance for a really common case (StatObject-like
-		//    functionality)
-		// 3) handle strictly more of the use cases than #1 without
-		//    loss of performance by turning this into a StatObject.
-		// so we do #3 here. it's great!
-
-		return listSingleObject(ctx, project, bucket, prefix, startAfter, recursive, maxKeys)
+	result := minio.ListObjectsInfo{
+		IsTruncated: v2.IsTruncated,
+		NextMarker:  v2.NextContinuationToken,
+		Objects:     v2.Objects,
+		Prefixes:    v2.Prefixes,
 	}
 
-	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
-		Prefix:    prefix,
-		Cursor:    strings.TrimPrefix(startAfter, prefix),
-		Recursive: recursive,
-
-		System: true,
-		Custom: layer.compatibilityConfig.IncludeCustomMetadataListing,
-	})
-
-	var objects []minio.ObjectInfo
-	var prefixes []string
-
-	limit := layer.limitMaxKeys(maxKeys)
-	for limit > 0 && list.Next() {
-		object := list.Item()
-
-		limit--
-
-		if object.IsPrefix {
-			prefixes = append(prefixes, object.Key)
-		} else {
-			objects = append(objects, minioObjectInfo(bucket, "", object))
-		}
-
-		startAfter = object.Key
-	}
-	if list.Err() != nil {
-		return result, convertError(list.Err(), bucket, "")
-	}
-
-	more := list.Next()
-	if list.Err() != nil {
-		return result, convertError(list.Err(), bucket, "")
-	}
-
-	result = minio.ListObjectsInfo{
-		IsTruncated: more,
-		Objects:     objects,
-		Prefixes:    prefixes,
-	}
-	if more {
-		result.NextMarker = startAfter
-	}
-
-	return result, nil
+	return result, convertError(err, bucket, "")
 }
 
-func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
+// ListObjectsV2 calls listObjectsGeneral.
+func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (_ minio.ListObjectsV2Info, err error) {
 	defer mon.Task()(&ctx)(&err)
-
-	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectsV2Info{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
-	}
 
 	project, err := projectFromContext(ctx, bucket, "")
 	if err != nil {
@@ -313,148 +629,9 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 		err = checkBucketError(ctx, project, bucket, "", err)
 	}()
 
-	recursive := delimiter == ""
+	result, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, continuationToken, delimiter, maxKeys, startAfter)
 
-	var startAfterPath string
-
-	if startAfter != "" {
-		startAfterPath = startAfter
-	}
-	if continuationToken != "" {
-		startAfterPath = continuationToken
-	}
-
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		// N.B.: in this case, the most S3-compatible thing we could do
-		// is ask the satellite to list all siblings of this prefix that
-		// share the same parent encryption key, decrypt all of them,
-		// then only return the ones that have this same unencrypted
-		// prefix.
-		// this is terrible from a performance perspective, and it turns
-		// out, many of the usages of listing without a /-suffix are
-		// simply to provide a sort of StatObject like feature. in fact,
-		// for example, duplicity never calls list without a /-suffix
-		// in a case where it expects to get back more than one result.
-		// so, we could either
-		// 1) return an error here, guaranteeing nothing works
-		// 2) do the full S3 compatible thing, which has terrible
-		//    performance for a really common case (StatObject-like
-		//    functionality)
-		// 3) handle strictly more of the use cases than #1 without
-		//    loss of performance by turning this into a StatObject.
-		// so we do #3 here. it's great!
-
-		return listSingleObjectV2(ctx, project, bucket, prefix, continuationToken, startAfterPath, recursive, maxKeys)
-	}
-
-	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
-		Prefix:    prefix,
-		Cursor:    strings.TrimPrefix(startAfterPath, prefix),
-		Recursive: recursive,
-
-		System: true,
-		Custom: layer.compatibilityConfig.IncludeCustomMetadataListing,
-	})
-
-	var objects []minio.ObjectInfo
-	var prefixes []string
-
-	limit := layer.limitMaxKeys(maxKeys)
-	for limit > 0 && list.Next() {
-		object := list.Item()
-
-		limit--
-
-		if object.IsPrefix {
-			prefixes = append(prefixes, object.Key)
-		} else {
-			objects = append(objects, minioObjectInfo(bucket, "", object))
-		}
-
-		startAfter = object.Key
-	}
-	if list.Err() != nil {
-		return result, convertError(list.Err(), bucket, "")
-	}
-
-	more := list.Next()
-	if list.Err() != nil {
-		return result, convertError(list.Err(), bucket, "")
-	}
-
-	result = minio.ListObjectsV2Info{
-		IsTruncated:       more,
-		ContinuationToken: continuationToken,
-		Objects:           objects,
-		Prefixes:          prefixes,
-	}
-	if more {
-		result.NextContinuationToken = startAfter
-	}
-
-	return result, nil
-}
-
-func listSingleObject(ctx context.Context, project *uplink.Project, bucket, key, marker string, recursive bool, maxKeys int) (result minio.ListObjectsInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	isTruncated, nextMarker, objects, prefixes, err := listSingle(ctx, project, bucket, key, marker, recursive, maxKeys)
-
-	return minio.ListObjectsInfo{
-		IsTruncated: isTruncated,
-		NextMarker:  nextMarker,
-		Objects:     objects,
-		Prefixes:    prefixes,
-	}, err // already converted/wrapped
-}
-
-func listSingleObjectV2(ctx context.Context, project *uplink.Project, bucket, key, continuationToken, startAfterPath string, recursive bool, maxKeys int) (result minio.ListObjectsV2Info, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	isTruncated, nextMarker, objects, prefixes, err := listSingle(ctx, project, bucket, key, startAfterPath, recursive, maxKeys)
-
-	return minio.ListObjectsV2Info{
-		IsTruncated:           isTruncated,
-		ContinuationToken:     continuationToken,
-		NextContinuationToken: nextMarker,
-		Objects:               objects,
-		Prefixes:              prefixes,
-	}, err // already converted/wrapped
-}
-
-func listSingle(ctx context.Context, project *uplink.Project, bucket, key, marker string, recursive bool, maxKeys int) (isTruncated bool, nextMarker string, objects []minio.ObjectInfo, prefixes []string, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	if marker == "" {
-		object, err := project.StatObject(ctx, bucket, key)
-		if err != nil {
-			if !errors.Is(err, uplink.ErrObjectNotFound) {
-				return false, "", nil, nil, convertError(err, bucket, key)
-			}
-		} else {
-			objects = append(objects, minioObjectInfo(bucket, "", object))
-
-			if maxKeys == 1 {
-				return true, key, objects, nil, nil
-			}
-		}
-	}
-
-	if !recursive && (marker == "" || marker == key) {
-		list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
-			Prefix:    key + "/",
-			Recursive: true,
-			// Limit: 1, would be nice to set here
-		})
-		if list.Next() {
-			prefixes = append(prefixes, key+"/")
-		}
-		if err := list.Err(); err != nil {
-			return false, "", nil, nil, convertError(err, bucket, key)
-		}
-	}
-
-	return false, "", objects, prefixes, nil
+	return result, convertError(err, bucket, "")
 }
 
 func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
@@ -753,6 +930,7 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 	}
 
 	// TODO this should be removed and implemented on satellite side.
+	//
 	// This call needs to occur prior to the DeleteObject call below, because
 	// project.DeleteObject will return a nil error for a missing bucket. To
 	// maintain consistency, we need to manually check if the bucket exists.
