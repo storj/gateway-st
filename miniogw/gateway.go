@@ -345,8 +345,6 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 		return items[i].Key < items[j].Key
 	})
 
-	var truncated bool
-
 	limit := layer.limitMaxKeys(maxKeys)
 	prefixesLookup := make(map[string]struct{})
 
@@ -355,10 +353,10 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 		// necessary prefixes for us. If that's true, just add it.
 		if item.IsPrefix {
 			if limit == 0 {
-				truncated = true
-				break
+				return prefixes, objects, nextContinuationToken
 			}
 			prefixes = append(prefixes, item.Key)
+			nextContinuationToken = item.Key
 			limit--
 			continue
 		}
@@ -367,10 +365,10 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 
 		if i < 0 || delimiter == "" {
 			if limit == 0 {
-				truncated = true
-				break
+				return prefixes, objects, nextContinuationToken
 			}
 			objects = append(objects, minioObjectInfo(bucket, "", item))
+			nextContinuationToken = item.Key
 			limit--
 			continue
 		}
@@ -380,33 +378,16 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 		// commonPrefix as we can't have two same common prefixes in the output.
 		if _, ok := prefixesLookup[commonPrefix]; !ok {
 			if limit == 0 {
-				truncated = true
-				break
+				return prefixes, objects, nextContinuationToken
 			}
 			prefixesLookup[commonPrefix] = struct{}{}
 			prefixes = append(prefixes, commonPrefix)
+			nextContinuationToken = commonPrefix
 			limit--
 		}
 	}
 
-	if truncated {
-		var lastPrefix, lastObject string
-
-		if len(prefixes) > 0 {
-			lastPrefix = prefixes[len(prefixes)-1]
-		}
-		if len(objects) > 0 {
-			lastObject = objects[len(objects)-1].Name
-		}
-
-		if lastPrefix > lastObject {
-			nextContinuationToken = lastPrefix
-		} else {
-			nextContinuationToken = lastObject
-		}
-	}
-
-	return prefixes, objects, nextContinuationToken
+	return prefixes, objects, ""
 }
 
 // listObjectsExhaustive lists the entire bucket discarding keys that do not
