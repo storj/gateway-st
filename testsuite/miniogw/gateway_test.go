@@ -937,6 +937,28 @@ func TestListObjects(t *testing.T) {
 			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
 		})
 	})
+	t.Run("arbitrary prefix and delimiter", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+		}, "#")
+	})
+	t.Run("arbitrary prefix and delimiter 2", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+		}, "$$")
+	})
 }
 
 func TestListObjectsV2(t *testing.T) {
@@ -974,6 +996,28 @@ func TestListObjectsV2(t *testing.T) {
 			}
 			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
 		})
+	})
+	t.Run("arbitrary prefix and delimiter", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+		}, "s")
+	})
+	t.Run("arbitrary prefix and delimiter 2", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+			if err != nil {
+				return nil, nil, "", "", false, err
+			}
+			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+		}, "%separator%")
 	})
 }
 
@@ -1480,6 +1524,378 @@ func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
 			}
 		}
 	})
+}
+
+func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjectsFunc, sep string) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		for _, key := range []string{
+			makeSeparatedPath(sep, "photos", "2022", "January", "photo_2.jpg"),
+			makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg"),
+			makeSeparatedPath(sep, "photos", "photo_1.jpg"),
+			makeSeparatedPath(sep, "photos", "2022", "January", "photo_3.jpg"),
+		} {
+			_, err := createFile(ctx, project, testBucketInfo.Name, key, nil, nil)
+			require.NoError(t, err)
+		}
+
+		for _, tt := range []struct {
+			name      string
+			prefix    string
+			delimiter string
+			maxKeys   int
+
+			prefixes   []string
+			lenObjects int
+			nextMarker string
+		}{
+			{
+				name:      "no prefix or delimiter",
+				prefix:    "",
+				delimiter: "",
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 4,
+				nextMarker: "",
+			},
+			{
+				name:      "no prefix or delimiter with maxKeys=4",
+				prefix:    "",
+				delimiter: "",
+				maxKeys:   4,
+
+				prefixes:   nil,
+				lenObjects: 4,
+				nextMarker: "",
+			},
+			{
+				name:      "no prefix or delimiter with maxKeys=3",
+				prefix:    "",
+				delimiter: "",
+				maxKeys:   3,
+
+				prefixes:   nil,
+				lenObjects: 3,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "January", "photo_3.jpg"),
+			},
+			{
+				name:      "no prefix or delimiter with maxKeys=2",
+				prefix:    "",
+				delimiter: "",
+				maxKeys:   2,
+
+				prefixes:   nil,
+				lenObjects: 2,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "January", "photo_2.jpg"),
+			},
+			{
+				name:      "no prefix or delimiter with maxKeys=1",
+				prefix:    "",
+				delimiter: "",
+				maxKeys:   1,
+
+				prefixes:   nil,
+				lenObjects: 1,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg"),
+			},
+			{
+				name:      "getting months",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: sep,
+				maxKeys:   0,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+					makeSeparatedPath(sep, "photos", "2022", "January") + sep,
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "getting months with maxKeys=3",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: sep,
+				maxKeys:   3,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+					makeSeparatedPath(sep, "photos", "2022", "January") + sep,
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "getting months with maxKeys=2",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: sep,
+				maxKeys:   2,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+					makeSeparatedPath(sep, "photos", "2022", "January") + sep,
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "getting months with maxKeys=1",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: sep,
+				maxKeys:   1,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+				},
+				lenObjects: 0,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+			},
+			{
+				name:      "ensuring multi-byte delimiter",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: "February" + sep,
+				maxKeys:   0,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+				},
+				lenObjects: 2,
+				nextMarker: "",
+			},
+			{
+				name:      "ensuring multi-byte delimiter with maxKeys=4",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: "February" + sep,
+				maxKeys:   4,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+				},
+				lenObjects: 2,
+				nextMarker: "",
+			},
+			{
+				name:      "ensuring multi-byte delimiter with maxKeys=3",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: "February" + sep,
+				maxKeys:   3,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+				},
+				lenObjects: 2,
+				nextMarker: "",
+			},
+			{
+				name:      "ensuring multi-byte delimiter with maxKeys=2",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: "February" + sep,
+				maxKeys:   2,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+				},
+				lenObjects: 1,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "January", "photo_2.jpg"),
+			},
+			{
+				name:      "ensuring multi-byte delimiter with maxKeys=1",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: "February" + sep,
+				maxKeys:   1,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+				},
+				lenObjects: 0,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "February") + sep,
+			},
+			{
+				name:      "pathological I",
+				prefix:    "photos",
+				delimiter: sep,
+				maxKeys:   0,
+
+				prefixes: []string{
+					"photos" + sep,
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological I with maxKeys=2",
+				prefix:    "photos",
+				delimiter: sep,
+				maxKeys:   2,
+
+				prefixes: []string{
+					"photos" + sep,
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological I with maxKeys=1",
+				prefix:    "photos",
+				delimiter: sep,
+				maxKeys:   1,
+
+				prefixes: []string{
+					"photos" + sep,
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological II",
+				prefix:    "photos" + sep + sep,
+				delimiter: sep + sep,
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological III",
+				prefix:    "photos" + sep + sep,
+				delimiter: sep,
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological IV",
+				prefix:    "photos" + sep,
+				delimiter: sep + sep,
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 4,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological V",
+				prefix:    "photos" + sep + sep,
+				delimiter: "",
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological VI",
+				prefix:    "photos",
+				delimiter: sep + sep,
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 4,
+				nextMarker: "",
+			},
+			{
+				name:      "unmatched prefix I",
+				prefix:    makeSeparatedPath(sep, "photos", "2021") + sep,
+				delimiter: sep,
+				maxKeys:   1,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "unmatched prefix II",
+				prefix:    "2022" + sep,
+				delimiter: sep,
+				maxKeys:   1,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "no delimiter I",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: "",
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 3,
+				nextMarker: "",
+			},
+			{
+				name:      "no delimiter II",
+				prefix:    makeSeparatedPath(sep, "photos", "2022"),
+				delimiter: "",
+				maxKeys:   1,
+
+				prefixes:   nil,
+				lenObjects: 1,
+				nextMarker: makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg"),
+			},
+			{
+				name:      "delimiter is the extension",
+				prefix:    "photos" + sep,
+				delimiter: ".jpg",
+				maxKeys:   0,
+
+				prefixes: []string{
+					makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg"),
+					makeSeparatedPath(sep, "photos", "2022", "January", "photo_2.jpg"),
+					makeSeparatedPath(sep, "photos", "2022", "January", "photo_3.jpg"),
+					makeSeparatedPath(sep, "photos", "photo_1.jpg"),
+				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+		} {
+			pres, objs, marker, nextMarker, truncated, err := listObjects(ctx, layer, testBucketInfo.Name, tt.prefix, "", tt.delimiter, tt.maxKeys)
+			require.NoError(t, err, tt.name)
+
+			assert.Equal(t, tt.prefixes, pres, tt.name)
+			assert.Len(t, objs, tt.lenObjects, tt.name)
+			assert.Empty(t, marker, tt.name)
+			assert.Equal(t, tt.nextMarker, nextMarker, tt.name)
+			assert.Equal(t, tt.nextMarker != "", truncated, tt.name)
+		}
+
+		{ // Check whether continuation works woth arbitrary prefix & delimiter.
+			marker := makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg")
+
+			pres, objs, err := listBucketObjects(ctx, listObjects, layer, "photos"+sep, ".jpg", 1, marker)
+
+			msg := "continuation tokens and arbitrary prefix/delimiter"
+
+			require.NoError(t, err, msg)
+
+			expectedPrefixes := map[string]struct{}{
+				makeSeparatedPath(sep, "photos", "2022", "January", "photo_2.jpg"): {},
+				makeSeparatedPath(sep, "photos", "2022", "January", "photo_3.jpg"): {},
+				makeSeparatedPath(sep, "photos", "photo_1.jpg"):                    {},
+			}
+
+			assert.Equal(t, expectedPrefixes, pres, msg)
+			assert.Empty(t, objs, msg)
+		}
+	})
+}
+
+func makeSeparatedPath(sep string, elem ...string) string {
+	var b strings.Builder
+
+	for i, e := range elem {
+		if i > 0 {
+			b.WriteString(sep)
+		}
+		b.WriteString(e)
+	}
+
+	return b.String()
 }
 
 func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer minio.ObjectLayer, prefix, delimiter string, maxKeys int, startAfter string) (map[string]struct{}, map[string]struct{}, error) {
