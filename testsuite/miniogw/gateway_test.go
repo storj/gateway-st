@@ -904,120 +904,76 @@ type listObjectsFunc func(ctx context.Context, layer minio.ObjectLayer, bucket, 
 func TestListObjects(t *testing.T) {
 	t.Parallel()
 
+	f := func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	}
+
 	t.Run("once", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
-		})
+		testListObjects(t, f)
 	})
 	t.Run("loop", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
-		})
+		testListObjectsLoop(t, f)
 	})
 	t.Run("stat", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
-		})
+		testListObjectsStatLoop(t, f)
 	})
 	t.Run("arbitrary prefix and delimiter", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
-		}, "#")
+		testListObjectsArbitraryPrefixDelimiter(t, f, "#")
 	})
 	t.Run("arbitrary prefix and delimiter 2", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
-		}, "$$")
+		testListObjectsArbitraryPrefixDelimiter(t, f, "$$")
 	})
 }
 
 func TestListObjectsV2(t *testing.T) {
 	t.Parallel()
 
+	f := func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
+	}
+
 	t.Run("once", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjects(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
-		})
+		testListObjects(t, f)
 	})
 	t.Run("loop", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
-		})
+		testListObjectsLoop(t, f)
 	})
 	t.Run("stat", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsStatLoop(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
-		})
+		testListObjectsStatLoop(t, f)
 	})
 	t.Run("arbitrary prefix and delimiter", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
-		}, "s")
+		testListObjectsArbitraryPrefixDelimiter(t, f, "s")
 	})
 	t.Run("arbitrary prefix and delimiter 2", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsArbitraryPrefixDelimiter(t, func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-			list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
-			if err != nil {
-				return nil, nil, "", "", false, err
-			}
-			return list.Prefixes, list.Objects, list.ContinuationToken, list.NextContinuationToken, list.IsTruncated, nil
-		}, "%separator%")
+		testListObjectsArbitraryPrefixDelimiter(t, f, "%separator%")
 	})
 }
 
@@ -1864,7 +1820,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 			assert.Equal(t, tt.nextMarker != "", truncated, tt.name)
 		}
 
-		{ // Check whether continuation works woth arbitrary prefix & delimiter.
+		{ // Check whether continuation works with arbitrary prefix & delimiter.
 			marker := makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg")
 
 			pres, objs, err := listBucketObjects(ctx, listObjects, layer, "photos"+sep, ".jpg", 1, marker)
