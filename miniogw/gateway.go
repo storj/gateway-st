@@ -61,6 +61,13 @@ var (
 	// may signal that passing credentials down to the object layer is working
 	// incorrectly.
 	ErrNoUplinkProject = errs.Class("uplink project")
+
+	// ErrTooManyItemsToList indicates that ListObjects/ListObjectsV2 failed
+	// because of too many items to list for gateway-side filtering using an
+	// arbitrary delimiter and/or prefix.
+	ErrTooManyItemsToList = minio.NotImplemented{
+		API: "ListObjects(V2): listing too many items for gateway-side filtering using arbitrary delimiter/prefix",
+	}
 )
 
 // Gateway is the implementation of cmd.Gateway.
@@ -417,9 +424,6 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 // begin with the necessary prefix and come before continuationToken/startAfter.
 // It calls itemsToPrefixesAndObjects to dispatch results into prefixes and
 // objects.
-//
-// TODO(artur): listObjectsExhaustive should have a hard stop after listing more
-// than, e.g., 10k items.
 func (layer *gatewayLayer) listObjectsExhaustive(
 	ctx context.Context,
 	project *uplink.Project,
@@ -464,7 +468,11 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 
 	var items []*uplink.Object
 
-	for list.Next() {
+	for i := 0; list.Next(); i++ {
+		if i == layer.compatibilityConfig.MaxKeysExhaustiveLimit {
+			return nil, nil, "", ErrTooManyItemsToList
+		}
+
 		item := list.Item()
 
 		// Skip keys that do not begin with the required prefix.

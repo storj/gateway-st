@@ -937,6 +937,11 @@ func TestListObjects(t *testing.T) {
 
 		testListObjectsArbitraryPrefixDelimiter(t, f, "$$")
 	})
+	t.Run("limits", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsLimits(t, f)
+	})
 }
 
 func TestListObjectsV2(t *testing.T) {
@@ -974,6 +979,11 @@ func TestListObjectsV2(t *testing.T) {
 		t.Parallel()
 
 		testListObjectsArbitraryPrefixDelimiter(t, f, "%separator%")
+	})
+	t.Run("limits", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsLimits(t, f)
 	})
 }
 
@@ -1935,6 +1945,75 @@ func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer m
 	return gotPrefixes, gotObjects, nil
 }
 
+func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		for _, key := range []string{
+			"p",
+			"p/a/d",
+			"p/b/d",
+			"p/c/d",
+		} {
+			_, err := createFile(ctx, project, testBucketInfo.Name, key, nil, nil)
+			require.NoError(t, err)
+		}
+
+		// Reconfigure the layer so we can hit MaxKeysLimit and
+		// MaxKeysExhaustiveLimit limits.
+		c := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 2,
+			MaxKeysExhaustiveLimit:       2,
+		}
+
+		l, err := miniogw.NewStorjGateway(c).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		for _, tt := range []struct {
+			prefix    string
+			delimiter string
+
+			lenPres int
+			lenObjs int
+		}{
+			{
+				prefix:    "",
+				delimiter: "",
+				lenPres:   0,
+				lenObjs:   1,
+			},
+			{
+				prefix:    "p/",
+				delimiter: "/",
+				lenPres:   1,
+				lenObjs:   0,
+			},
+			{
+				prefix:    "p",
+				delimiter: "/",
+				lenPres:   0,
+				lenObjs:   1,
+			},
+		} {
+			pres, objs, marker, nextMarker, truncated, err := listObjects(ctx, l, testBucketInfo.Name, tt.prefix, "", tt.delimiter, 1000)
+			require.NoError(t, err)
+
+			assert.Len(t, pres, tt.lenPres)
+			assert.Len(t, objs, tt.lenObjs)
+			assert.Empty(t, marker)
+			assert.NotEmpty(t, nextMarker)
+			assert.True(t, truncated)
+		}
+
+		_, _, _, _, _, err = listObjects(ctx, l, testBucketInfo.Name, "p/a", "p/b/d", "/d", 1)
+		require.ErrorIs(t, err, miniogw.ErrTooManyItemsToList, "MaxKeysExhaustiveLimit")
+
+		require.NoError(t, l.Shutdown(ctx))
+	})
+}
+
 func TestListMultipartUploads(t *testing.T) {
 	t.Parallel()
 
@@ -2542,6 +2621,7 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
 			MaxKeysLimit:                 1000,
+			MaxKeysExhaustiveLimit:       100000,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
@@ -2802,6 +2882,7 @@ func TestProjectUsageLimit(t *testing.T) {
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
 			MaxKeysLimit:                 1000,
+			MaxKeysExhaustiveLimit:       100000,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
@@ -2872,6 +2953,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
 			MaxKeysLimit:                 1000,
+			MaxKeysExhaustiveLimit:       100000,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})

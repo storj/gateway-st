@@ -20,6 +20,7 @@ type ServerConfig struct {
 type S3CompatibilityConfig struct {
 	IncludeCustomMetadataListing bool `help:"include custom metadata in S3's ListObjects, ListObjectsV2 and ListMultipartUploads responses" default:"true"`
 	MaxKeysLimit                 int  `help:"MaxKeys parameter limit for S3's ListObjects and ListObjectsV2 responses" default:"1000"`
+	MaxKeysExhaustiveLimit       int  `help:"maximum number of items to list for gateway-side filtering using arbitrary delimiter/prefix" default:"100000"`
 	DisableCopyObject            bool `help:"return 501 (Not Implemented) for CopyObject calls" devDefault:"false" releaseDefault:"true"`
 	MinPartSize                  int  `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
 }
