@@ -149,6 +149,13 @@ pipeline {
                         sh 'psql -U postgres -c \'create database integration;\''
                         sh 'cd ./testsuite/integration && ./run.sh'
                     }
+                    post {
+                        always {
+                            zip zipFile: 'rclone-integration-tests.zip', archive: true, dir: '.build/rclone-integration-tests'
+                            archiveArtifacts artifacts: 'rclone-integration-tests.zip'
+                            sh 'rm rclone-integration-tests.zip'
+                        }
+                    }
                 }
 
                 stage('Cross Compile') {
