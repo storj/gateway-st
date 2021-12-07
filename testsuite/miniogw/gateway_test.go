@@ -1474,7 +1474,13 @@ func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
 			}
 
 			if tt.wantObjects {
-				assert.Equal(t, map[string]struct{}{tt.prefix: {}}, objects, tt.name)
+				expected := map[string]struct{}{tt.prefix: {}}
+				// We will fall back to exhaustive, and the exhaustive listing
+				// will find everything.
+				if tt.delimiter == "" {
+					expected[tt.prefix+"/"+"o"] = struct{}{}
+				}
+				assert.Equal(t, expected, objects, tt.name)
 			} else {
 				assert.Empty(t, objects, tt.name)
 			}
@@ -1775,6 +1781,26 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				nextMarker: "",
 			},
 			{
+				name:      "unmatched prefix III",
+				prefix:    makeSeparatedPath(sep, "photos", "photos"),
+				delimiter: sep,
+				maxKeys:   1,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "unmatched prefix IV",
+				prefix:    makeSeparatedPath(sep, "photos", "photos"),
+				delimiter: "",
+				maxKeys:   1,
+
+				prefixes:   nil,
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
 				name:      "no delimiter I",
 				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
 				delimiter: "",
@@ -1837,6 +1863,19 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 
 			assert.Equal(t, expectedPrefixes, pres, msg)
 			assert.Empty(t, objs, msg)
+		}
+
+		{ // Check whether skipping collapsed keys works.
+			marker := makeSeparatedPath(sep, "photos", "2022") + sep
+
+			pres, objs, err := listBucketObjects(ctx, listObjects, layer, "photos"+sep, sep, 1000, marker)
+
+			msg := "skipping collapsed keys"
+
+			require.NoError(t, err, msg)
+
+			assert.Empty(t, pres, msg)
+			assert.Len(t, objs, 1, msg)
 		}
 	})
 }

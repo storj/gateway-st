@@ -201,6 +201,9 @@ func (layer *gatewayLayer) limitMaxKeys(maxKeys int) int {
 		// Return max keys with a buffer to gather the continuation token to
 		// avoid paging problems until we have a method in libuplink to get more
 		// info about page boundaries.
+		if layer.compatibilityConfig.MaxKeysLimit-1 == 0 {
+			return 1
+		}
 		return layer.compatibilityConfig.MaxKeysLimit - 1
 	}
 	return maxKeys
@@ -328,6 +331,27 @@ func (layer *gatewayLayer) listObjectsSingle(
 	return prefixes, objects, nextContinuationToken, nil
 }
 
+// collapseKey returns a key, if possible, that begins with prefix and ends with
+// delimiter, sharing a path with key. Otherwise, it returns false.
+func collapseKey(prefix, delimiter, key string) (commonPrefix string, collapsed bool) {
+	// Try to find delimiter in key, trimming prefix, as we don't want to search
+	// for it in prefix.
+	i := strings.Index(key[len(prefix):], delimiter)
+
+	// Proceed to collapse key only if the delimiter is found and not empty.
+	// Index returns i=0 for empty substrings, but we don't want to collapse
+	// keys when the delimiter is empty.
+	if i >= 0 && delimiter != "" {
+		// When we collapse the key, we need to cut it where the delimiter
+		// begins and add back only the delimiter (alternatively, we could cut
+		// it after the delimiter). Since we searched for it in key without
+		// prefix, we need to offset index by prefix length.
+		return key[:i+len(prefix)] + delimiter, true
+	}
+
+	return "", false
+}
+
 // itemsToPrefixesAndObjects dispatches items into prefixes and objects. It
 // collapses all keys into common prefixes that share a path between prefix and
 // delimiter. If there are more items than the limit, nextContinuationToken will
@@ -361,9 +385,9 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 			continue
 		}
 
-		i := strings.Index(item.Key[len(prefix):], delimiter)
-
-		if i < 0 || delimiter == "" {
+		commonPrefix, ok := collapseKey(prefix, delimiter, item.Key)
+		// If we cannot roll up into CommonPrefix, just add the key.
+		if !ok {
 			if limit == 0 {
 				return prefixes, objects, nextContinuationToken
 			}
@@ -373,9 +397,8 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 			continue
 		}
 
-		commonPrefix := item.Key[:i+len(prefix)] + delimiter
-		// Check with prefixesLookup whether we already collapsed the same
-		// commonPrefix as we can't have two same common prefixes in the output.
+		// Check with prefixesLookup whether we already collapsed the same key
+		// as we can't have two same common prefixes in the output.
 		if _, ok := prefixesLookup[commonPrefix]; !ok {
 			if limit == 0 {
 				return prefixes, objects, nextContinuationToken
@@ -427,7 +450,7 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 
 	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 		Prefix:    listPrefix,
-		Recursive: delimiter != "/" && !strings.Contains(prefix, "/"),
+		Recursive: delimiter != "/" || strings.Contains(prefix, "/"),
 		System:    true,
 		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
@@ -444,16 +467,46 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	for list.Next() {
 		item := list.Item()
 
+		// Skip keys that do not begin with the required prefix.
+		if !strings.HasPrefix(item.Key, prefix) {
+			continue
+		}
+
+		key := item.Key
+
+		// The reason we try to collapse the key in the filtering step is that
+		// continuationToken/startAfter could mean the collapsed key. Example:
+		//  p1/a/o
+		//  p1/b/o
+		//  p1/o
+		//  p2/o
+		//
+		//  Prefix:                              p1/
+		//  Delimiter:                           /
+		//  ContinuationToken/StartAfter/Marker: p1/b/
+		//
+		// If we didn't collapse keys (and just filter based on Prefix and
+		// StartAfter), we would end up with the exact same list as before:
+		//  p1/a/o
+		//  p1/b/o
+		//  p1/o
+		//
+		// Instead of:
+		//  p1/o
+		if commonPrefix, ok := collapseKey(prefix, delimiter, item.Key); ok {
+			key = commonPrefix
+		}
+
 		// We don't care about keys before ContinuationToken/StartAfter/Marker.
-		// Skip them. Also, omit keys that do not begin with the given prefix.
-		if item.Key <= after || !strings.HasPrefix(item.Key, prefix) {
+		// Skip them.
+		if key <= after {
 			continue
 		}
 
 		items = append(items, item)
 	}
 	if list.Err() != nil {
-		return nil, nil, "", err
+		return nil, nil, "", list.Err()
 	}
 
 	prefixes, objects, nextContinuationToken = layer.itemsToPrefixesAndObjects(items, bucket, prefix, delimiter, maxKeys)
