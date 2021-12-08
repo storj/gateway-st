@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"syscall"
 
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
@@ -1165,6 +1166,17 @@ func convertError(err error, bucket, object string) error {
 		return ErrSlowDown
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return minio.IncompleteBody{Bucket: bucket, Object: object}
+	case errors.Is(err, syscall.ECONNRESET):
+		// This specific error happens when the satellite shuts down or is
+		// extremely busy. An event like this might happen during, e.g.
+		// production deployment.
+		//
+		// TODO(artur): what other information we should add to the monkit
+		// event?
+		mon.Event("connection reset by peer")
+		// There's not much we can do at this point but report that we won't
+		// continue with this request.
+		return minio.OperationTimedOut{}
 	default:
 		return err
 	}
