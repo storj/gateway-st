@@ -7,17 +7,17 @@ require (
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.6
-	github.com/spacemonkeygo/monkit/v3 v3.0.15
+	github.com/spacemonkeygo/monkit/v3 v3.0.17
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
-	storj.io/common v0.0.0-20210916151047-6aaeb34bb916
+	storj.io/common v0.0.0-20211210133756-deb1cc5680c0
 	storj.io/minio v0.0.0-20211007171754-df6c27823c8a
 	storj.io/private v0.0.0-20210810102517-434aeab3f17d
-	storj.io/uplink v1.7.0
+	storj.io/uplink v1.7.1
 )
 
 require (
@@ -148,18 +148,18 @@ require (
 	github.com/willf/bloom v2.0.3+incompatible // indirect
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c // indirect
 	github.com/xdg/stringprep v1.0.0 // indirect
-	github.com/zeebo/admission/v3 v3.0.2 // indirect
+	github.com/zeebo/admission/v3 v3.0.3 // indirect
 	github.com/zeebo/float16 v0.1.0 // indirect
 	github.com/zeebo/incenc v0.0.0-20180505221441-0d92902eec54 // indirect
 	github.com/zeebo/structs v1.0.2 // indirect
 	go.etcd.io/etcd v0.0.0-20201125193152-8a03d2e9614b // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/crypto v0.0.0-20210817164053-32db794688a5 // indirect
+	golang.org/x/crypto v0.0.0-20211108221036-ceb1ce70b4fa // indirect
 	golang.org/x/mod v0.4.2 // indirect
 	golang.org/x/net v0.0.0-20210428140749-89ef3d95e781 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
-	golang.org/x/sys v0.0.0-20210831042530-f4d43177bf5e // indirect
+	golang.org/x/sys v0.0.0-20211109065445-02f5c0300f6e // indirect
 	golang.org/x/text v0.3.6 // indirect
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	golang.org/x/tools v0.1.1 // indirect

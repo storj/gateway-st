@@ -173,7 +173,7 @@ func TestUploadDownload(t *testing.T) {
 			satellite := planet.Satellites[0]
 			info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
 			require.NoError(t, err)
-			require.False(t, info.PartnerID.IsZero())
+			require.Contains(t, string(info.UserAgent), "Zenko")
 		}
 	})
 }
