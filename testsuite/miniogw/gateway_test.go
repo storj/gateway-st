@@ -997,6 +997,12 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "", "", "", 0)
 		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
+		// Check the error when listing objects in a non-existing bucket. This
+		// time try to list with a prefix that will trigger a prefix-optimized
+		// listing code path.
+		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "p", "", "", 0)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
 		// Create the bucket and files using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)

@@ -640,11 +640,6 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, mark
 		return minio.ListObjectsInfo{}, err
 	}
 
-	// TODO this should be removed and implemented on satellite side
-	defer func() {
-		err = checkBucketError(ctx, project, bucket, "", err)
-	}()
-
 	// For V1, marker is V2's startAfter and continuationToken does not exist.
 	v2, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, "", delimiter, maxKeys, marker)
 
@@ -666,11 +661,6 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 	if err != nil {
 		return minio.ListObjectsV2Info{}, err
 	}
-
-	// TODO this should be removed and implemented on satellite side
-	defer func() {
-		err = checkBucketError(ctx, project, bucket, "", err)
-	}()
 
 	result, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, continuationToken, delimiter, maxKeys, startAfter)
 
