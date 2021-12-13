@@ -905,7 +905,7 @@ func TestListObjects(t *testing.T) {
 	t.Parallel()
 
 	f := func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjects(ctx, testBucket, prefix, marker, delimiter, maxKeys)
+		list, err := layer.ListObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
 		if err != nil {
 			return nil, nil, "", "", false, err
 		}
@@ -948,7 +948,7 @@ func TestListObjectsV2(t *testing.T) {
 	t.Parallel()
 
 	f := func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
-		list, err := layer.ListObjectsV2(ctx, testBucket, prefix, marker, delimiter, maxKeys, false, "")
+		list, err := layer.ListObjectsV2(ctx, bucket, prefix, marker, delimiter, maxKeys, false, "")
 		if err != nil {
 			return nil, nil, "", "", false, err
 		}
@@ -990,11 +990,11 @@ func TestListObjectsV2(t *testing.T) {
 func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects in a bucket with empty name
-		_, err := layer.ListObjects(ctx, "", "", "", "/", 0)
+		_, _, _, _, _, err := listObjects(ctx, layer, "", "", "", "/", 0)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when listing objects in a non-existing bucket
-		_, err = layer.ListObjects(ctx, testBucket, "", "", "", 0)
+		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "", "", "", 0)
 		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket and files using the Uplink API
