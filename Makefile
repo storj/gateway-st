@@ -1,4 +1,4 @@
-GO_VERSION ?= 1.15.7
+GO_VERSION ?= 1.17.5
 GOOS ?= linux
 GOARCH ?= amd64
 
