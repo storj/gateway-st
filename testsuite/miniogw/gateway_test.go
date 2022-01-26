@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"storj.io/common/base58"
 	"storj.io/common/memory"
@@ -34,6 +35,7 @@ import (
 	"storj.io/minio/pkg/auth"
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
+	"storj.io/storj/satellite"
 	"storj.io/uplink"
 	"storj.io/uplink/private/testuplink"
 )
@@ -2932,6 +2934,57 @@ func TestProjectUsageLimit(t *testing.T) {
 		// Should not return an error since it's a new month
 		err = layer.GetObject(ctxWithProject, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
 		require.NoError(t, err)
+	})
+}
+
+// TestSlowDown tests whether uplink.ErrTooManyRequests error converts to
+// ErrSlowDown correctly.
+//
+// It assumes that the test's body will execute in less than a second. It has
+// the potential to be flaky in that regard, so it's not executed in parallel
+// with other tests.
+func TestSlowDown(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount:   1,
+		StorageNodeCount: 0,
+		UplinkCount:      1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				// Metainfo's rate limiter adds Rate per second to the token
+				// bucket and has a bucket size of Rate. We need to trigger rate
+				// limitation response with some call to object API layer (like
+				// MakeBucketWithLocation), but setupAccess needs one token.
+				// After setupAccess burns through the bucket of size one, we
+				// rely on the assumption that the rest of the test executes in
+				// under one second, as this will allow us to get rate limited
+				// in the next call.
+				config.Metainfo.RateLimiter.Rate = 1
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		require.NoError(t, err)
+
+		project, err := uplink.OpenProject(ctx, access)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, project.Close()) }()
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+			MaxKeysExhaustiveLimit:       100000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		require.ErrorIs(t, layer.MakeBucketWithLocation(ctxWithProject, testrand.BucketName(), minio.BucketOptions{}), miniogw.ErrSlowDown)
 	})
 }
 
