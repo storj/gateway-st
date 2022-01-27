@@ -439,14 +439,9 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 ) {
 	defer mon.Task()(&ctx)(&err)
 
-	// From where listObjectsExhaustive is called, only one of the following can
-	// be true (or should be):
-	//
-	//  - prefix is empty or ends with "/";
-	//  - delimiter is empty or is "/".
-	//
-	// Filling Prefix and Recursive are a few optimizations that try to exploit
-	// this fact.
+	// Filling Prefix and Recursive are a few optimizations that try to make
+	// exhaustive listing less resource-intensive if it's possible. We still
+	// have to comply with (*uplink.Project).ListObjects' API.
 	var listPrefix string
 
 	if strings.HasSuffix(prefix, "/") {
@@ -455,7 +450,7 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 
 	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 		Prefix:    listPrefix,
-		Recursive: delimiter != "/" || strings.Contains(prefix, "/"),
+		Recursive: delimiter != "/" || (strings.Contains(prefix, "/") && !strings.HasSuffix(prefix, "/")),
 		System:    true,
 		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
@@ -556,6 +551,9 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 // The only S3-incompatible thing that listObjectsGeneral represents is that for
 // fast listing, it will not return items lexicographically ordered, but it is a
 // burden we must all bear.
+//
+// If layer.compatibilityConfig.FullyCompatibleListing is true, it will always
+// list exhaustively to achieve full S3 compatibility. Use at your own risk.
 func (layer *gatewayLayer) listObjectsGeneral(
 	ctx context.Context,
 	project *uplink.Project,
@@ -573,7 +571,7 @@ func (layer *gatewayLayer) listObjectsGeneral(
 
 	supportedPrefix := prefix == "" || strings.HasSuffix(prefix, "/")
 
-	if supportedPrefix && (delimiter == "" || delimiter == "/") {
+	if !layer.compatibilityConfig.FullyCompatibleListing && supportedPrefix && (delimiter == "" || delimiter == "/") {
 		prefixes, objects, token, err = layer.listObjectsFast(
 			ctx,
 			project,

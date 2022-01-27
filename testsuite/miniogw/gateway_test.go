@@ -2022,6 +2022,271 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
 	})
 }
 
+// TestListObjectsFullyCompatible tests whether exhaustive listing's results
+// are, e.g., lexicographically ordered. It also tests cases when incorrectly
+// implemented obvious exhaustive listing optimizations (in the context of
+// libuplink API) might return wrong results. It cannot test whether such
+// optimizations exist (there are other ways to check this).
+func TestListObjectsFullyCompatible(t *testing.T) {
+	t.Parallel()
+
+	bucketName := testrand.BucketName()
+
+	const (
+		prefix  = "moHaq/" // "moHaq" is "prefix" in Klingon.
+		prefix2 = "ab/cd/"
+	)
+
+	var paths, prefixed []string
+
+	for i := 0; i < 100; i++ {
+		p := testrand.Path()
+
+		if i%2 == 0 {
+			p = prefix + prefix2 + p
+
+			if len(p) > 1024 {
+				p = p[:1024]
+			}
+
+			prefixed = append(prefixed, p)
+		}
+
+		paths = append(paths, p)
+	}
+
+	sort.Strings(paths)
+	sort.Strings(prefixed)
+
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount:   1,
+		StorageNodeCount: 4,
+		UplinkCount:      1,
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		require.NoError(t, err)
+
+		project, err := uplink.OpenProject(ctx, access)
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, project.Close()) }()
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 51, // +1 to list 50 (see storj.io/gateway/miniogw.(*gatewayLayer).limitMaxKeys)
+			MaxKeysExhaustiveLimit:       100,
+			FullyCompatibleListing:       true, // this is what's important here
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		_, err = project.EnsureBucket(ctxWithProject, bucketName)
+		require.NoError(t, err)
+
+		for _, p := range paths {
+			_, err = createFile(ctxWithProject, project, bucketName, p, []byte{'t', 'e', 's', 't'}, nil)
+			require.NoError(t, err)
+		}
+
+		{
+			const name = "mustn't trigger optimizations: all"
+
+			var objects []minio.ObjectInfo
+
+			for isTruncated, nextMarker := true, ""; isTruncated; {
+				result, err := layer.ListObjects(ctxWithProject, bucketName, "", nextMarker, "", 100)
+				require.NoError(t, err, name)
+
+				isTruncated, nextMarker = result.IsTruncated, result.NextMarker
+
+				assert.Empty(t, result.Prefixes, name)
+
+				objects = append(objects, result.Objects...)
+			}
+
+			require.Len(t, objects, len(paths), name)
+
+			for i, p := range paths {
+				assert.Equal(t, p, objects[i].Name, name, i)
+			}
+		}
+		{
+			const name = "mustn't trigger optimizations: all (limit check)"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "", "", "", 100)
+			require.NoError(t, err, name)
+
+			assert.True(t, result.IsTruncated, name)
+			assert.Equal(t, result.NextMarker, paths[49], name)
+			assert.Empty(t, result.Prefixes, name)
+
+			require.Len(t, result.Objects, len(paths[:50]), name)
+
+			for i, p := range paths[:50] {
+				assert.Equal(t, p, result.Objects[i].Name, name, i)
+			}
+		}
+		{
+			const name = "mustn't trigger optimizations: prefix without trailing forward slash"
+
+			var objects []minio.ObjectInfo
+
+			for isTruncated, nextMarker := true, ""; isTruncated; {
+				result, err := layer.ListObjects(ctxWithProject, bucketName, strings.TrimSuffix(prefix, "/"), nextMarker, "", 10)
+				require.NoError(t, err, name)
+
+				isTruncated, nextMarker = result.IsTruncated, result.NextMarker
+
+				assert.Empty(t, result.Prefixes, name)
+
+				objects = append(objects, result.Objects...)
+			}
+
+			require.Len(t, objects, len(prefixed), name)
+
+			for i, p := range prefixed {
+				assert.Equal(t, p, objects[i].Name, name, i)
+			}
+		}
+		{
+			const name = "mustn't trigger optimizations: prefix without trailing forward slash contains forward slashes + forward slash delimiter"
+
+			// Set marker to something before prefix, so we don't trigger our
+			// optimization for non-forward-slash-terminated prefixes. If we
+			// triggered it, we are still fully compatible, but we specifically
+			// want to test the fallback to the exhaustive listing.
+			result, err := layer.ListObjects(ctxWithProject, bucketName, strings.TrimSuffix(prefix+prefix2, "/"), string(prefix[0]), "/", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+
+			require.Len(t, result.Prefixes, 1, name)
+
+			assert.Equal(t, prefix+prefix2, result.Prefixes[0], name)
+		}
+		{
+			const name = "mustn't trigger optimizations: arbitrary delimiter"
+
+			var (
+				objects  []minio.ObjectInfo
+				prefixes []string
+			)
+
+			for isTruncated, nextMarker := true, ""; isTruncated; {
+				result, err := layer.ListObjects(ctxWithProject, bucketName, "", nextMarker, prefix2, 100)
+				require.NoError(t, err, name)
+
+				isTruncated, nextMarker = result.IsTruncated, result.NextMarker
+
+				objects = append(objects, result.Objects...)
+				prefixes = append(prefixes, result.Prefixes...)
+			}
+
+			require.Len(t, prefixes, 1, name)
+
+			assert.Equal(t, prefix+prefix2, prefixes[0], name)
+
+			var withoutPrefix []string
+
+			for _, p := range paths {
+				if !strings.HasPrefix(p, prefix+prefix2) {
+					withoutPrefix = append(withoutPrefix, p)
+				}
+			}
+
+			require.Len(t, objects, len(withoutPrefix), name)
+
+			for i, p := range withoutPrefix {
+				assert.Equal(t, p, objects[i].Name, name, i)
+			}
+		}
+		{
+			const name = "mustn't trigger optimizations: prefix without trailing forward slash + arbitrary delimiter"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, strings.TrimSuffix(prefix, "/"), "", prefix2, 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+
+			require.Len(t, result.Prefixes, 1, name)
+
+			assert.Equal(t, prefix+prefix2, result.Prefixes[0], name)
+		}
+		{
+			const name = "partially optimized: prefix"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix, "", "", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Prefixes, name)
+
+			require.Len(t, result.Objects, len(prefixed), name)
+
+			for i, p := range prefixed {
+				assert.Equal(t, p, result.Objects[i].Name, name, i)
+			}
+		}
+		{
+			const name = "partially optimized: prefix without trailing forward slash + forward slash delimiter"
+
+			// Set marker to something before prefix, so we don't trigger our
+			// optimization for non-forward-slash-terminated prefixes. If we
+			// triggered it, we are still fully compatible, but we specifically
+			// want to test the fallback to the exhaustive listing.
+			result, err := layer.ListObjects(ctxWithProject, bucketName, strings.TrimSuffix(prefix, "/"), string(prefix[0]), "/", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+
+			require.Len(t, result.Prefixes, 1, name)
+
+			assert.Equal(t, prefix, result.Prefixes[0], name)
+		}
+		{
+			const name = "partially optimized: prefix + arbitrary delimiter"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix, "", strings.SplitAfterN(prefix2, "/", 2)[1], 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+
+			require.Len(t, result.Prefixes, 1, name)
+
+			assert.Equal(t, prefix+prefix2, result.Prefixes[0], name)
+		}
+		{
+			const name = "optimized: prefix + forward slash delimiter"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix, "", "/", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+
+			require.Len(t, result.Prefixes, 1, name)
+
+			assert.Equal(t, prefix+strings.SplitAfterN(prefix2, "/", 2)[0], result.Prefixes[0], name)
+		}
+	})
+}
+
 func TestListMultipartUploads(t *testing.T) {
 	t.Parallel()
 
