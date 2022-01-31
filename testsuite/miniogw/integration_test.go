@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
+	"storj.io/common/base58"
 	"storj.io/common/memory"
 	"storj.io/common/processgroup"
 	"storj.io/common/testcontext"

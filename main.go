@@ -15,13 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/minio/cli"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 
+	"storj.io/common/base58"
 	"storj.io/common/fpath"
 	"storj.io/gateway/internal/wizard"
 	"storj.io/gateway/miniogw"
