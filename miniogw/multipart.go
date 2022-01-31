@@ -292,30 +292,56 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return minio.ObjectInfo{}, err
 	}
 
-	// todo: part size validation has been disabled, as we have concerns that
-	// it's causing problems in production since minio expects CompleteMultipartUpload
-	// to finish quickly.
+	var idx int
+	list := project.ListUploadParts(ctx, bucket, object, uploadID, nil)
+	for ; list.Next(); idx++ {
+		part := list.Item()
+		// Are we listing past what we received?
+		if idx >= len(uploadedParts) {
+			return minio.ObjectInfo{}, minio.InvalidPart{
+				PartNumber: int(part.PartNumber),
+				ExpETag:    string(part.ETag),
+				GotETag:    "",
+			}
+		}
+		// Is size okay for everything except the last part?
+		if idx != len(uploadedParts)-1 {
+			if part.Size < layer.compatibilityConfig.MinPartSize {
+				return minio.ObjectInfo{}, minio.PartTooSmall{
+					PartSize:   part.Size,
+					PartNumber: int(part.PartNumber),
+					PartETag:   string(part.ETag),
+				}
+			}
+		}
+		// Do we agree on the part number?
+		if uploadedParts[idx].PartNumber != int(part.PartNumber) {
+			return minio.ObjectInfo{}, minio.InvalidPart{
+				PartNumber: uploadedParts[idx].PartNumber,
+				ExpETag:    "",
+				GotETag:    uploadedParts[idx].ETag,
+			}
+		}
+		// Do we agree on ETag?
+		if uploadedParts[idx].ETag != string(part.ETag) {
+			return minio.ObjectInfo{}, minio.InvalidPart{
+				PartNumber: int(part.PartNumber),
+				ExpETag:    string(part.ETag),
+				GotETag:    uploadedParts[idx].ETag,
+			}
+		}
+	}
+	if list.Err() != nil {
+		return minio.ObjectInfo{}, convertMultipartError(list.Err(), bucket, object, uploadID)
+	}
 
-	// sort.Slice(uploadedParts, func(i, k int) bool {
-	// 	return uploadedParts[i].PartNumber < uploadedParts[k].PartNumber
-	// })
-
-	// list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{})
-	// for list.Next() {
-	// 	part := list.Item()
-	// 	uploadedPart := uploadedParts[int(part.PartNumber)]
-	// 	if uploadedPart.ETag != string(part.ETag) {
-	// 		return minio.ObjectInfo{}, minio.InvalidPart{PartNumber: int(part.PartNumber), GotETag: uploadedPart.ETag}
-	// 	}
-	// 	if int(part.PartNumber) != len(uploadedParts)-1 {
-	// 		if part.Size < int64(layer.compatibilityConfig.MinPartSize) {
-	// 			return minio.ObjectInfo{}, minio.PartTooSmall{PartNumber: int(part.PartNumber), PartSize: part.Size, PartETag: string(part.ETag)}
-	// 		}
-	// 	}
-	// }
-	// if list.Err() != nil {
-	// 	return minio.ObjectInfo{}, convertMultipartError(list.Err(), bucket, object, uploadID)
-	// }
+	if len(uploadedParts) > idx { // We didn't list enough
+		return minio.ObjectInfo{}, minio.InvalidPart{
+			PartNumber: uploadedParts[idx].PartNumber, // Condition guarantees safe access
+			ExpETag:    "",                            // We expected nothing
+			GotETag:    uploadedParts[idx].ETag,
+		}
+	}
 
 	etag := minio.ComputeCompleteMultipartMD5(uploadedParts)
 
