@@ -206,9 +206,10 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 
 // limitMaxKeys returns maxKeys limited to what gateway is configured to limit
 // maxKeys to, aligned with paging limitations on the satellite side. It will
-// also return the highest limit possible if maxKeys is not positive.
+// also return the highest limit possible if maxKeys is negative. If maxKeys
+// is zero, no keys are returned, which is compatible with AWS S3.
 func (layer *gatewayLayer) limitMaxKeys(maxKeys int) int {
-	if maxKeys <= 0 || maxKeys >= layer.compatibilityConfig.MaxKeysLimit {
+	if maxKeys < 0 || maxKeys >= layer.compatibilityConfig.MaxKeysLimit {
 		// Return max keys with a buffer to gather the continuation token to
 		// avoid paging problems until we have a method in libuplink to get more
 		// info about page boundaries.
@@ -301,7 +302,9 @@ func (layer *gatewayLayer) listObjectsSingle(
 		after = continuationToken
 	}
 
-	if after == "" {
+	limit := layer.limitMaxKeys(maxKeys)
+
+	if limit > 0 && after == "" {
 		object, err := project.StatObject(ctx, bucket, prefix)
 		if err != nil {
 			if !errors.Is(err, uplink.ErrObjectNotFound) {
@@ -310,13 +313,13 @@ func (layer *gatewayLayer) listObjectsSingle(
 		} else {
 			objects = append(objects, minioObjectInfo(bucket, "", object))
 
-			if layer.limitMaxKeys(maxKeys) == 1 {
+			if limit == 1 {
 				return prefixes, objects, object.Key, nil
 			}
 		}
 	}
 
-	if delimiter == "/" && (after == "" || after == prefix) {
+	if limit > 0 && delimiter == "/" && (after == "" || after == prefix) {
 		p := prefix + "/"
 
 		list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{

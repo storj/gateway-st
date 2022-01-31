@@ -41,13 +41,14 @@ import (
 )
 
 const (
-	testBucket  = "test-bucket"
-	testFile    = "test-file"
-	testFile2   = "test-file-2"
-	testFile3   = "test-file-3"
-	destBucket  = "dest-bucket"
-	destFile    = "dest-file"
-	segmentSize = 640 * memory.KiB
+	testBucket   = "test-bucket"
+	testFile     = "test-file"
+	testFile2    = "test-file-2"
+	testFile3    = "test-file-3"
+	destBucket   = "dest-bucket"
+	destFile     = "dest-file"
+	segmentSize  = 640 * memory.KiB
+	maxKeysLimit = 1000
 )
 
 func TestMakeBucketWithLocation(t *testing.T) {
@@ -793,7 +794,7 @@ func TestCopyObjectSameSourceAndDestUpdatesMetadata(t *testing.T) {
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			DisableCopyObject:            true,
 			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
+			MaxKeysLimit:                 maxKeysLimit,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
@@ -1039,17 +1040,17 @@ func TestListObjectsV2(t *testing.T) {
 func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects in a bucket with empty name
-		_, _, _, _, _, err := listObjects(ctx, layer, "", "", "", "/", 0)
+		_, _, _, _, _, err := listObjects(ctx, layer, "", "", "", "/", maxKeysLimit)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
 
 		// Check the error when listing objects in a non-existing bucket
-		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "", "", "", 0)
+		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "", "", "", maxKeysLimit)
 		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Check the error when listing objects in a non-existing bucket. This
 		// time try to list with a prefix that will trigger a prefix-optimized
 		// listing code path.
-		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "p", "", "", 0)
+		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "p", "", "", maxKeysLimit)
 		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
 		// Create the bucket and files using the Uplink API
@@ -1100,28 +1101,41 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 			{
 				name:      "Basic non-recursive",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				prefixes:  []string{"a/", "b/", "i/", "j/", "m/", "n/"},
 				objects:   []string{"a", "aa", "b", "bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
 			}, {
 				name:      "Basic non-recursive with non-existing mark",
 				marker:    "`",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				prefixes:  []string{"a/", "b/", "i/", "j/", "m/", "n/"},
 				objects:   []string{"a", "aa", "b", "bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
 			}, {
 				name:      "Basic non-recursive with existing mark",
 				marker:    "b",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				prefixes:  []string{"b/", "i/", "j/", "m/", "n/"},
 				objects:   []string{"bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
 			}, {
 				name:      "Basic non-recursive with last mark",
 				marker:    "oo",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 			}, {
 				name:      "Basic non-recursive with past last mark",
 				marker:    "ooa",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
+			}, {
+				name:      "Basic non-recursive with max key limit of 0",
+				marker:    "",
+				delimiter: "/",
+				maxKeys:   0,
+				more:      false,
+				prefixes:  nil,
+				objects:   nil,
 			}, {
 				name:      "Basic non-recursive with max key limit of 1",
 				delimiter: "/",
@@ -1195,12 +1209,14 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				name:      "Prefix non-recursive",
 				prefix:    "a/",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				objects:   []string{"xa", "xaa", "xb", "xbb", "xc"},
 			}, {
 				name:      "Prefix non-recursive with mark",
 				prefix:    "a/",
 				marker:    "xb",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				objects:   []string{"xbb", "xc"},
 			}, {
 				name:      "Prefix non-recursive with mark and max keys",
@@ -1212,7 +1228,15 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				objects:   []string{"xb", "xbb"},
 			}, {
 				name:    "Basic recursive",
+				maxKeys: maxKeysLimit,
 				objects: filePaths,
+			}, {
+				name:     "Basic recursive with max key limit of 0",
+				marker:   "",
+				maxKeys:  0,
+				more:     false,
+				objects:  nil,
+				prefixes: nil,
 			}, {
 				name:    "Basic recursive with mark and max keys",
 				marker:  "a/xbb",
@@ -1223,18 +1247,21 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				name:     "list as stat, recursive, object, prefix, and object-with-prefix exist",
 				prefix:   "i",
 				more:     true,
+				maxKeys:  maxKeysLimit,
 				prefixes: nil,
 				objects:  []string{"i"},
 			}, {
 				name:      "list as stat, nonrecursive, object, prefix, and object-with-prefix exist",
 				prefix:    "i",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				more:      true,
 				prefixes:  []string{"i/"},
 				objects:   []string{"i"},
 			}, {
 				name:     "list as stat, recursive, object and prefix exist, no object-with-prefix",
 				prefix:   "j",
+				maxKeys:  maxKeysLimit,
 				more:     true,
 				prefixes: nil,
 				objects:  []string{"j"},
@@ -1242,12 +1269,14 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				name:      "list as stat, nonrecursive, object and prefix exist, no object-with-prefix",
 				prefix:    "j",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				more:      true,
 				prefixes:  []string{"j/"},
 				objects:   []string{"j"},
 			}, {
 				name:     "list as stat, recursive, object and object-with-prefix exist, no prefix",
 				prefix:   "k",
+				maxKeys:  maxKeysLimit,
 				more:     true,
 				prefixes: nil,
 				objects:  []string{"k"},
@@ -1255,12 +1284,14 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				name:      "list as stat, nonrecursive, object and object-with-prefix exist, no prefix",
 				prefix:    "k",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				more:      true,
 				prefixes:  nil,
 				objects:   []string{"k"},
 			}, {
 				name:     "list as stat, recursive, object exists, no object-with-prefix or prefix",
 				prefix:   "l",
+				maxKeys:  maxKeysLimit,
 				more:     true,
 				prefixes: nil,
 				objects:  []string{"l"},
@@ -1268,42 +1299,49 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				name:      "list as stat, nonrecursive, object exists, no object-with-prefix or prefix",
 				prefix:    "l",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				more:      true,
 				prefixes:  nil,
 				objects:   []string{"l"},
 			}, {
 				name:     "list as stat, recursive, prefix, and object-with-prefix exist, no object (fallback to exhaustive)",
 				prefix:   "m",
+				maxKeys:  maxKeysLimit,
 				prefixes: nil,
 				objects:  []string{"m/i", "mm"},
 			}, {
 				name:      "list as stat, nonrecursive, prefix, and object-with-prefix exist, no object",
 				prefix:    "m",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				more:      true,
 				prefixes:  []string{"m/"},
 				objects:   nil,
 			}, {
 				name:     "list as stat, recursive, prefix exists, no object-with-prefix, no object (fallback to exhaustive)",
 				prefix:   "n",
+				maxKeys:  maxKeysLimit,
 				prefixes: nil,
 				objects:  []string{"n/i"},
 			}, {
 				name:      "list as stat, nonrecursive, prefix exists, no object-with-prefix, no object",
 				prefix:    "n",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				more:      true,
 				prefixes:  []string{"n/"},
 				objects:   nil,
 			}, {
 				name:     "list as stat, recursive, object-with-prefix exists, no prefix, no object (fallback to exhaustive)",
 				prefix:   "o",
+				maxKeys:  maxKeysLimit,
 				prefixes: nil,
 				objects:  []string{"oo"},
 			}, {
 				name:      "list as stat, nonrecursive, object-with-prefix exists, no prefix, no object (fallback to exhaustive)",
 				prefix:    "o",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				prefixes:  nil,
 				objects:   []string{"oo"},
 			}, {
@@ -1315,6 +1353,7 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				name:      "list as stat, nonrecursive, no object-with-prefix or prefix or object",
 				prefix:    "p",
 				delimiter: "/",
+				maxKeys:   maxKeysLimit,
 				prefixes:  nil,
 				objects:   nil,
 			},
@@ -1475,6 +1514,15 @@ func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
 				wantObjects:  true,
 			},
 			{
+				name:         "recursive + limited (maxKeys=0)",
+				prefix:       "1/1/1",
+				delimiter:    "",
+				limit:        0,
+				startAfter:   "",
+				wantPrefixes: false,
+				wantObjects:  false,
+			},
+			{
 				name:         "recursive + limited",
 				prefix:       "1/1/2",
 				delimiter:    "",
@@ -1487,10 +1535,19 @@ func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
 				name:         "non-recursive + unlimited",
 				prefix:       "1/1/3",
 				delimiter:    "/",
-				limit:        0,
+				limit:        maxKeysLimit,
 				startAfter:   "",
 				wantPrefixes: true,
 				wantObjects:  true,
+			},
+			{
+				name:         "non-recursive + limited (maxKeys=0)",
+				prefix:       "1/1/4",
+				delimiter:    "/",
+				limit:        0,
+				startAfter:   "",
+				wantPrefixes: false,
+				wantObjects:  false,
 			},
 			{
 				name:         "non-recursive + limited",
@@ -1523,7 +1580,7 @@ func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
 				name:         "startAfter replaces continuationToken",
 				prefix:       "1/2/3",
 				delimiter:    "/",
-				limit:        0,
+				limit:        maxKeysLimit,
 				startAfter:   "1/2/3",
 				wantPrefixes: true,
 				wantObjects:  false,
@@ -1582,10 +1639,20 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "no prefix or delimiter",
 				prefix:    "",
 				delimiter: "",
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 4,
+				nextMarker: "",
+			},
+			{
+				name:      "no prefix or delimiter with maxKeys=0",
+				prefix:    "",
+				delimiter: "",
+				maxKeys:   0,
+
+				prefixes:   nil,
+				lenObjects: 0,
 				nextMarker: "",
 			},
 			{
@@ -1632,12 +1699,22 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "getting months",
 				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
 				delimiter: sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes: []string{
 					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
 					makeSeparatedPath(sep, "photos", "2022", "January") + sep,
 				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "getting months with maxKeys=0",
+				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
+				delimiter: sep,
+				maxKeys:   0,
+
+				prefixes:   nil,
 				lenObjects: 0,
 				nextMarker: "",
 			},
@@ -1683,7 +1760,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "ensuring multi-byte delimiter",
 				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
 				delimiter: "February" + sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes: []string{
 					makeSeparatedPath(sep, "photos", "2022", "February") + sep,
@@ -1743,11 +1820,21 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "pathological I",
 				prefix:    "photos",
 				delimiter: sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes: []string{
 					"photos" + sep,
 				},
+				lenObjects: 0,
+				nextMarker: "",
+			},
+			{
+				name:      "pathological I with maxKeys=0",
+				prefix:    "photos",
+				delimiter: sep,
+				maxKeys:   0,
+
+				prefixes:   nil,
 				lenObjects: 0,
 				nextMarker: "",
 			},
@@ -1779,7 +1866,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "pathological II",
 				prefix:    "photos" + sep + sep,
 				delimiter: sep + sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 0,
@@ -1789,7 +1876,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "pathological III",
 				prefix:    "photos" + sep + sep,
 				delimiter: sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 0,
@@ -1799,7 +1886,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "pathological IV",
 				prefix:    "photos" + sep,
 				delimiter: sep + sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 4,
@@ -1809,7 +1896,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "pathological V",
 				prefix:    "photos" + sep + sep,
 				delimiter: "",
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 0,
@@ -1819,7 +1906,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "pathological VI",
 				prefix:    "photos",
 				delimiter: sep + sep,
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 4,
@@ -1869,7 +1956,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "no delimiter I",
 				prefix:    makeSeparatedPath(sep, "photos", "2022") + sep,
 				delimiter: "",
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes:   nil,
 				lenObjects: 3,
@@ -1889,7 +1976,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 				name:      "delimiter is the extension",
 				prefix:    "photos" + sep,
 				delimiter: ".jpg",
-				maxKeys:   0,
+				maxKeys:   maxKeysLimit,
 
 				prefixes: []string{
 					makeSeparatedPath(sep, "photos", "2022", "February", "photo_4.jpg"),
@@ -1933,7 +2020,7 @@ func testListObjectsArbitraryPrefixDelimiter(t *testing.T, listObjects listObjec
 		{ // Check whether skipping collapsed keys works.
 			marker := makeSeparatedPath(sep, "photos", "2022") + sep
 
-			pres, objs, err := listBucketObjects(ctx, listObjects, layer, "photos"+sep, sep, 1000, marker)
+			pres, objs, err := listBucketObjects(ctx, listObjects, layer, "photos"+sep, sep, maxKeysLimit, marker)
 
 			msg := "skipping collapsed keys"
 
@@ -2052,7 +2139,7 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
 				lenObjs:   1,
 			},
 		} {
-			pres, objs, marker, nextMarker, truncated, err := listObjects(ctx, l, testBucketInfo.Name, tt.prefix, "", tt.delimiter, 1000)
+			pres, objs, marker, nextMarker, truncated, err := listObjects(ctx, l, testBucketInfo.Name, tt.prefix, "", tt.delimiter, maxKeysLimit)
 			require.NoError(t, err)
 
 			assert.Len(t, pres, tt.lenPres)
@@ -3142,7 +3229,7 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
+			MaxKeysLimit:                 maxKeysLimit,
 			MaxKeysExhaustiveLimit:       100000,
 		}
 
@@ -3407,7 +3494,7 @@ func TestProjectUsageLimit(t *testing.T) {
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
+			MaxKeysLimit:                 maxKeysLimit,
 			MaxKeysExhaustiveLimit:       100000,
 		}
 
@@ -3529,7 +3616,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
+			MaxKeysLimit:                 maxKeysLimit,
 			MaxKeysExhaustiveLimit:       100000,
 		}
 
