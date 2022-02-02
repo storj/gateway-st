@@ -6,7 +6,6 @@ package miniogw
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"reflect"
 
@@ -105,8 +104,8 @@ func (l *singleTenancyLayer) Shutdown(ctx context.Context) error {
 	return l.log(l.project.Close())
 }
 
-func (l *singleTenancyLayer) StorageInfo(ctx context.Context, local bool) (minio.StorageInfo, []error) {
-	info, errors := l.layer.StorageInfo(WithUplinkProject(ctx, l.project), false)
+func (l *singleTenancyLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
+	info, errors := l.layer.StorageInfo(WithUplinkProject(ctx, l.project))
 
 	for _, err := range errors {
 		_ = l.log(err)
@@ -146,10 +145,6 @@ func (l *singleTenancyLayer) ListObjectsV2(ctx context.Context, bucket, prefix, 
 func (l *singleTenancyLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	reader, err = l.layer.GetObjectNInfo(WithUplinkProject(ctx, l.project), bucket, object, rs, h, lockType, opts)
 	return reader, l.log(err)
-}
-
-func (l *singleTenancyLayer) GetObject(ctx context.Context, bucket, object string, startOffset, length int64, writer io.Writer, etag string, opts minio.ObjectOptions) error {
-	return l.log(l.layer.GetObject(WithUplinkProject(ctx, l.project), bucket, object, startOffset, length, writer, etag, opts))
 }
 
 func (l *singleTenancyLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -254,8 +249,9 @@ func (l *singleTenancyLayer) IsTaggingSupported() bool {
 	return l.layer.IsTaggingSupported()
 }
 
-func (l *singleTenancyLayer) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) error {
-	return l.log(l.layer.PutObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, tags, opts))
+func (l *singleTenancyLayer) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
+	objInfo, err := l.layer.PutObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, tags, opts)
+	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) GetObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
@@ -263,6 +259,7 @@ func (l *singleTenancyLayer) GetObjectTags(ctx context.Context, bucketName, obje
 	return t, l.log(err)
 }
 
-func (l *singleTenancyLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) error {
-	return l.log(l.layer.DeleteObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, opts))
+func (l *singleTenancyLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
+	objInfo, err := l.layer.DeleteObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, opts)
+	return objInfo, l.log(err)
 }

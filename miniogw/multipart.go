@@ -6,6 +6,7 @@ package miniogw
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 
@@ -34,7 +35,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 	}
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListMultipartsInfo{}, minio.UnsupportedDelimiter{Delimiter: delimiter}
+		return minio.ListMultipartsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
 	// TODO this should be removed and implemented on satellite side
@@ -104,7 +105,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	}
 
 	if storageClass, ok := opts.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
-		return "", minio.NotImplemented{API: "NewMultipartUpload (storage class)"}
+		return "", minio.NotImplemented{Message: "NewMultipartUpload (storage class)"}
 	}
 
 	project, err := projectFromContext(ctx, bucket, object)
