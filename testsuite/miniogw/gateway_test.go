@@ -2910,6 +2910,40 @@ func TestListObjectParts(t *testing.T) {
 			assert.WithinDuration(t, now, listParts.Parts[i].LastModified, 5*time.Second)
 			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), listParts.Parts[i].ETag)
 		}
+
+		// try batch of two
+		listParts, err = layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 0, 2, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, testBucket, listParts.Bucket)
+		require.Equal(t, testFile, listParts.Object)
+		require.Equal(t, uploadID, listParts.UploadID)
+		require.Equal(t, 0, listParts.PartNumberMarker)
+		require.Equal(t, 0+2, listParts.NextPartNumberMarker)
+		require.Len(t, listParts.Parts, 2)
+		for i := 0; i < 2; i++ {
+			assert.Equal(t, i+1, listParts.Parts[i].PartNumber)
+			assert.Equal(t, minioReaders[i].Size(), listParts.Parts[i].Size)
+			assert.Equal(t, minioReaders[i].ActualSize(), listParts.Parts[i].ActualSize)
+			assert.WithinDuration(t, now, listParts.Parts[i].LastModified, 5*time.Second)
+			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), listParts.Parts[i].ETag)
+		}
+
+		// try batch of remaining
+		listParts, err = layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 2, 1000, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, testBucket, listParts.Bucket)
+		require.Equal(t, testFile, listParts.Object)
+		require.Equal(t, uploadID, listParts.UploadID)
+		require.Equal(t, 2, listParts.PartNumberMarker)
+		require.Equal(t, totalPartsCount, listParts.NextPartNumberMarker)
+		require.Len(t, listParts.Parts, totalPartsCount-2)
+		for i := 0; i < totalPartsCount-2; i++ {
+			assert.Equal(t, i+1+2, listParts.Parts[i].PartNumber)
+			assert.Equal(t, minioReaders[i].Size(), listParts.Parts[i].Size)
+			assert.Equal(t, minioReaders[i].ActualSize(), listParts.Parts[i].ActualSize)
+			assert.WithinDuration(t, now, listParts.Parts[i].LastModified, 5*time.Second)
+			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), listParts.Parts[i].ETag)
+		}
 	})
 }
 

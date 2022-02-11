@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 
 	"github.com/zeebo/errs"
 
@@ -246,17 +245,17 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	if list.Err() != nil {
 		return result, convertMultipartError(list.Err(), bucket, object, uploadID)
 	}
-
-	sort.Slice(parts, func(i, k int) bool {
-		return parts[i].PartNumber < parts[k].PartNumber
-	})
+	nextPartNumberMarker := partNumberMarker
+	if len(parts) > 0 {
+		nextPartNumberMarker = parts[len(parts)-1].PartNumber
+	}
 	return minio.ListPartsInfo{
 		Bucket:               bucket,
 		Object:               object,
 		UploadID:             uploadID,
-		StorageClass:         "",               // TODO
-		PartNumberMarker:     partNumberMarker, // Part number after which listing begins.
-		NextPartNumberMarker: partNumberMarker, // TODO Next part number marker to be used if list is truncated
+		StorageClass:         storageclass.STANDARD,
+		PartNumberMarker:     partNumberMarker,     // Part number after which listing begins.
+		NextPartNumberMarker: nextPartNumberMarker, // NextPartNum is really more like last part num.
 		MaxParts:             maxParts,
 		IsTruncated:          more,
 		Parts:                parts,
