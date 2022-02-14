@@ -14,7 +14,7 @@ require (
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
 	storj.io/common v0.0.0-20220203111346-5c3b59fd0b9b
-	storj.io/minio v0.0.0-20220210130715-31db5e047f42
+	storj.io/minio v0.0.0-20220213232231-f033a3fc9284
 	storj.io/private v0.0.0-20220131131751-c913260b9ec2
 	storj.io/uplink v1.7.2-0.20220207191136-1afcc12de178
 )
@@ -60,7 +60,7 @@ require (
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/golang/snappy v0.0.1 // indirect
+	github.com/golang/snappy v0.0.3 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect
 	github.com/google/uuid v1.1.2 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
@@ -73,7 +73,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/jtolds/tracetagger/v2 v2.0.0-rc5 // indirect
-	github.com/klauspost/compress v1.11.12 // indirect
+	github.com/klauspost/compress v1.13.4 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.4 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
@@ -99,7 +99,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/montanaflynn/stats v0.5.0 // indirect
-	github.com/nats-io/nats.go v1.10.1-0.20210228004050-ed743748acac // indirect
+	github.com/nats-io/nats.go v1.13.1-0.20220121202836-972a071d373d // indirect
 	github.com/nats-io/nkeys v0.3.0 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nats-io/stan.go v0.8.3 // indirect

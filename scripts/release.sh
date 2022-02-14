@@ -36,10 +36,10 @@ fi
 # otherwise the object browser breaks and refuses login.
 # see https://github.com/storj/minio/blob/main/buildscripts/gen-ldflags.go
 # for now, these are hardcoded as storj/minio isn't updated that often.
-MINIO_VERSION="2022-02-08T15:12:02+00:00"
-MINIO_RELEASE="v0.0.0-20220210130715-31db5e047f42"
-MINIO_COMMIT="31db5e047f42b0fe7d2c0d581cbd0e00d028b500"
-MINIO_SHORT_COMMIT="31db5e047f42"
+MINIO_VERSION="2022-02-14T00:08:51+00:00"
+MINIO_RELEASE="v0.0.0-20220213232231-f033a3fc9284"
+MINIO_COMMIT="1af625398a5eaaad30651ca819115b9360e0be18"
+MINIO_SHORT_COMMIT="1af625398a5e"
 
 echo Running "go $@"
 exec go "$1" -ldflags \
