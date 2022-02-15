@@ -1,17 +1,18 @@
 # Single Tenant S3 Gateway
 
-S3-compatible gateway for Storj V3 Network, based on [MinIO](https://github.com/minio/minio).
-
-If you're looking for our multi-tenant gateway, check out [Gateway-MT](https://github.com/storj/gateway-mt).
-
 [![Go Report Card](https://goreportcard.com/badge/storj.io/gateway)](https://goreportcard.com/report/storj.io/gateway)
 [![Go Doc](https://img.shields.io/badge/godoc-reference-blue.svg?style=flat-square)](https://pkg.go.dev/storj.io/gateway)
-![Beta](https://img.shields.io/badge/version-beta-green.svg)
+
+S3-compatible gateway for Storj V3 Network, based on a [MinIO
+fork](https://github.com/storj/minio).
+
+If you're looking for the rest of Storj's edge services, check out
+[Gateway-MT](https://github.com/storj/gateway-mt).
 
 <img src="https://github.com/storj/storj/raw/main/resources/logo.png" width="100">
 
-Storj is building a decentralized cloud storage network.
-[Check out our white paper for more info!](https://storj.io/white-paper)
+Storj is building a decentralized cloud storage network. [Check out our white
+paper for more info!](https://storj.io/white-paper)
 
 ----
 
@@ -21,31 +22,46 @@ encrypted, broken into little pieces and stored in a global decentralized
 network of computers. Luckily, we also support allowing you (and only you) to
 retrieve those files!
 
-# Documentation
+## Documentation
 
 * [Using the S3 Gateway](https://docs.storj.io/api-reference/s3-gateway)
+* [S3 Compatibility](docs/s3-compatibility.md)
 
+## S3 API Compatibility
 
-# S3 API Compatibility
-The following S3 methods are supported:
-- HeadBucket
-- CreateBucket
-- DeleteBucket
-- ListBuckets
-- HeadObject
-- PutObject
-- GetObject
-- DeleteObject
-- DeleteObjects
-- ListObjects
-- ListObjectsV2
+We support all essential API actions, like
 
-We run a fork of the minio/mint repository at [storj/gateway-mint](https://github.com/storj/gateway-mint/)
-used to test correctness of the gateway.
+* AbortMultipartUpload
+* CompleteMultipartUpload
+* CopyObject
+* CreateBucket
+* CreateMultipartUpload
+* DeleteBucket
+* DeleteObject
+* DeleteObjects
+* GetObject
+* HeadBucket
+* HeadObject
+* ListBuckets
+* ListMultipartUploads
+* ListObjects
+* ListObjectsV2
+* ListParts
+* PutObject
+* UploadPart
+
+as well as (Get/Put/Delete)ObjectTagging actions.
+
+For more details on gateway's S3 compatibility, please refer to [Compatibility
+Table](docs/s3-compatibility.md).
+
+We run a fork of the [minio/mint](https://github.com/minio/mint) repository at
+[storj/gateway-mint](https://github.com/storj/gateway-mint/) used to test the
+correctness of the gateway.
 
 To run the tests:
 
-```
+```shell
 docker run --rm \
 	-e SERVER_ENDPOINT=endpoint_address \
 	-e ACCESS_KEY=myaccesskey \
@@ -54,13 +70,12 @@ docker run --rm \
 	storjlabs/gateway-mint
 ```
 
-# License
+## License
 
 This library is distributed under the
-[Apache v2](https://www.apache.org/licenses/LICENSE-2.0) license.
+[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) license.
 
-# Support
+## Support
 
-If you have any questions or suggestions please reach out to us on
-[our community forum](https://forum.storj.io/) or
-email us at support@storj.io.
+If you have any questions or suggestions please reach out to us on [our
+community forum](https://forum.storj.io/) or email us at support@storj.io.
