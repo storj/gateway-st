@@ -350,11 +350,11 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	// 	delete(opts.UserDefined, xhttp.AmzObjectTagging)
 	// }
 
-	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
-	metadata["s3:etag"] = etag
+	// metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
+	// metadata["s3:etag"] = etag
 
 	obj, err := project.CommitUpload(ctx, bucket, object, uploadID, &uplink.CommitUploadOptions{
-		CustomMetadata: metadata,
+		// CustomMetadata: metadata,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
