@@ -345,10 +345,10 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 
 	etag := minio.ComputeCompleteMultipartMD5(uploadedParts)
 
-	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
-		opts.UserDefined["s3:tags"] = tagsStr
-		delete(opts.UserDefined, xhttp.AmzObjectTagging)
-	}
+	// if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
+	// 	opts.UserDefined["s3:tags"] = tagsStr
+	// 	delete(opts.UserDefined, xhttp.AmzObjectTagging)
+	// }
 
 	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
 	metadata["s3:etag"] = etag
