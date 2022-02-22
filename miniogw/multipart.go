@@ -360,6 +360,10 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
+	if obj != nil {
+		return minio.ObjectInfo{}, errs.New("teststeset")
+	}
+
 	return minioObjectInfo(bucket, etag, obj), nil
 }
 
