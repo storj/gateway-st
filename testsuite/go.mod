@@ -12,7 +12,7 @@ require (
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20220215210608-f35d7bc00e6e
 	storj.io/storj v0.12.1-0.20211210152304-baaa96c208e9
-	storj.io/uplink v1.8.0
+	storj.io/uplink v1.8.1-0.20220223172456-49599556ada0
 )
 
 replace storj.io/uplink => ../../uplink

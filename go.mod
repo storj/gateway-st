@@ -16,10 +16,8 @@ require (
 	storj.io/common v0.0.0-20220223163349-2f971215d35e
 	storj.io/minio v0.0.0-20220215210608-f35d7bc00e6e
 	storj.io/private v0.0.0-20220131131751-c913260b9ec2
-	storj.io/uplink v1.8.0
+	storj.io/uplink v1.8.1-0.20220223172456-49599556ada0
 )
-
-replace storj.io/uplink => ../uplink
 
 require (
 	git.apache.org/thrift.git v0.13.0 // indirect
