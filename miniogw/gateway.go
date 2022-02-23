@@ -248,7 +248,7 @@ func (layer *gatewayLayer) listObjectsFast(
 		Cursor:    strings.TrimPrefix(after, prefix),
 		Recursive: recursive,
 		System:    true,
-		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
+		Custom:    true,
 	})
 
 	limit := layer.limitMaxKeys(maxKeys)

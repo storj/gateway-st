@@ -2982,7 +2982,14 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, listInfo.Uploads)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
+		metadata := map[string]string{
+			"content-type":         "text/plain",
+			xhttp.AmzObjectTagging: "key1=value1&key2=value2",
+		}
+
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{
+			UserDefined: metadata,
+		})
 		require.NoError(t, err)
 
 		totalPartsCount := 3
@@ -2997,17 +3004,12 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			})
 		}
 
-		metadata := map[string]string{
-			"content-type":         "text/plain",
-			xhttp.AmzObjectTagging: "key1=value1&key2=value2",
-		}
-
 		expectedMetadata := map[string]string{
 			"content-type": "text/plain",
 			"s3:tags":      "key1=value1&key2=value2",
 		}
 
-		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{UserDefined: metadata})
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		obj, err := layer.ListObjects(ctx, testBucket, testFile, "", "", 2)
@@ -3016,7 +3018,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Equal(t, testBucket, obj.Objects[0].Bucket)
 		require.Equal(t, testFile, obj.Objects[0].Name)
 
-		expectedMetadata["s3:etag"] = obj.Objects[0].ETag
+		// expectedMetadata["s3:etag"] = obj.Objects[0].ETag
 
 		require.Equal(t, expectedMetadata, obj.Objects[0].UserDefined)
 	})

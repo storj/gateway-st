@@ -13,11 +13,15 @@ require (
 	github.com/zeebo/errs v1.2.2
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
-	storj.io/common v0.0.0-20220215191549-ee3a77cfa9eb
+	storj.io/common v0.0.0-20220218100924-daea4bf7cc6c
 	storj.io/minio v0.0.0-20220215210608-f35d7bc00e6e
 	storj.io/private v0.0.0-20220131131751-c913260b9ec2
 	storj.io/uplink v1.8.0
 )
+
+replace storj.io/common => ../common
+
+replace storj.io/uplink => ../uplink
 
 require (
 	git.apache.org/thrift.git v0.13.0 // indirect
