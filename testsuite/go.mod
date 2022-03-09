@@ -10,7 +10,7 @@ require (
 	go.uber.org/zap v1.16.0
 	storj.io/common v0.0.0-20220215191549-ee3a77cfa9eb
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20220215210608-f35d7bc00e6e
+	storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6
 	storj.io/storj v0.12.1-0.20211210152304-baaa96c208e9
 	storj.io/uplink v1.8.0
 )
@@ -27,6 +27,7 @@ require (
 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
 	github.com/alicebob/miniredis/v2 v2.13.3 // indirect
 	github.com/apache/thrift v0.13.0 // indirect
+	github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878 // indirect
 	github.com/bcicen/jstream v1.0.1 // indirect
 	github.com/beevik/ntp v0.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
