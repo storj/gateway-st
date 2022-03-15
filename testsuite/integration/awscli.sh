@@ -94,11 +94,29 @@ aws s3 --endpoint "$AWS_ENDPOINT" ls "s3://$BUCKET"
 aws s3 --endpoint "$AWS_ENDPOINT" --no-progress cp "s3://$BUCKET/small-testfile"     "$DST_DIR/small-download-testfile"
 aws s3 --endpoint "$AWS_ENDPOINT" --no-progress cp "s3://$BUCKET/big-testfile"       "$DST_DIR/big-download-testfile"
 aws s3 --endpoint "$AWS_ENDPOINT" --no-progress cp "s3://$BUCKET/multipart-testfile" "$DST_DIR/multipart-download-testfile"
-aws s3 --endpoint "$AWS_ENDPOINT" rb "s3://$BUCKET" --force
 
 require_equal_files_content "$SRC_DIR/small-upload-testfile"     "$DST_DIR/small-download-testfile"
 require_equal_files_content "$SRC_DIR/big-upload-testfile"       "$DST_DIR/big-download-testfile"
 require_equal_files_content "$SRC_DIR/multipart-upload-testfile" "$DST_DIR/multipart-download-testfile"
+
+echo "Server Side Copy/Move"
+# for now we need to set multipart_threshold hight otherwise cli will use UploadObjectPart which is not implemented yet
+aws configure set default.s3.multipart_threshold 1TB
+
+# make copy
+aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile s3://bucket/big-testfile-copy
+# download copy
+aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile-copy "$DST_DIR/big-download-testfile-copy"
+require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-copy"
+
+# move object
+aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile s3://bucket/big-testfile-moved
+# download moved object
+aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile-moved "$DST_DIR/big-download-testfile-moved"
+require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-moved"
+
+# cleanup
+aws s3 --endpoint "$AWS_ENDPOINT" rb "s3://$BUCKET" --force
 
 echo "Creating Bucket for sync test"
 aws s3 --endpoint "$AWS_ENDPOINT" mb "s3://$BUCKET_SYNC"
