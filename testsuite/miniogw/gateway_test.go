@@ -744,6 +744,9 @@ func TestCopyObjectMetadata(t *testing.T) {
 		srcInfo.UserDefined = map[string]string{
 			"key3": "value3",
 		}
+
+		_, _ = project.DeleteObject(ctx, destBucket, destFile)
+
 		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
 		require.NoError(t, err)
 		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)
@@ -759,6 +762,9 @@ func TestCopyObjectMetadata(t *testing.T) {
 			xhttp.AmzTagDirective:  "REPLACE",
 			xhttp.AmzObjectTagging: "key1=value1,key2=value2",
 		}
+
+		_, _ = project.DeleteObject(ctx, destBucket, destFile)
+
 		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
 		require.NoError(t, err)
 		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)
@@ -773,6 +779,9 @@ func TestCopyObjectMetadata(t *testing.T) {
 			xhttp.AmzTagDirective:  "COPY",
 			xhttp.AmzObjectTagging: "no=effect",
 		}
+
+		_, _ = project.DeleteObject(ctx, destBucket, destFile)
+
 		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
 		require.NoError(t, err)
 		obj, err = project.StatObject(ctx, destBucketInfo.Name, destFile)

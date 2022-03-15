@@ -11,8 +11,8 @@ require (
 	storj.io/common v0.0.0-20220328200721-dd5c8642e8cf
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6
-	storj.io/storj v0.12.1-0.20220325094222-4a6c2e2a9ce8
-	storj.io/uplink v1.8.2-0.20220328201716-2ca4df442232
+	storj.io/storj v0.12.1-0.20220401114944-8cdadae12482
+	storj.io/uplink v1.8.2-0.20220329143354-9065e58fc5df
 )
 
 require (

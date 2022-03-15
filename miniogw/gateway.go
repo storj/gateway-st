@@ -6,7 +6,6 @@ package miniogw
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -831,10 +830,14 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, minio.NotImplemented{Message: "CopyObject (storage class)"}
 	}
 
-	if srcObject == "" {
+	switch {
+	case srcBucket == "":
+		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: srcBucket}
+	case srcObject == "":
 		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: srcBucket}
-	}
-	if destObject == "" {
+	case destBucket == "":
+		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: destBucket}
+	case destObject == "":
 		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: destBucket}
 	}
 
@@ -843,21 +846,13 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, err
 	}
 
-	// TODO this should be removed and implemented on satellite side
-	_, err = project.StatBucket(ctx, srcBucket)
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, srcBucket, "")
-	}
-
-	// TODO this should be removed and implemented on satellite side
-	if srcBucket != destBucket {
-		_, err = project.StatBucket(ctx, destBucket)
-		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, destBucket, "")
-		}
-	}
-
 	if srcAndDestSame {
+		// TODO this should be removed and implemented on satellite side
+		_, err = project.StatBucket(ctx, srcBucket)
+		if err != nil {
+			return minio.ObjectInfo{}, convertError(err, srcBucket, "")
+		}
+
 		// Source and destination are the same. Do nothing, apart from ensuring
 		// metadata is updated. Tools like rclone sync use CopyObject with the
 		// same source and destination as a way of updating existing metadata
@@ -878,51 +873,33 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return srcInfo, nil
 	}
 
-	download, err := project.DownloadObject(ctx, srcBucket, srcObject, nil)
+	object, err := project.CopyObject(ctx, srcBucket, srcObject, destBucket, destObject, nil)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
-	}
-	defer func() {
-		// TODO: this hides minio error
-		err = errs.Combine(err, download.Close())
-	}()
-
-	upload, err := project.UploadObject(ctx, destBucket, destObject, nil)
-	if err != nil {
+		// TODO how we can improve it, its ugly
+		if errors.Is(err, uplink.ErrBucketNotFound) {
+			if strings.Contains(err.Error(), srcBucket) {
+				return minio.ObjectInfo{}, minio.BucketNotFound{Bucket: srcBucket}
+			} else if strings.Contains(err.Error(), destBucket) {
+				return minio.ObjectInfo{}, minio.BucketNotFound{Bucket: destBucket}
+			}
+		}
 		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
 	}
 
-	info := download.Info()
+	if len(srcInfo.UserDefined) > 0 {
+		// TODO currently we need to set metadata as a separate step because we
+		// don't have a solution to not override ETag stored in custom metadata
+		// if td, ok := srcInfo.UserDefined[xhttp.AmzTagDirective]; ok && td == "REPLACE" {
+		upsertObjectMetadata(srcInfo.UserDefined, object.Custom)
 
-	upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
-
-	err = upload.SetCustomMetadata(ctx, srcInfo.UserDefined)
-	if err != nil {
-		abortErr := upload.Abort()
-		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
+		err = project.UpdateObjectMetadata(ctx, destBucket, destObject, srcInfo.UserDefined, nil)
+		if err != nil {
+			return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
+		}
+		object.Custom = uplink.CustomMetadata(srcInfo.UserDefined)
 	}
 
-	reader, err := hash.NewReader(download, info.System.ContentLength, "", "", info.System.ContentLength)
-	if err != nil {
-		abortErr := upload.Abort()
-		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
-	}
-
-	_, err = io.Copy(upload, reader)
-	if err != nil {
-		abortErr := upload.Abort()
-		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
-	}
-
-	err = upload.Commit()
-	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
-	}
-
-	return minioObjectInfo(destBucket, hex.EncodeToString(reader.MD5Current()), upload.Info()), nil
+	return minioObjectInfo(destBucket, "", object), nil
 }
 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {

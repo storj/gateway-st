@@ -1382,8 +1382,6 @@ sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
 storj.io/common v0.0.0-20220131120956-e74f624a3d55/go.mod h1:m0489td5+rKDdoiYOzCkh3CfGW/cLyntZiYfso+QfMs=
 storj.io/common v0.0.0-20220216094301-b27f3c9d69e1/go.mod h1:xW3PPPGBo4bdMtEP9GREnmxQptmJNuDg1tEHcA4zqog=
-storj.io/common v0.0.0-20220223161334-302b968d0f29/go.mod h1:xW3PPPGBo4bdMtEP9GREnmxQptmJNuDg1tEHcA4zqog=
-storj.io/common v0.0.0-20220317180343-de11d5437bb3/go.mod h1:LBJrpAqL4MNSrhGEwc8SJ+tIVtgfCtFEZqDy6/0j67A=
 storj.io/common v0.0.0-20220328200721-dd5c8642e8cf h1:8105m+PjFjYwIHasuRDTp+4A6BUg6KlcmGLtwewHtos=
 storj.io/common v0.0.0-20220328200721-dd5c8642e8cf/go.mod h1:LBJrpAqL4MNSrhGEwc8SJ+tIVtgfCtFEZqDy6/0j67A=
 storj.io/drpc v0.0.29/go.mod h1:6rcOyR/QQkSTX/9L5ZGtlZaE2PtXTTZl8d+ulSeeYEg=
@@ -1393,11 +1391,9 @@ storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6 h1:tRh+GcA8A98TiAqZoR+Xs/3Mb1F
 storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6/go.mod h1:GddNp7Uijkedd1XHKW4EkQxm7dNz8yunpgkA51VjREU=
 storj.io/monkit-jaeger v0.0.0-20220131130547-dc4cb5a0d97a h1:qads+aZlFKm5gUxobfF9s2x8/byPaPPLe2Mz+J82R+k=
 storj.io/monkit-jaeger v0.0.0-20220131130547-dc4cb5a0d97a/go.mod h1:DGEycSjvzE0JqcD3+6IjwPEK6x30oOus6AApXzl7t0s=
-storj.io/private v0.0.0-20220131131751-c913260b9ec2/go.mod h1:i08plLYNEyxf9eObj0UAYnTyh+6r8jvra4JDnvhFsCI=
 storj.io/private v0.0.0-20220323114243-08c4b5e752f4 h1:szxLYr9Rdmx19unt47kafB3816JFI5esPlrzdMyZhvk=
 storj.io/private v0.0.0-20220323114243-08c4b5e752f4/go.mod h1:fZ7FSXv/adIc79sF/5qm7zn0PI5+PWa5p+dbqrZQARM=
-storj.io/storj v0.12.1-0.20220325094222-4a6c2e2a9ce8 h1:MsX9eiCukJTqNdabC9+ebyyjhm2iPS3ZNYq/HtQVMf4=
-storj.io/storj v0.12.1-0.20220325094222-4a6c2e2a9ce8/go.mod h1:1cDVuetb3dawOpQJnPDYxDl4HI6PZSXjS3K8r14pTBE=
-storj.io/uplink v1.8.1-0.20220307141551-c65f09ea27d8/go.mod h1:CVSBjpsXFk6iFIc9jxo/530kIQJK/8iM0xdihoZkhoE=
-storj.io/uplink v1.8.2-0.20220328201716-2ca4df442232 h1:h7lN3rb0hSiXlWRpF/TImhxD6brPZOlIqYoGDw1ULUQ=
-storj.io/uplink v1.8.2-0.20220328201716-2ca4df442232/go.mod h1:wGaBfQPOAu55YwGOoe5D5jb0k+hyS/S1SPUxHCQpLE0=
+storj.io/storj v0.12.1-0.20220401114944-8cdadae12482 h1:ZlBRaDivSdAgO4QGTJ+PFyOpzcbo/nVk74QR18i9zIc=
+storj.io/storj v0.12.1-0.20220401114944-8cdadae12482/go.mod h1:tZdrUvJCvvrLWUqTEosL9Udip8nJD5oZG8eooAQlXsY=
+storj.io/uplink v1.8.2-0.20220329143354-9065e58fc5df h1:MhKJYHYz5nyF5Y7ed0kyhyDCkIcqeAQq6z29YVVHHpo=
+storj.io/uplink v1.8.2-0.20220329143354-9065e58fc5df/go.mod h1:wGaBfQPOAu55YwGOoe5D5jb0k+hyS/S1SPUxHCQpLE0=
