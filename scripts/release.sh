@@ -39,10 +39,10 @@ fi
 #
 # TODO(artur, sean): this needs to be automated. Use
 # storj.io/minio/buildscripts/gen-ldflags.go
-MINIO_VERSION="2022-02-17T10:58:23Z"
-MINIO_RELEASE="DEVELOPMENT.2022-02-17T10-58-23Z"
-MINIO_COMMIT="f35d7bc00e6e39cac802658bbaf84ed2d967f2e1"
-MINIO_SHORT_COMMIT="f35d7bc00e6e"
+MINIO_VERSION="2022-03-22T16:55:11Z"
+MINIO_RELEASE="DEVELOPMENT.2022-03-22T16-55-11Z"
+MINIO_COMMIT="d6f2ba63d1c637aafc4edf14dd538486a9197db2"
+MINIO_SHORT_COMMIT="d6f2ba63d1c6"
 
 echo Running "go $@"
 exec go "$1" -ldflags \
