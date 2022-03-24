@@ -6,12 +6,12 @@ replace storj.io/gateway => ../
 
 require (
 	github.com/stretchr/testify v1.7.0
-	github.com/zeebo/errs v1.2.2
+	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	storj.io/common v0.0.0-20220317162831-b0b4a044a95f
+	storj.io/common v0.0.0-20220317180343-de11d5437bb3
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6
-	storj.io/storj v0.12.1-0.20211210152304-baaa96c208e9
+	storj.io/storj v1.51.2
 	storj.io/uplink v1.8.1
 )
 
@@ -59,11 +59,13 @@ require (
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.1 // indirect
 	github.com/go-ldap/ldap/v3 v3.2.4 // indirect
+	github.com/go-oauth2/oauth2/v4 v4.4.2 // indirect
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/go-redis/redis/v8 v8.7.1 // indirect
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt v3.2.1+incompatible // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect
@@ -200,7 +202,7 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
-	storj.io/drpc v0.0.29 // indirect
+	storj.io/drpc v0.0.30 // indirect
 	storj.io/monkit-jaeger v0.0.0-20220131130547-dc4cb5a0d97a // indirect
 	storj.io/private v0.0.0-20220131131751-c913260b9ec2 // indirect
 )
