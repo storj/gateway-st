@@ -10,13 +10,13 @@ require (
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.7.0
-	github.com/zeebo/errs v1.2.2
+	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
-	storj.io/common v0.0.0-20220317162831-b0b4a044a95f
+	storj.io/common v0.0.0-20220328200721-dd5c8642e8cf
 	storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6
-	storj.io/private v0.0.0-20220131131751-c913260b9ec2
-	storj.io/uplink v1.8.1
+	storj.io/private v0.0.0-20220323114243-08c4b5e752f4
+	storj.io/uplink v1.8.2-0.20220328201716-2ca4df442232
 )
 
 require (
@@ -170,6 +170,6 @@ require (
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
-	storj.io/drpc v0.0.29 // indirect
+	storj.io/drpc v0.0.30 // indirect
 	storj.io/monkit-jaeger v0.0.0-20220131130547-dc4cb5a0d97a // indirect
 )
