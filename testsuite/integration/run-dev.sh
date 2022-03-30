@@ -6,6 +6,7 @@
 
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-source $SCRIPTDIR/postgres-dev.sh
+# shellcheck source=testsuite/integration/postgres-dev.sh
+source "$SCRIPTDIR"/postgres-dev.sh
 
-$SCRIPTDIR/run.sh
+"$SCRIPTDIR"/run.sh

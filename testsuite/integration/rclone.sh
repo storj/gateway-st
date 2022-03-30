@@ -8,11 +8,20 @@ log_error() {
 }
 trap log_error ERR
 
-[ -n "${GATEWAY_0_ACCESS_KEY}" ]
-[ -n "${GATEWAY_0_SECRET_KEY}" ]
-[ -n "${GATEWAY_0_ADDR}" ]
-
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+# shellcheck source=testsuite/integration/require.sh
+source "$SCRIPTDIR"/require.sh
+
+export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:=$GATEWAY_0_ACCESS_KEY}
+export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:=$GATEWAY_0_SECRET_KEY}
+[ -n "${AWS_ENDPOINT:=http://$GATEWAY_0_ADDR}" ]
+
+# AWS_CA_BUNDLE is configured in require.sh, but for rclone causes problems
+# when using a self-signed cert for testing due to the way it uses the AWS SDK
+# but also has its own HTTP transport.
+# See https://forum.rclone.org/t/mounting-an-amazon-s3-bucket/15106
+unset AWS_CA_BUNDLE
 
 # setup tmpdir for testfiles and cleanup
 TMPDIR=$(mktemp -d -t tmp.XXXXXXXXXX)
@@ -33,11 +42,9 @@ pushd "$RCLONE"
     go build
 
     ./rclone config create TestS3 s3 \
-        env_auth false \
+        env_auth true \
         provider Minio \
-        endpoint "http://${GATEWAY_0_ADDR}" \
-        access_key_id "$GATEWAY_0_ACCESS_KEY" \
-        secret_access_key "$GATEWAY_0_SECRET_KEY" \
+        endpoint "${AWS_ENDPOINT}" \
         chunk_size 64M \
         upload_cutoff 64M
 
