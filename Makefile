@@ -1,24 +1,22 @@
 GO_VERSION ?= 1.17.5
-GOOS ?= linux
-GOARCH ?= amd64
-
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
+LATEST_DEV_TAG := dev
+
+# todo(artur, sean): these extra ldflags are required for the minio object
+# browser to function, but should be automated. Use storj.io/minio/buildscripts/gen-ldflags.go
+LDFLAGS := -X storj.io/minio/cmd.Version=2022-03-22T16:55:11Z \
+	-X storj.io/minio/cmd.ReleaseTag=DEVELOPMENT.2022-03-22T16-55-11Z \
+	-X storj.io/minio/cmd.CommitID=d6f2ba63d1c637aafc4edf14dd538486a9197db2 \
+	-X storj.io/minio/cmd.ShortCommitID=d6f2ba63d1c6
 
 ifeq (${BRANCH_NAME},main)
 	TAG := $(shell git rev-parse --short HEAD)-go${GO_VERSION}
+	BRANCH_NAME :=
 else
 	TAG := $(shell git rev-parse --short HEAD)-${BRANCH_NAME}-go${GO_VERSION}
 	ifneq (,$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*"))
-		LATEST_TAG := latest
+		LATEST_STABLE_TAG := latest
 	endif
-endif
-
-RELEASE_BUILD_REQUIRED ?= false
-
-FILEEXT :=
-
-ifeq (${GOOS},windows)
-	FILEEXT := .exe
 endif
 
 DOCKER_BUILD := docker build --build-arg TAG=${TAG}
@@ -78,7 +76,7 @@ images: gateway-image ## Build gateway Docker images
 	echo Built version: ${TAG}
 
 .PHONY: gateway-image
-gateway-image: gateway_linux_arm64 gateway_linux_amd64 ## Build gateway Docker image
+gateway-image: ## Build gateway Docker image
 	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-amd64 \
 		-f Dockerfile .
 	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-arm32v6 \
@@ -87,56 +85,23 @@ gateway-image: gateway_linux_arm64 gateway_linux_amd64 ## Build gateway Docker i
 	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-arm64v8 \
 		--build-arg=GOARCH=arm64 --build-arg=DOCKER_ARCH=arm64v8 \
 		-f Dockerfile .
+	docker tag storjlabs/gateway:${TAG}-amd64 storjlabs/gateway:${LATEST_DEV_TAG}
 
-.PHONY: binary
-binary:
-	@if [ -z "${COMPONENT}" ]; then echo "Try one of the following targets instead:" \
-		&& for b in binaries ${BINARIES}; do echo "- $$b"; done && exit 1; fi
-	mkdir -p release/${TAG}
-	mkdir -p /tmp/go-cache /tmp/go-pkg
-	rm -f resource.syso
-	if [ "${GOARCH}" = "amd64" ]; then sixtyfour="-64"; fi; \
-	[ "${GOOS}" = "windows" ] && [ "${GOARCH}" = "amd64" ] && goversioninfo $$sixtyfour -o resource.syso \
-	-original-name ${COMPONENT}_${GOOS}_${GOARCH}${FILEEXT} \
-	-description "${COMPONENT} program for Storj" \
-        -product-ver-major "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'.' 'BEGIN {v=0} {gsub("v", "", $$0); v=$$1} END {print v}' )" \
-                -ver-major "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'.' 'BEGIN {v=0} {gsub("v", "", $$0); v=$$1} END {print v}' )" \
-        -product-ver-minor "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'.' 'BEGIN {v=0} {v=$$2} END {print v}')" \
-                -ver-minor "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'.' 'BEGIN {v=0} {v=$$2} END {print v}')" \
-        -product-ver-patch "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'.' 'BEGIN {v=0} {v=$$3} END {print v}' | awk -F'-' 'BEGIN {v=0} {v=$$1} END {print v}')" \
-                -ver-patch "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'.' 'BEGIN {v=0} {v=$$3} END {print v}' | awk -F'-' 'BEGIN {v=0} {v=$$1} END {print v}')" \
-        -product-version "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'-' 'BEGIN {v=0} {v=$$1} END {print v}' || echo "dev" )" \
-        -special-build "$(shell git describe --tags --exact-match --match "v[0-9]*\.[0-9]*\.[0-9]*" | awk -F'-' 'BEGIN {v=0} {v=$$2} END {print v}' )" \
-	resources/versioninfo.json || echo "goversioninfo is not installed, metadata will not be created"
-	docker run --rm -i -v "${PWD}":/go/src/storj.io/storj -e GO111MODULE=on \
-	-e GOOS=${GOOS} -e GOARCH=${GOARCH} -e GOARM=6 -e CGO_ENABLED=1 \
-	-e RELEASE_BUILD_REQUIRED=${RELEASE_BUILD_REQUIRED} \
-	-v /tmp/go-cache:/tmp/.cache/go-build -v /tmp/go-pkg:/go/pkg \
-	-w /go/src/storj.io/storj -e GOPROXY -u $(shell id -u):$(shell id -g) storjlabs/golang:${GO_VERSION} \
-	scripts/release.sh build $(EXTRA_ARGS) -o release/${TAG}/$(COMPONENT)_${GOOS}_${GOARCH}${FILEEXT}
-	chmod 755 release/${TAG}/$(COMPONENT)_${GOOS}_${GOARCH}${FILEEXT}
-	[ "${FILEEXT}" = ".exe" ] && storj-sign release/${TAG}/$(COMPONENT)_${GOOS}_${GOARCH}${FILEEXT} || echo "Skipping signing"
-	rm -f release/${TAG}/${COMPONENT}_${GOOS}_${GOARCH}.zip
+binaries: ## Build gateway binaries (jenkins)
+	CGO_ENABLED=0 LDFLAGS="${LDFLAGS}" storj-release \
+		--build-name gateway \
+		--build-tags kqueue \
+		--go-version "${GO_VERSION}" \
+		--branch "${BRANCH_NAME}" \
+		--skip-osarches "freebsd/amd64"
 
-.PHONY: binary-check
-binary-check:
-	@if [ -f release/${TAG}/${COMPONENT}_${GOOS}_${GOARCH} ] || [ -f release/${TAG}/${COMPONENT}_${GOOS}_${GOARCH}.exe ]; \
-	then \
-		echo "release/${TAG}/${COMPONENT}_${GOOS}_${GOARCH} exists"; \
-	else \
-		echo "Making ${COMPONENT}"; \
-		$(MAKE) binary; \
-	fi
-
-.PHONY: gateway_%
-gateway_%:
-	$(MAKE) binary-check COMPONENT=gateway GOARCH=$(word 3, $(subst _, ,$@)) GOOS=$(word 2, $(subst _, ,$@))
-
-COMPONENTLIST := gateway
-OSARCHLIST    := linux_amd64 linux_arm linux_arm64 windows_amd64 freebsd_amd64
-BINARIES      := $(foreach C,$(COMPONENTLIST),$(foreach O,$(OSARCHLIST),$C_$O))
-.PHONY: binaries
-binaries: ${BINARIES} ## Build gateway binaries (jenkins)
+	# freebsd/amd64 requires CGO_ENABLED=1: https://github.com/storj/gateway-st/issues/62
+	CGO_ENABLED=1 LDFLAGS="${LDFLAGS}" storj-release \
+		--build-name gateway \
+		--build-tags kqueue \
+		--go-version "${GO_VERSION}" \
+		--branch "${BRANCH_NAME}" \
+		--osarches "freebsd/amd64"
 
 ##@ Deploy
 
@@ -147,7 +112,7 @@ push-images: ## Push Docker images to Docker Hub (jenkins)
 		docker push storjlabs/$$c:${TAG}-amd64 \
 		&& docker push storjlabs/$$c:${TAG}-arm32v6 \
 		&& docker push storjlabs/$$c:${TAG}-arm64v8 \
-		&& for t in ${TAG} ${LATEST_TAG}; do \
+		&& for t in ${TAG} ${LATEST_DEV_TAG} ${LATEST_STABLE_TAG}; do \
 			docker manifest create storjlabs/$$c:$$t \
 			storjlabs/$$c:${TAG}-amd64 \
 			storjlabs/$$c:${TAG}-arm32v6 \
