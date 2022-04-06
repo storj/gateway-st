@@ -25,37 +25,38 @@ unset AWS_CA_BUNDLE
 
 # setup tmpdir for testfiles and cleanup
 TMPDIR=$(mktemp -d -t tmp.XXXXXXXXXX)
+
+pushd "$TMPDIR" > /dev/null
+
 cleanup() {
+    popd > /dev/null
     rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
 
-cd "$TMPDIR"; git clone https://github.com/rclone/rclone
-RCLONE=$TMPDIR/rclone
+rclone config create TestS3 s3 \
+    env_auth true \
+    provider Minio \
+    endpoint "${AWS_ENDPOINT}" \
+    chunk_size 64M \
+    upload_cutoff 64M
 
-pushd "$RCLONE"
-    git fetch --tags
-    latest_version=$(git tag -l --sort -version:refname | head -1)
-    git checkout "$latest_version"
+# get rclone version, and trim "-DEV" suffix if it exists, which is added
+# if installing rclone using `go install` (as in the storjlabs/ci image)
+RCLONE_VERSION=$(rclone version | head -n1 | awk '{ print $2 }')
+RCLONE_VERSION=${RCLONE_VERSION%-DEV}
 
-    go build ./fstest/test_all
-    go build
+# test_all uses some code in the rclone repo, so ensure it's checked out
+git clone --branch "$RCLONE_VERSION" --depth 1 https://github.com/rclone/rclone
+cd rclone
 
-    ./rclone config create TestS3 s3 \
-        env_auth true \
-        provider Minio \
-        endpoint "${AWS_ENDPOINT}" \
-        chunk_size 64M \
-        upload_cutoff 64M
-
-    # only run "fs/sync" for the moment, as the other main test suite
-    # "fs/operations" has modification time window test failures.
-    # see https://github.com/storj/gateway-st/issues/46
-    ./test_all \
-        -backends s3 \
-        -remotes TestS3: \
-        -tests "fs/sync" \
-        -maxtries 1 \
-        -verbose \
-        -output "$SCRIPTDIR"/../../.build/rclone-integration-tests
-popd
+# only run "fs/sync" for the moment, as the other main test suite
+# "fs/operations" has modification time window test failures.
+# see https://github.com/storj/gateway-st/issues/46
+test_all \
+    -backends s3 \
+    -remotes TestS3: \
+    -tests "fs/sync" \
+    -maxtries 1 \
+    -verbose \
+    -output "$SCRIPTDIR"/../../.build/rclone-integration-tests
