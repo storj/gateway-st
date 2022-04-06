@@ -46,6 +46,7 @@ storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRI
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/duplicity.sh
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/duplicati.sh
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/rclone.sh
+storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network test bash "$SCRIPTDIR"/s3fs.sh
 storj-sim -x --satellites 1 --host $STORJ_NETWORK_HOST4 network destroy
 
 # setup the network with ipv6

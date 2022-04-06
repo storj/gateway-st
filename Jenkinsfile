@@ -4,7 +4,7 @@ pipeline {
             label 'main'
             image 'storjlabs/ci:latest'
             alwaysPull true
-            args '-u root:root --cap-add SYS_PTRACE -v "/tmp/gomod":/go/pkg/mod'
+            args '-u root:root --cap-add SYS_PTRACE --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined -v "/tmp/gomod":/go/pkg/mod'
         }
     }
 
