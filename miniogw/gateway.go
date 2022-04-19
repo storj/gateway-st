@@ -818,7 +818,6 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	srcAndDestSame := srcBucket == destBucket && srcObject == destObject
 
 	if layer.compatibilityConfig.DisableCopyObject && !srcAndDestSame {
-		// Note: In production Gateway-MT, we want to return Not Implemented until we implement server-side copy
 		return minio.ObjectInfo{}, minio.NotImplemented{Message: "CopyObject"}
 	}
 

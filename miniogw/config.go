@@ -22,6 +22,6 @@ type S3CompatibilityConfig struct {
 	MaxKeysLimit                 int   `help:"MaxKeys parameter limit for S3's ListObjects and ListObjectsV2 responses" default:"1000"`
 	MaxKeysExhaustiveLimit       int   `help:"maximum number of items to list for gateway-side filtering using arbitrary delimiter/prefix" default:"100000"`
 	FullyCompatibleListing       bool  `help:"make ListObjects(V2) fully S3-compatible (specifically: always return lexicographically ordered results) but slow" default:"false"`
-	DisableCopyObject            bool  `help:"return 501 (Not Implemented) for CopyObject calls" devDefault:"false" releaseDefault:"true"`
+	DisableCopyObject            bool  `help:"return 501 (Not Implemented) for CopyObject calls" default:"false"`
 	MinPartSize                  int64 `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
 }
