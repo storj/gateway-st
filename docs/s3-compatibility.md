@@ -7,7 +7,7 @@ S3 Compatibility
 |:-------------------------------------------:|:-------:|:------------------------------------------------------------:|:---------------------------------------------------:|
 | AbortMultipartUpload                        | Full    |                                                              |                                                     |
 | CompleteMultipartUpload                     | Full    |                                                              |                                                     |
-| CopyObject                                  | Partial | Planned full. See https://github.com/storj/roadmap/issues/1  | See CopyObject section                              |
+| CopyObject                                  | Full    |                                                              |                                                     |
 | CreateBucket                                | Full    |                                                              |                                                     |
 | CreateMultipartUpload                       | Full    |                                                              |                                                     |
 | DeleteBucket                                | Full    |                                                              |                                                     |
@@ -99,7 +99,7 @@ S3 Compatibility
 | RestoreObject                               | No      | No                                                           |                                                     |
 | SelectObjectContent                         | No      | No                                                           |                                                     |
 | UploadPart                                  | Full    |                                                              |                                                     |
-| UploadPartCopy                              | No      | No                                                           | We may support it after full support for CopyObject |
+| UploadPartCopy                              | No      | No                                                           | We may support it depending on reported needs       |
 | WriteGetObjectResponse                      | No      | No                                                           |                                                     |
 
 ## Compatibility Table Support/Caveats
@@ -116,14 +116,6 @@ implemented.
 
 Partial compatibility means that we don't support all features of a specific
 action (see Caveats column).
-
-### CopyObject
-
-Currently, copying an object is implemented in a way that requires the gateway
-to download and re-upload an object. This behaviour is disabled for Storj
-production deployments of Gateway-MT and can be activated individually in, e.g.
-Gateway-ST (`--s3.disable-copy-object=false`). Server-side (or satellite-side)
-copy support is coming. See https://github.com/storj/roadmap/issues/1.
 
 ### ListObjects
 
