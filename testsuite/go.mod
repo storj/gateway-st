@@ -8,11 +8,11 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	storj.io/common v0.0.0-20220328200721-dd5c8642e8cf
+	storj.io/common v0.0.0-20220405183405-ffdc3ab808c6
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20220309151502-d6f2ba63d1c6
-	storj.io/storj v0.12.1-0.20220407062851-3d9329a5b1ae
-	storj.io/uplink v1.8.2-0.20220401124330-4a78b8e6431f
+	storj.io/minio v0.0.0-20220404203534-ae15cc41053b
+	storj.io/storj v0.12.1-0.20220418132337-48fb3e947cb5
+	storj.io/uplink v1.8.2-0.20220407093708-c14c5e4930b3
 )
 
 require (
@@ -38,7 +38,7 @@ require (
 	github.com/cheekybits/genny v1.0.0 // indirect
 	github.com/cheggaaa/pb v1.0.29 // indirect
 	github.com/cloudfoundry/gosigar v1.1.0 // indirect
-	github.com/coredns/coredns v1.4.0 // indirect
+	github.com/coredns/coredns v1.6.6 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
@@ -174,7 +174,7 @@ require (
 	github.com/xtgo/uuid v0.0.0-20140804021211-a0b114877d4c // indirect
 	github.com/yuin/gopher-lua v0.0.0-20191220021717-ab39c6098bdb // indirect
 	go.etcd.io/bbolt v1.3.5 // indirect
-	go.etcd.io/etcd v0.0.0-20201125193152-8a03d2e9614b // indirect
+	go.etcd.io/etcd v0.5.0-alpha.5.0.20201125193152-8a03d2e9614b // indirect
 	go.opentelemetry.io/otel v0.18.0 // indirect
 	go.opentelemetry.io/otel/metric v0.18.0 // indirect
 	go.opentelemetry.io/otel/trace v0.18.0 // indirect
@@ -204,5 +204,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
 	storj.io/drpc v0.0.30 // indirect
 	storj.io/monkit-jaeger v0.0.0-20220131130547-dc4cb5a0d97a // indirect
-	storj.io/private v0.0.0-20220323114243-08c4b5e752f4 // indirect
+	storj.io/private v0.0.0-20220411161553-f73cd1a48d5f // indirect
 )

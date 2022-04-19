@@ -4,10 +4,10 @@ LATEST_DEV_TAG := dev
 
 # todo(artur, sean): these extra ldflags are required for the minio object
 # browser to function, but should be automated. Use storj.io/minio/buildscripts/gen-ldflags.go
-LDFLAGS := -X storj.io/minio/cmd.Version=2022-03-22T16:55:11Z \
-	-X storj.io/minio/cmd.ReleaseTag=DEVELOPMENT.2022-03-22T16-55-11Z \
-	-X storj.io/minio/cmd.CommitID=d6f2ba63d1c637aafc4edf14dd538486a9197db2 \
-	-X storj.io/minio/cmd.ShortCommitID=d6f2ba63d1c6
+LDFLAGS := -X storj.io/minio/cmd.Version=2022-04-19T11:13:21Z \
+	-X storj.io/minio/cmd.ReleaseTag=DEVELOPMENT.2022-04-19T11-13-21Z \
+	-X storj.io/minio/cmd.CommitID=ae15cc41053bb0a65e543f71d81646dd2318fe10 \
+	-X storj.io/minio/cmd.ShortCommitID=ae15cc41053b
 
 ifeq (${BRANCH_NAME},main)
 	TAG := $(shell git rev-parse --short HEAD)-go${GO_VERSION}
