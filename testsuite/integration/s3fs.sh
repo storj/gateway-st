@@ -31,7 +31,7 @@ DST_DIR=$TMPDIR/dst
 MOUNT_DST_DIR=$TMPDIR/mount-dst
 mkdir -p "$SRC_DIR" "$DST_DIR" "$MOUNT_DST_DIR"
 
-BUCKET="bucket"
+BUCKET="s3fs-bucket"
 
 random_bytes_file () {
     count=$1
