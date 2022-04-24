@@ -34,13 +34,6 @@ pipeline {
                         checkout scm
 
                         sh 'mkdir -p .build'
-
-                        // make a backup of the mod file because sometimes they
-                        // get modified by tools
-                        //
-                        // this allows to lint the unmodified files
-                        sh 'cp go.mod .build/go.mod.orig'
-                        sh 'cp testsuite/go.mod .build/testsuite.go.mod.orig'
                     }
                 }
 
@@ -60,6 +53,7 @@ pipeline {
             parallel {
                 stage('Lint') {
                     steps {
+                        sh 'check-mod-tidy'
                         sh 'check-copyright'
                         sh 'check-large-files'
                         sh 'check-imports -race ./...'
@@ -70,7 +64,6 @@ pipeline {
                         sh 'staticcheck ./...'
                         sh 'golangci-lint run --config /go/ci/.golangci.yml'
                         sh 'check-downgrades'
-                        sh 'check-mod-tidy -mod .build/go.mod.orig'
 
                         // A bit of an explanation around this shellcheck command:
                         // * Find all scripts recursively that have the .sh extension, except for "testsuite@tmp" which Jenkins creates temporarily.
@@ -84,7 +77,6 @@ pipeline {
                             sh 'check-errs ./...'
                             sh 'staticcheck ./...'
                             sh 'golangci-lint run --config /go/ci/.golangci.yml'
-                            sh 'check-mod-tidy -mod ../.build/testsuite.go.mod.orig'
                         }
                     }
                 }
