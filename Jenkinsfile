@@ -75,8 +75,7 @@ pipeline {
                         // A bit of an explanation around this shellcheck command:
                         // * Find all scripts recursively that have the .sh extension, except for "testsuite@tmp" which Jenkins creates temporarily.
                         // * Use + instead of \ so find returns a non-zero exit if any invocation of shellcheck returns a non-zero exit.
-                        // TODO(artur): reenable after https://storjlabs.atlassian.net/browse/GMT-468
-                        // sh 'find . -path ./testsuite@tmp -prune -o -name "*.sh" -type f -exec "shellcheck" "-x" "--format=gcc" {} +;'
+                        sh 'find . -path ./testsuite@tmp -prune -o -name "*.sh" -type f -exec "shellcheck" "-x" "--format=gcc" {} +;'
 
                         dir('testsuite') {
                             sh 'check-imports -race ./...'
