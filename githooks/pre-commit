@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# We need to unset GIT_INDEX_FILE because tools like check-mod-tidy will fail.
+# See https://www.mail-archive.com/git@vger.kernel.org/msg178292.html
+env -u GIT_INDEX_FILE make verify

@@ -15,7 +15,8 @@ pipeline {
 
     environment {
         GOTRACEBACK = 'all'
-        COCKROACH_MEMPROF_INTERVAL = 0
+        // COCKROACH_MEMPROF_INTERVAL = 0
+        // ^ doesn't work: https://github.com/cockroachdb/cockroach/issues/54793
     }
 
     stages {
@@ -52,74 +53,51 @@ pipeline {
         stage('Verification') {
             parallel {
                 stage('Lint') {
+                    environment {
+                        GOLANGCI_LINT_CONFIG           = '/go/ci/.golangci.yml'
+                        GOLANGCI_LINT_CONFIG_TESTSUITE = '/go/ci/.golangci.yml'
+                    }
                     steps {
-                        sh 'check-mod-tidy'
-                        sh 'check-copyright'
-                        sh 'check-large-files'
-                        sh 'check-imports -race ./...'
-                        sh 'check-peer-constraints -race'
-                        sh 'check-atomic-align ./...'
-                        sh 'check-monkit ./...'
-                        sh 'check-errs ./...'
-                        sh 'check-deferloop ./...'
-                        sh 'staticcheck ./...'
-                        sh 'golangci-lint run --config /go/ci/.golangci.yml'
-                        sh 'check-downgrades'
+                        sh 'make lint'
+                    }
+                }
 
-                        // A bit of an explanation around this shellcheck command:
-                        // * Find all scripts recursively that have the .sh extension, except for "testsuite@tmp" which Jenkins creates temporarily.
-                        // * Use + instead of \ so find returns a non-zero exit if any invocation of shellcheck returns a non-zero exit.
-                        sh 'find . -path ./testsuite@tmp -prune -o -name "*.sh" -type f -exec "shellcheck" "-x" "--format=gcc" {} +;'
-
-                        dir('testsuite') {
-                            sh 'check-imports -race ./...'
-                            sh 'check-atomic-align ./...'
-                            sh 'check-monkit ./...'
-                            sh 'check-errs ./...'
-                            sh 'check-deferloop ./...'
-                            sh 'staticcheck ./...'
-                            sh 'golangci-lint run --config /go/ci/.golangci.yml'
-                        }
+                stage('Cross-Vet') {
+                    steps {
+                        sh 'make cross-vet'
                     }
                 }
 
                 stage('Test') {
                     environment {
-                        COVERFLAGS = "${ env.BRANCH_NAME != 'main' ? '' : '-coverprofile=.build/coverprofile -coverpkg=./...'}"
+                        JSON           = true
+                        SHORT          = false
+                        SKIP_TESTSUITE = true
                     }
                     steps {
-                        sh 'go test -parallel 4 -p 16 -vet=off ${COVERFLAGS} -timeout 10m -json -race ./... 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'
+                        sh 'make test 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'
                     }
                     post {
                         always {
                             sh script: 'cat .build/tests.json | tparse -all -top -slow 100', returnStatus: true
                             archiveArtifacts artifacts: '.build/tests.json'
                             junit '.build/tests.xml'
-                            script {
-                                if (fileExists('.build/coverprofile')) {
-                                    sh script: 'filter-cover-profile < .build/coverprofile > .build/clean.coverprofile', returnStatus: true
-                                    sh script: 'gocov convert .build/clean.coverprofile > .build/cover.json', returnStatus: true
-                                    sh script: 'gocov-xml  < .build/cover.json > .build/cobertura.xml', returnStatus: true
-                                    cobertura coberturaReportFile: '.build/cobertura.xml'
-                                }
-                            }
                         }
                     }
                 }
 
                 stage('Testsuite') {
                     environment {
-                        STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/testcockroach?sslmode=disable'
-                        STORJ_TEST_POSTGRES = 'postgres://postgres@localhost/teststorj?sslmode=disable'
+                        JSON                 = true
+                        SHORT                = false
+                        STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
+                        STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
                     }
                     steps {
-                        sh 'cockroach sql --insecure --host=localhost:26257 -e \'create database testcockroach;\''
-                        sh 'psql -U postgres -c \'create database teststorj;\''
+                        // exhaust ports from 1024 to 10000 to ensure we don't
+                        // use hardcoded ports
                         sh 'use-ports -from 1024 -to 10000 &'
-                        dir('testsuite') {
-                            sh 'go vet ./...'
-                            sh 'go test -parallel 4 -p 16 -vet=off -timeout 10m -json -race ./... 2>&1 | tee ../.build/testsuite.json | xunit -out ../.build/testsuite.xml'
-                        }
+                        sh 'make --no-print-directory test-testsuite 2>&1 | tee .build/testsuite.json | xunit -out .build/testsuite.xml'
                     }
                     post {
                         always {
@@ -135,11 +113,9 @@ pipeline {
                         // use different hostname to avoid port conflicts
                         STORJ_NETWORK_HOST4 = '127.0.0.2'
                         STORJ_NETWORK_HOST6 = '127.0.0.2'
-
-                        STORJ_SIM_POSTGRES = 'postgres://postgres@localhost/integration?sslmode=disable'
+                        STORJ_SIM_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
                     }
                     steps {
-                        sh 'psql -U postgres -c \'create database integration;\''
                         sh 'cd ./testsuite/integration && ./run.sh'
                     }
                     post {
@@ -148,27 +124,6 @@ pipeline {
                             archiveArtifacts artifacts: 'rclone-integration-tests.zip'
                             sh 'rm rclone-integration-tests.zip'
                         }
-                    }
-                }
-
-                stage('Cross Compile') {
-                    steps {
-                        sh 'GOOS=linux   GOARCH=386   go vet ./...'
-                        sh 'GOOS=linux   GOARCH=amd64 go vet ./...'
-                        sh 'GOOS=linux   GOARCH=arm   go vet ./...'
-                        sh 'GOOS=linux   GOARCH=arm64 go vet ./...'
-                        sh 'GOOS=freebsd GOARCH=386   go vet ./...'
-                        sh 'GOOS=freebsd GOARCH=amd64 go vet ./...'
-                        sh 'GOOS=freebsd GOARCH=arm64 go vet ./...'
-                        sh 'GOOS=windows GOARCH=386   go vet ./...'
-                        sh 'GOOS=windows GOARCH=amd64 go vet ./...'
-
-                        // TODO(artur): find out if we will be able to enable it
-                        // sh 'GOOS=windows GOARCH=arm64 go vet ./...'
-
-                        // Use kqueue to avoid needing cgo for verification.
-                        sh 'GOOS=darwin  GOARCH=amd64 go vet -tags kqueue ./...'
-                        sh 'GOOS=darwin  GOARCH=arm64 go vet -tags kqueue ./...'
                     }
                 }
             }

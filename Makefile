@@ -2,6 +2,151 @@ GO_VERSION ?= 1.17.12
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 LATEST_DEV_TAG := dev
 
+#
+# Common
+#
+
+.DEFAULT_GOAL := help
+.PHONY: help
+help:
+	@awk 'BEGIN { \
+		FS = ":.*##"; \
+		printf "\nUsage:\n  make \033[36m<target>\033[0m\n" \
+	} \
+	/^[a-zA-Z_-]+:.*?##/ { \
+		printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 \
+	} \
+	/^##@/ { \
+		printf "\n\033[1m%s\033[0m\n", substr($$0, 5) \
+	}' $(MAKEFILE_LIST)
+
+#
+# Public Jenkins (commands below are used for local development and/or public Jenkins)
+#
+
+##@ Local development/Public Jenkins/Helpers
+
+.PHONY: install-dev-dependencies
+install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are installed
+	# Storj-specific:
+	go install github.com/storj/ci/check-mod-tidy@latest
+	go install github.com/storj/ci/check-copyright@latest
+	go install github.com/storj/ci/check-large-files@latest
+	go install github.com/storj/ci/check-imports@latest
+	go install github.com/storj/ci/check-peer-constraints@latest
+	go install github.com/storj/ci/check-atomic-align@latest
+	go install github.com/storj/ci/check-monkit@latest
+	go install github.com/storj/ci/check-errs@latest
+	go install github.com/storj/ci/check-deferloop@latest
+	go install github.com/storj/ci/check-downgrades@latest
+
+	# staticcheck:
+	go install honnef.co/go/tools/cmd/staticcheck@latest
+
+	# golangci-lint:
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin v1.45.2
+
+	# shellcheck (TODO(artur): Windows)
+ifneq ($(shell which apt-get),)
+	sudo apt-get install -y shellcheck
+else ifneq ($(shell which brew),)
+	brew install shellcheck
+else
+	$(error Can't install shellcheck without a supported package manager)
+endif
+
+.PHONY: install-hooks
+install-hooks: ## Install helpful Git hooks
+	ln -s .git/hooks/pre-commit githooks/pre-commit
+
+##@ Local development/Public Jenkins/Lint
+
+GOLANGCI_LINT_CONFIG ?= ../ci/.golangci.yml
+GOLANGCI_LINT_CONFIG_TESTSUITE ?= ../../ci/.golangci.yml
+
+.PHONY: lint
+lint: ## Lint
+	check-mod-tidy
+	check-copyright
+	check-large-files
+	check-imports -race ./...
+	check-peer-constraints -race
+	check-atomic-align ./...
+	check-monkit ./...
+	check-errs ./...
+	check-deferloop ./...
+	staticcheck ./...
+	golangci-lint run --print-resources-usage --config ${GOLANGCI_LINT_CONFIG}
+	check-downgrades
+
+	# A bit of an explanation around this shellcheck command:
+	# * Find all scripts recursively that have the .sh extension, except for "testsuite@tmp" which Jenkins creates temporarily
+	# * Use + instead of \ so find returns a non-zero exit if any invocation of shellcheck returns a non-zero exit
+	find . -path ./testsuite@tmp -prune -o -name "*.sh" -type f -exec "shellcheck" "-x" "--format=gcc" {} +;
+
+	# Execute lint-testsuite in testsuite directory:
+	$(MAKE) -C testsuite -f ../Makefile lint-testsuite
+
+.PHONY: lint-testsuite
+lint-testsuite: ## Lint testsuite
+	check-imports -race ./...
+	check-atomic-align ./...
+	check-monkit ./...
+	check-errs ./...
+	check-deferloop ./...
+	staticcheck ./...
+	golangci-lint run --print-resources-usage --config ${GOLANGCI_LINT_CONFIG_TESTSUITE}
+
+##@ Local development/Public Jenkins/Cross-Vet
+
+.PHONY: cross-vet
+cross-vet: ## Cross-Vet
+	GOOS=linux   GOARCH=386   go vet ./...
+	GOOS=linux   GOARCH=amd64 go vet ./...
+	GOOS=linux   GOARCH=arm   go vet ./...
+	GOOS=linux   GOARCH=arm64 go vet ./...
+	GOOS=freebsd GOARCH=386   go vet ./...
+	GOOS=freebsd GOARCH=amd64 go vet ./...
+	GOOS=freebsd GOARCH=arm   go vet ./...
+	GOOS=freebsd GOARCH=arm64 go vet ./...
+	GOOS=windows GOARCH=386   go vet ./...
+	GOOS=windows GOARCH=amd64 go vet ./...
+
+	# TODO(artur): find out if we will be able to enable these:
+	# GOOS=windows GOARCH=arm   go vet ./...
+	# GOOS=windows GOARCH=arm64 go vet ./...
+
+	# Use kqueue to avoid using Cgo for verification.
+	GOOS=darwin GOARCH=amd64 go vet -tags kqueue ./...
+	GOOS=darwin GOARCH=arm64 go vet -tags kqueue ./...
+
+##@ Local development/Public Jenkins/Test
+
+JSON ?= false
+SHORT ?= true
+SKIP_TESTSUITE ?= false
+
+.PHONY: test
+test: test-testsuite ## Test
+	go test -json=${JSON} -p 16 -parallel 4 -race -short=${SHORT} -timeout 10m -vet=off ./...
+
+.PHONY: test-testsuite
+test-testsuite: ## Test testsuite
+ifeq (${SKIP_TESTSUITE},false)
+	# Execute test-testsuite-do in testsuite directory:
+	$(MAKE) -C testsuite -f ../Makefile test-testsuite-do
+endif
+
+.PHONY: test-testsuite-do
+test-testsuite-do:
+	go vet ./...
+	go test -json=${JSON} -p 16 -parallel 4 -race -short=${SHORT} -timeout 10m -vet=off ./...
+
+##@ Local development/Public Jenkins/Verification
+
+.PHONY: verify
+verify: lint cross-vet test ## Execute pre-commit verification
+
 # todo(artur, sean): these extra ldflags are required for the minio object
 # browser to function, but should be automated. Use storj.io/minio/buildscripts/gen-ldflags.go
 LDFLAGS := -X storj.io/minio/cmd.Version=2022-04-19T11:13:21Z \
@@ -21,31 +166,12 @@ endif
 
 DOCKER_BUILD := docker build --build-arg TAG=${TAG}
 
-.DEFAULT_GOAL := help
-.PHONY: help
-help:
-	@awk 'BEGIN { \
-		FS = ":.*##"; \
-		printf "\nUsage:\n  make \033[36m<target>\033[0m\n"\
-	} \
-	/^[a-zA-Z_-]+:.*?##/ { \
-		printf "  \033[36m%-17s\033[0m %s\n", $$1, $$2 \
-	} \
-	/^##@/ { \
-		printf "\n\033[1m%s\033[0m\n", substr($$0, 5) \
-	} ' $(MAKEFILE_LIST)
-
 ##@ Dependencies
 
 .PHONY: build-dev-deps
 build-dev-deps: ## Install dependencies for builds
 	go get golang.org/x/tools/cover
 	go get github.com/josephspurrier/goversioninfo/cmd/goversioninfo
-
-.PHONY: lint
-lint: ## Analyze and find programs in source code
-	@echo "Running ${@}"
-	@golangci-lint run
 
 .PHONY: goimports-fix
 goimports-fix: ## Applies goimports to every go file (excluding vendored files)
@@ -61,13 +187,6 @@ build-packages-normal:
 	go build -v ./...
 build-packages-race:
 	go build -v -race ./...
-
-##@ Test
-
-.PHONY: test
-test: ## Run tests on source code (jenkins)
-	go test -race -v -cover -coverprofile=.coverprofile ./...
-	@echo done
 
 ##@ Build
 
