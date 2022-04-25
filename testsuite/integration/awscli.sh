@@ -99,21 +99,29 @@ require_equal_files_content "$SRC_DIR/small-upload-testfile"     "$DST_DIR/small
 require_equal_files_content "$SRC_DIR/big-upload-testfile"       "$DST_DIR/big-download-testfile"
 require_equal_files_content "$SRC_DIR/multipart-upload-testfile" "$DST_DIR/multipart-download-testfile"
 
-echo "Server Side Copy/Move"
-# for now we need to set multipart_threshold hight otherwise cli will use UploadObjectPart which is not implemented yet
-aws configure set default.s3.multipart_threshold 1TB
-
-# make copy
-aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile s3://bucket/big-testfile-copy
-# download copy
-aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile-copy "$DST_DIR/big-download-testfile-copy"
-require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-copy"
-
-# move object
-aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile s3://bucket/big-testfile-moved
-# download moved object
-aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://bucket/big-testfile-moved "$DST_DIR/big-download-testfile-moved"
-require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-moved"
+# Testing Server-Side Copy is temporarily disabled until
+#
+#  1. https://github.com/storj/gateway-mt/issues/189
+#  2. https://github.com/storj/storj/issues/4745
+#
+# are resolved.
+#
+# echo "Server-Side Copy/Move"
+#
+# # for now we need to set multipart_threshold hight otherwise cli will use UploadObjectPart which is not implemented yet
+# aws configure set default.s3.multipart_threshold 1TB
+#
+# # make copy
+# aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://$BUCKET/big-testfile s3://$BUCKET/big-testfile-copy
+# # download copy
+# aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://$BUCKET/big-testfile-copy "$DST_DIR/big-download-testfile-copy"
+# require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-copy"
+#
+# # move object
+# aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://$BUCKET/big-testfile s3://$BUCKET/big-testfile-moved
+# # download moved object
+# aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://$BUCKET/big-testfile-moved "$DST_DIR/big-download-testfile-moved"
+# require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-moved"
 
 # cleanup
 aws s3 --endpoint "$AWS_ENDPOINT" rb "s3://$BUCKET" --force
