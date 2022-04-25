@@ -16,7 +16,7 @@ require (
 	storj.io/common v0.0.0-20220405183405-ffdc3ab808c6
 	storj.io/minio v0.0.0-20220404203534-ae15cc41053b
 	storj.io/private v0.0.0-20220323114243-08c4b5e752f4
-	storj.io/uplink v1.8.2-0.20220407093708-c14c5e4930b3
+	storj.io/uplink v1.8.2-0.20220425093614-32fc6af58748
 )
 
 require (
