@@ -330,8 +330,7 @@ func TestPutObject(t *testing.T) {
 		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
 
 		assert.Equal(t, info.Size, obj.System.ContentLength)
-		// TODO disabled until we will store ETag with object
-		// assert.Equal(t, info.ETag, hex.EncodeToString(obj.Checksum))
+		assert.Equal(t, info.ETag, obj.Custom["s3:etag"])
 		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
 		assert.EqualValues(t, info.UserDefined, obj.Custom)
 	})
@@ -2458,8 +2457,7 @@ func TestListMultipartUploads(t *testing.T) {
 			assert.Equal(t, uploadName, uploads.Uploads[0].Object)
 			assert.Equal(t, upload, uploads.Uploads[0].UploadID)
 			assert.WithinDuration(t, now, uploads.Uploads[0].Initiated, time.Minute)
-			// TODO: It seems we don't record the userDefined field when creating the multipart upload
-			// assert.EqualValues(t, userDefined, uploads.Uploads[0].UserDefined)
+			assert.EqualValues(t, userDefined, uploads.Uploads[0].UserDefined)
 		}
 	})
 }
@@ -2982,7 +2980,12 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, listInfo.Uploads)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
+		metadata := map[string]string{
+			"content-type":         "text/plain",
+			xhttp.AmzObjectTagging: "key1=value1&key2=value2",
+		}
+
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{UserDefined: metadata})
 		require.NoError(t, err)
 
 		totalPartsCount := 3
@@ -2997,17 +3000,12 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			})
 		}
 
-		metadata := map[string]string{
-			"content-type":         "text/plain",
-			xhttp.AmzObjectTagging: "key1=value1&key2=value2",
-		}
-
 		expectedMetadata := map[string]string{
 			"content-type": "text/plain",
 			"s3:tags":      "key1=value1&key2=value2",
 		}
 
-		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{UserDefined: metadata})
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		obj, err := layer.ListObjects(ctx, testBucket, testFile, "", "", 2)

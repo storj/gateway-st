@@ -34,7 +34,7 @@ type Client interface {
 	RemoveBucket(bucket string) error
 	ListBuckets() ([]string, error)
 
-	Upload(bucket, objectName string, data []byte) error
+	Upload(bucket, objectName string, data []byte, metadata map[string]string) error
 	Download(bucket, objectName string, buffer []byte) ([]byte, error)
 	Delete(bucket, objectName string) error
 	ListObjects(bucket, prefix string) ([]string, error)
@@ -87,11 +87,14 @@ func (client *Minio) ListBuckets() ([]string, error) {
 }
 
 // Upload uploads object data to the specified path.
-func (client *Minio) Upload(bucket, objectName string, data []byte) error {
+func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map[string]string) error {
 	_, err := client.API.PutObject(
 		bucket, objectName,
 		bytes.NewReader(data), int64(len(data)),
-		minio.PutObjectOptions{ContentType: "application/octet-stream"})
+		minio.PutObjectOptions{
+			ContentType:  "application/octet-stream",
+			UserMetadata: metadata,
+		})
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -99,13 +102,14 @@ func (client *Minio) Upload(bucket, objectName string, data []byte) error {
 }
 
 // UploadMultipart uses multipart uploads, has hardcoded threshold.
-func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int) error {
+func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int, metadata map[string]string) error {
 	_, err := client.API.PutObject(
 		bucket, objectName,
 		bytes.NewReader(data), -1,
 		minio.PutObjectOptions{
-			ContentType: "application/octet-stream",
-			PartSize:    uint64(partSize),
+			ContentType:  "application/octet-stream",
+			PartSize:     uint64(partSize),
+			UserMetadata: metadata,
 		})
 	if err != nil {
 		return MinioError.Wrap(err)

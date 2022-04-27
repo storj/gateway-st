@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	minio "github.com/minio/minio-go/v6"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
@@ -77,8 +78,21 @@ func TestUploadDownload(t *testing.T) {
 			data := testrand.BytesInt(5000)
 			objectName := "testdata"
 
-			err = client.Upload(bucket, objectName, data)
+			rawClient, ok := client.(*minioclient.Minio)
+			require.True(t, ok)
+
+			expectedMetadata := map[string]string{
+				"foo": "bar",
+			}
+			err = rawClient.Upload(bucket, objectName, data, expectedMetadata)
 			require.NoError(t, err)
+
+			object, err := rawClient.API.StatObjectWithContext(ctx, bucket, objectName, minio.StatObjectOptions{})
+			require.NoError(t, err)
+			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
+			require.EqualValues(t, map[string]string{
+				"Foo": "bar",
+			}, object.UserMetadata)
 
 			buffer := make([]byte, len(data))
 
@@ -142,14 +156,17 @@ func TestUploadDownload(t *testing.T) {
 			rawClient, ok := client.(*minioclient.Minio)
 			require.True(t, ok)
 
-			err = rawClient.UploadMultipart(bucket, objectName, data, partSize.Int(), 0)
+			expectedMetadata := map[string]string{
+				"foo": "bar",
+			}
+			err = rawClient.UploadMultipart(bucket, objectName, data, partSize.Int(), 0, expectedMetadata)
 			require.NoError(t, err)
 
 			doneCh := make(chan struct{})
 			defer close(doneCh)
 
 			// TODO find out why with prefix set its hanging test
-			for message := range rawClient.API.ListObjectsV2(bucket, "", true, doneCh) {
+			for message := range rawClient.API.ListObjectsV2WithMetadataWithContext(ctx, bucket, "", true, doneCh) {
 				require.Equal(t, objectName, message.Key)
 				require.NotEmpty(t, message.ETag)
 
@@ -159,8 +176,17 @@ func TestUploadDownload(t *testing.T) {
 				etag = strings.TrimSuffix(etag, `"`)
 
 				require.Equal(t, expectedETag, etag)
+				// returned metadata is not fully processed so lets compare only single entry
+				require.Equal(t, "bar", message.UserMetadata["X-Amz-Meta-Foo"])
 				break
 			}
+
+			object, err := rawClient.API.StatObjectWithContext(ctx, bucket, objectName, minio.StatObjectOptions{})
+			require.NoError(t, err)
+			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
+			require.EqualValues(t, map[string]string{
+				"Foo": "bar",
+			}, object.UserMetadata)
 
 			buffer := make([]byte, len(data))
 			bytes, err := client.Download(bucket, objectName, buffer)

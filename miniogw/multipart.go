@@ -17,6 +17,7 @@ import (
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/uplink"
+	"storj.io/uplink/private/multipart"
 )
 
 // ListMultipartUploads lists all multipart uploads.
@@ -112,7 +113,14 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		return "", err
 	}
 
-	info, err := project.BeginUpload(ctx, bucket, object, nil)
+	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
+		opts.UserDefined["s3:tags"] = tagsStr
+		delete(opts.UserDefined, xhttp.AmzObjectTagging)
+	}
+
+	info, err := multipart.BeginUpload(ctx, project, bucket, object, &multipart.UploadOptions{
+		CustomMetadata: uplink.CustomMetadata(opts.UserDefined).Clone(),
+	})
 	if err != nil {
 		return "", convertMultipartError(err, bucket, object, "")
 	}
@@ -350,7 +358,24 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		delete(opts.UserDefined, xhttp.AmzObjectTagging)
 	}
 
-	metadata := uplink.CustomMetadata(opts.UserDefined).Clone()
+	metadata := uplink.CustomMetadata{}
+	// TODO we can think about batching this request with ListUploadParts
+	uploads := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
+		Prefix: object,
+		Custom: true,
+	})
+	for uploads.Next() {
+		upload := uploads.Item()
+		// TODO should we error if we didn't find corresponding upload
+		if upload.UploadID == uploadID {
+			metadata = upload.Custom
+		}
+	}
+	if err := uploads.Err(); err != nil {
+		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	metadata = metadata.Clone()
 	metadata["s3:etag"] = etag
 
 	obj, err := project.CommitUpload(ctx, bucket, object, uploadID, &uplink.CommitUploadOptions{
