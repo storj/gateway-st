@@ -32,18 +32,39 @@ import (
 var (
 	mon = monkit.Package()
 
-	// ErrProjectUsageLimit is a custom error for when a user has reached their
-	// Satellite project upload limit.
+	// ErrBandwidthLimitExceeded is a custom error for when a user has reached their
+	// Satellite bandwidth limit.
+	//
+	// Note: we went with 403 Forbidden over 509 Bandwidth Limit Exceeded, as 509
+	// is not an official status code and rarely used outside of Apache/cPanel.
+	// In this case though the user can solve it themselves by getting a
+	// limit increase, so it should be treated as a 4xx level error, not 5xx.
+	ErrBandwidthLimitExceeded = miniogo.ErrorResponse{
+		Code:       "XStorjBandwidthLimitExceeded",
+		StatusCode: http.StatusForbidden,
+		Message:    "You have reached your Storj project bandwidth limit on the Satellite.",
+	}
+
+	// ErrStorageLimitExceeded is a custom error for when a user has reached their
+	// Satellite storage limit.
 	//
 	// Note: we went with 403 Forbidden over 507 Insufficient Storage, as 507
 	// doesn't fit this case exactly. 507 is for when the server cannot
 	// physically store any further data, e.g. the disk has filled up. In this
 	// case though the user can solve this themselves by upgrading their plan,
 	// so it should be treated as a 4xx level error, not 5xx.
-	ErrProjectUsageLimit = miniogo.ErrorResponse{
-		Code:       "XStorjProjectLimits",
+	ErrStorageLimitExceeded = miniogo.ErrorResponse{
+		Code:       "XStorjStorageLimitExceeded",
 		StatusCode: http.StatusForbidden,
-		Message:    "You have reached your Storj project upload limit on the Satellite.",
+		Message:    "You have reached your Storj project storage limit on the Satellite.",
+	}
+
+	// ErrSegmentsLimitExceeded is a custom error for when a user has reached their
+	// Satellite segment limit.
+	ErrSegmentsLimitExceeded = miniogo.ErrorResponse{
+		Code:       "XStorjSegmentsLimitExceeded",
+		StatusCode: http.StatusForbidden,
+		Message:    "You have reached your Storj project segment limit on the Satellite.",
 	}
 
 	// ErrSlowDown is a custom error for when a user is exceeding Satellite
@@ -1096,7 +1117,11 @@ func convertError(err error, bucket, object string) error {
 	case errors.Is(err, uplink.ErrObjectNotFound):
 		return minio.ObjectNotFound{Bucket: bucket, Object: object}
 	case errors.Is(err, uplink.ErrBandwidthLimitExceeded):
-		return ErrProjectUsageLimit
+		return ErrBandwidthLimitExceeded
+	case errors.Is(err, uplink.ErrStorageLimitExceeded):
+		return ErrStorageLimitExceeded
+	case errors.Is(err, uplink.ErrSegmentsLimitExceeded):
+		return ErrSegmentsLimitExceeded
 	case errors.Is(err, uplink.ErrPermissionDenied):
 		return minio.PrefixAccessDenied{Bucket: bucket, Object: object}
 	case errors.Is(err, uplink.ErrTooManyRequests):
