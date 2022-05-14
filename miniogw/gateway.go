@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
@@ -65,6 +66,14 @@ var (
 		Code:       "XStorjSegmentsLimitExceeded",
 		StatusCode: http.StatusForbidden,
 		Message:    "You have reached your Storj project segment limit on the Satellite.",
+	}
+
+	// ErrInvalidTTL indicates that the value under
+	// X-Amz-Meta-Storj-Expires/X-Minio-Meta-Storj-Expires couldn't be parsed.
+	ErrInvalidTTL = miniogo.ErrorResponse{
+		Code:       "XStorjInvalidTTL",
+		Message:    "The TTL you have specified is invalid.",
+		StatusCode: http.StatusBadRequest,
 	}
 
 	// ErrSlowDown is a custom error for when a user is exceeding Satellite
@@ -798,7 +807,13 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		data = minio.NewPutObjReader(hashReader)
 	}
 
-	upload, err := project.UploadObject(ctx, bucket, object, nil)
+	e, err := parseTTL(opts.UserDefined)
+	if err != nil {
+		return minio.ObjectInfo{}, ErrInvalidTTL
+	}
+	upload, err := project.UploadObject(ctx, bucket, object, &uplink.UploadOptions{
+		Expires: e,
+	})
 	if err != nil {
 		return minio.ObjectInfo{}, convertError(err, bucket, object)
 	}
@@ -1168,4 +1183,23 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 		ContentType: contentType,
 		UserDefined: object.Custom,
 	}
+}
+
+func parseTTL(userDefined map[string]string) (time.Time, error) {
+	date, ok := userDefined["X-Amz-Meta-Storj-Expires"]
+	if !ok {
+		if date, ok = userDefined["X-Minio-Meta-Storj-Expires"]; !ok {
+			return time.Time{}, nil
+		}
+	}
+
+	if date == "none" {
+		return time.Time{}, nil
+	} else if date == "" {
+		return time.Time{}, nil
+	} else if strings.HasPrefix(date, "+") {
+		d, err := time.ParseDuration(date)
+		return time.Now().Add(d), err
+	}
+	return time.Parse(time.RFC3339, date)
 }

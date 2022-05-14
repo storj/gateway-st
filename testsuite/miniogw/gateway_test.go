@@ -3482,6 +3482,127 @@ func TestObjectNameTooLong(t *testing.T) {
 	})
 }
 
+func TestObjectTTL(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		bucket := testrand.BucketName()
+
+		_, err := project.CreateBucket(ctx, bucket)
+		require.NoError(t, err)
+
+		for _, tt := range []struct {
+			ttl         string
+			expectedTTL time.Time
+			expectedErr error
+		}{
+			{
+				ttl:         "none",
+				expectedTTL: time.Time{},
+				expectedErr: nil,
+			},
+			{
+				ttl:         "",
+				expectedTTL: time.Time{},
+				expectedErr: nil,
+			},
+			{
+				ttl:         "+2h",
+				expectedTTL: time.Now().Add(2 * time.Hour).UTC(),
+				expectedErr: nil,
+			},
+			{
+				ttl:         time.Unix(2147483647, 0).UTC().Format(time.RFC3339),
+				expectedTTL: time.Unix(2147483647, 0).UTC(),
+				expectedErr: nil,
+			},
+			{
+				ttl:         "-2h",
+				expectedTTL: time.Time{},
+				expectedErr: miniogw.ErrInvalidTTL,
+			},
+			{
+				ttl:         "now",
+				expectedTTL: time.Time{},
+				expectedErr: miniogw.ErrInvalidTTL,
+			},
+			{
+				ttl:         "+0xc0ffeeµs",
+				expectedTTL: time.Time{},
+				expectedErr: miniogw.ErrInvalidTTL,
+			},
+		} {
+			testObjectTTL(ctx, t, layer, project, bucket, "X-Amz-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+			testObjectTTL(ctx, t, layer, project, bucket, "X-Minio-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+			testMultipartObjectTTL(ctx, t, layer, project, bucket, "X-Amz-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+			testMultipartObjectTTL(ctx, t, layer, project, bucket, "X-Minio-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+		}
+	})
+}
+
+func testObjectTTL(
+	ctx context.Context,
+	t *testing.T,
+	layer minio.ObjectLayer,
+	project *uplink.Project,
+	bucket, ttlKey, ttl string,
+	expectedTTL time.Time,
+	expectedErr error,
+) {
+	object := testrand.Path()
+
+	_, err := layer.PutObject(ctx, bucket, object, nil, minio.ObjectOptions{
+		UserDefined: map[string]string{
+			ttlKey: ttl,
+		},
+	})
+	if expectedErr != nil {
+		require.ErrorIs(t, err, expectedErr)
+		return
+	}
+	require.NoError(t, err)
+
+	downloaded, err := project.DownloadObject(ctx, bucket, object, nil)
+	require.NoError(t, err)
+
+	assert.WithinDuration(t, expectedTTL, downloaded.Info().System.Expires, time.Minute)
+
+	require.NoError(t, downloaded.Close())
+}
+
+func testMultipartObjectTTL(
+	ctx context.Context,
+	t *testing.T,
+	layer minio.ObjectLayer,
+	project *uplink.Project,
+	bucket, ttlKey, ttl string,
+	expectedTTL time.Time,
+	expectedErr error,
+) {
+	object := testrand.Path()
+
+	uploadID, err := layer.NewMultipartUpload(ctx, bucket, object, minio.ObjectOptions{
+		UserDefined: map[string]string{
+			ttlKey: ttl,
+		},
+	})
+	if expectedErr != nil {
+		require.ErrorIs(t, err, expectedErr)
+		return
+	}
+	require.NoError(t, err)
+
+	_, err = layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, nil, minio.ObjectOptions{})
+	require.NoError(t, err)
+
+	downloaded, err := project.DownloadObject(ctx, bucket, object, nil)
+	require.NoError(t, err)
+
+	assert.WithinDuration(t, expectedTTL, downloaded.Info().System.Expires, time.Minute)
+
+	require.NoError(t, downloaded.Close())
+}
+
 // md5Hex returns MD5 hash in hex encoding of given data.
 func md5Hex(data []byte) string {
 	sum := md5.Sum(data)

@@ -118,7 +118,12 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		delete(opts.UserDefined, xhttp.AmzObjectTagging)
 	}
 
+	e, err := parseTTL(opts.UserDefined)
+	if err != nil {
+		return "", ErrInvalidTTL
+	}
 	info, err := multipart.BeginUpload(ctx, project, bucket, object, &multipart.UploadOptions{
+		Expires:        e,
 		CustomMetadata: uplink.CustomMetadata(opts.UserDefined).Clone(),
 	})
 	if err != nil {

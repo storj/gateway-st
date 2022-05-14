@@ -157,3 +157,40 @@ is a good read for why we don't support ACL-related actions.
 | Minimum length for bucket names                                                 |              3              |
 | Maximum length for encrypted object names                                       |             1280            |
 | Maximum metadata size                                                           |            2 KiB            |
+
+## Storj-specific extensions
+
+### Object-level TTL
+
+It's possible to specify TTL for the object by sending the
+
+- `X-Amz-Meta-Storj-Expires` or
+- `X-Minio-Meta-Storj-Expires`
+
+header (note: S3-compatible clients usually add the `X-Amz-Meta-` /
+`X-Minio-Meta-` prefix themselves) with one of the following values:
+
+- a signed, positive sequence of decimal numbers, each with an optional fraction
+  and a unit suffix, such as `+300ms`, `+1.5h`, or `+2h45m`
+    - valid time units are `ns`, `us` (or `µs`), `ms`, `s`, `m`, `h`
+    - `+2h` means the object expires 2 hours from now
+- full RFC3339-formatted date
+
+It's also possible to specify `none` for no expiration (or not send the header).
+
+#### AWS CLI example
+
+```
+$ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Storj-Expires=+2h
+upload: ./file to s3://bucket/object
+
+# or
+
+$ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Storj-Expires=2022-05-19T00:10:55Z
+upload: ./file to s3://bucket/object
+```
+
+#### Caveats
+
+The value under `X-Amz-Meta-Storj-Expires` has priority over the value under
+`X-Minio-Meta-Storj-Expires`.
