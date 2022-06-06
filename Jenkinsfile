@@ -61,6 +61,7 @@ pipeline {
                         sh 'check-atomic-align ./...'
                         sh 'check-monkit ./...'
                         sh 'check-errs ./...'
+                        sh 'check-deferloop ./...'
                         sh 'staticcheck ./...'
                         sh 'golangci-lint run --config /go/ci/.golangci.yml'
                         sh 'check-downgrades'
@@ -75,6 +76,7 @@ pipeline {
                             sh 'check-atomic-align ./...'
                             sh 'check-monkit ./...'
                             sh 'check-errs ./...'
+                            sh 'check-deferloop ./...'
                             sh 'staticcheck ./...'
                             sh 'golangci-lint run --config /go/ci/.golangci.yml'
                         }
