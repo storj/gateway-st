@@ -158,6 +158,28 @@ is a good read for why we don't support ACL-related actions.
 | Maximum length for encrypted object names                                       |             1280            |
 | Maximum metadata size                                                           |            2 KiB            |
 
+### S3-compatible clients configuration for objects larger than 5 TiB
+
+AWS S3 limits users to upload objects no larger than 5 TiB. Edge services at
+Storj don't impose such a limit, but the existence of the limit in AWS S3
+requires users to tweak their client's configuration to be able to upload larger
+objects.
+
+This example is specific to AWS CLI, but your particular S3-compatible client
+might carry a need for a similar configuration.
+
+A multipart upload requires that a single object is uploaded in not more than
+10000 distinct parts. You must ensure that the chunk size you set balances the
+part size and the number of parts.
+
+For example, for 6 TiB objects, you need to set AWS CLI's `multipart_chunksize`
+to approximately 630 MiB:
+
+```console
+$ aws --profile storj configure set s3.multipart_chunksize 630MiB
+$ aws --profile storj --endpoint-url https://gateway.storjshare.io s3 cp 6TiB_file s3://objects/
+```
+
 ## Storj-specific extensions
 
 ### Object-level TTL
@@ -180,7 +202,7 @@ It's also possible to specify `none` for no expiration (or not send the header).
 
 #### AWS CLI example
 
-```
+```console
 $ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Storj-Expires=+2h
 upload: ./file to s3://bucket/object
 
