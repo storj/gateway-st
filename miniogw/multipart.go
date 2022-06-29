@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/zeebo/errs"
 
@@ -46,20 +47,24 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 
 	list := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
 		Prefix:    prefix,
-		Cursor:    keyMarker,
+		Cursor:    strings.TrimPrefix(keyMarker, prefix),
 		Recursive: recursive,
 		System:    true,
 		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
 
-	startAfter := keyMarker
-	var uploads []minio.MultipartInfo
-	var prefixes []string
+	var (
+		nextKeyMarker string
+		uploads       []minio.MultipartInfo
+		prefixes      []string
+	)
 
-	limit := maxUploads
-	for (limit > 0 || maxUploads == 0) && list.Next() {
+	limit := limitResults(maxUploads, layer.compatibilityConfig.MaxUploadsLimit)
+
+	for limit > 0 && list.Next() {
 		limit--
 		object := list.Item()
+
 		if object.IsPrefix {
 			prefixes = append(prefixes, object.Key)
 			continue
@@ -67,8 +72,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 
 		uploads = append(uploads, minioMultipartInfo(bucket, object))
 
-		startAfter = object.Key
-
+		nextKeyMarker = object.Key
 	}
 	if list.Err() != nil {
 		return result, convertMultipartError(list.Err(), bucket, "", "")
@@ -79,22 +83,22 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		return result, convertMultipartError(list.Err(), bucket, "", "")
 	}
 
-	result = minio.ListMultipartsInfo{
+	if !more {
+		nextKeyMarker = ""
+	}
+
+	// TODO: NextUploadID
+	return minio.ListMultipartsInfo{
 		KeyMarker:      keyMarker,
+		NextKeyMarker:  nextKeyMarker,
 		UploadIDMarker: uploadIDMarker,
 		MaxUploads:     maxUploads,
-		IsTruncated:    more,
+		IsTruncated:    nextKeyMarker != "",
 		Uploads:        uploads,
 		Prefix:         prefix,
 		Delimiter:      delimiter,
 		CommonPrefixes: prefixes,
-	}
-	if more {
-		result.NextKeyMarker = startAfter
-		// TODO: NextUploadID
-	}
-
-	return result, nil
+	}, nil
 }
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {

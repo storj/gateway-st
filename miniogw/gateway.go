@@ -233,23 +233,6 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 	return convertError(err, bucket, "")
 }
 
-// limitMaxKeys returns maxKeys limited to what gateway is configured to limit
-// maxKeys to, aligned with paging limitations on the satellite side. It will
-// also return the highest limit possible if maxKeys is negative. If maxKeys
-// is zero, no keys are returned, which is compatible with AWS S3.
-func (layer *gatewayLayer) limitMaxKeys(maxKeys int) int {
-	if maxKeys < 0 || maxKeys >= layer.compatibilityConfig.MaxKeysLimit {
-		// Return max keys with a buffer to gather the continuation token to
-		// avoid paging problems until we have a method in libuplink to get more
-		// info about page boundaries.
-		if layer.compatibilityConfig.MaxKeysLimit-1 == 0 {
-			return 1
-		}
-		return layer.compatibilityConfig.MaxKeysLimit - 1
-	}
-	return maxKeys
-}
-
 func (layer *gatewayLayer) listObjectsFast(
 	ctx context.Context,
 	project *uplink.Project,
@@ -280,7 +263,7 @@ func (layer *gatewayLayer) listObjectsFast(
 		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
 
-	limit := layer.limitMaxKeys(maxKeys)
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	for limit > 0 && list.Next() {
 		item := list.Item()
@@ -331,7 +314,7 @@ func (layer *gatewayLayer) listObjectsSingle(
 		after = continuationToken
 	}
 
-	limit := layer.limitMaxKeys(maxKeys)
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	if limit > 0 && after == "" {
 		object, err := project.StatObject(ctx, bucket, prefix)
@@ -412,7 +395,7 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 		return items[i].Key < items[j].Key
 	})
 
-	limit := layer.limitMaxKeys(maxKeys)
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 	prefixesLookup := make(map[string]struct{})
 
 	for _, item := range items {
@@ -1202,4 +1185,21 @@ func parseTTL(userDefined map[string]string) (time.Time, error) {
 		return time.Now().Add(d), err
 	}
 	return time.Parse(time.RFC3339, date)
+}
+
+// limitResults returns limit restricted to configuredLimit, aligned with paging
+// limitations on the satellite side. It will also return the highest limit
+// possible if limit is negative. If limit is zero, no keys are returned, which
+// is compatible with AWS S3.
+func limitResults(limit int, configuredLimit int) int {
+	if limit < 0 || limit >= configuredLimit {
+		// Return max results with a buffer to gather the continuation token to
+		// avoid paging problems until we have a method in libuplink to get more
+		// info about page boundaries.
+		if configuredLimit-1 == 0 {
+			return 1
+		}
+		return configuredLimit - 1
+	}
+	return limit
 }

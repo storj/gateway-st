@@ -9,13 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLimitMaxKeys(t *testing.T) {
-	g := gatewayLayer{
-		compatibilityConfig: S3CompatibilityConfig{
-			MaxKeysLimit: 1000,
-		},
-	}
-
+func TestLimitResults(t *testing.T) {
 	for i, tt := range [...]struct {
 		maxKeys  int
 		expected int
@@ -36,6 +30,6 @@ func TestLimitMaxKeys(t *testing.T) {
 		{4500, 999},
 		{10000, 999},
 	} {
-		assert.Equal(t, tt.expected, g.limitMaxKeys(tt.maxKeys), i)
+		assert.Equal(t, tt.expected, limitResults(tt.maxKeys, 1000), i)
 	}
 }

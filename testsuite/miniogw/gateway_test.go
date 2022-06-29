@@ -41,14 +41,15 @@ import (
 )
 
 const (
-	testBucket   = "test-bucket"
-	testFile     = "test-file"
-	testFile2    = "test-file-2"
-	testFile3    = "test-file-3"
-	destBucket   = "dest-bucket"
-	destFile     = "dest-file"
-	segmentSize  = 640 * memory.KiB
-	maxKeysLimit = 1000
+	testBucket      = "test-bucket"
+	testFile        = "test-file"
+	testFile2       = "test-file-2"
+	testFile3       = "test-file-3"
+	destBucket      = "dest-bucket"
+	destFile        = "dest-file"
+	segmentSize     = 640 * memory.KiB
+	maxKeysLimit    = 1000
+	maxUploadsLimit = 1000
 )
 
 func TestMakeBucketWithLocation(t *testing.T) {
@@ -2209,7 +2210,7 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 51, // +1 to list 50 (see storj.io/gateway/miniogw.(*gatewayLayer).limitMaxKeys)
+			MaxKeysLimit:                 51, // +1 to list 50 (see storj.io/gateway/miniogw limitResults())
 			MaxKeysExhaustiveLimit:       100,
 			FullyCompatibleListing:       true, // this is what's important here
 		}
@@ -2438,26 +2439,198 @@ func TestListMultipartUploads(t *testing.T) {
 		_, err = project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
-		userDefined := make(map[string]string)
+		keyPaths := []string{
+			"a", "aa", "b", "bb", "c",
+			"a/xa", "a/xaa", "a/xb", "a/xbb", "a/xc",
+			"b/ya", "b/yaa", "b/yb", "b/ybb", "b/yc",
+			"i", "i/i", "ii", "j", "j/i", "k", "kk", "l",
+			"m/i", "mm", "n/i", "oo",
+		}
 
-		userDefined["something"] = "a-value"
-		for _, uploadName := range []string{"multipart-upload", "a/prefixed/multipart-upload"} {
-			now := time.Now()
-			upload, err := layer.NewMultipartUpload(ctx, testBucket, uploadName, minio.ObjectOptions{
-				UserDefined: userDefined,
+		keys := make(map[string]map[string]string, len(keyPaths))
+
+		metadata := map[string]string{
+			"content-type": "text/plain",
+			"key1":         "value1",
+			"key2":         "value2",
+		}
+		for _, key := range keyPaths {
+			upload, err := layer.NewMultipartUpload(ctx, testBucket, key, minio.ObjectOptions{
+				UserDefined: metadata,
 			})
 			require.NoError(t, err)
 			require.NotEmpty(t, upload)
+			keys[key] = metadata
+		}
 
-			uploads, err = layer.ListMultipartUploads(ctx, testBucket, uploadName, "", "", "", 10)
-			require.NoError(t, err)
-			require.Len(t, uploads.Uploads, 1)
+		for i, tt := range []struct {
+			name       string
+			prefix     string
+			marker     string
+			delimiter  string
+			maxUploads int
+			more       bool
+			prefixes   []string
+			uploads    []string
+		}{
+			{
+				name:       "Basic non-recursive",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+				prefixes:   []string{"a/", "b/", "i/", "j/", "m/", "n/"},
+				uploads:    []string{"a", "aa", "b", "bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
+			}, {
+				name:       "Basic non-recursive with non-existing mark",
+				marker:     "`",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+				prefixes:   []string{"a/", "b/", "i/", "j/", "m/", "n/"},
+				uploads:    []string{"a", "aa", "b", "bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
+			}, {
+				name:       "Basic non-recursive with existing mark",
+				marker:     "b",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+				prefixes:   []string{"b/", "i/", "j/", "m/", "n/"},
+				uploads:    []string{"bb", "c", "i", "ii", "j", "k", "kk", "l", "mm", "oo"},
+			}, {
+				name:       "Basic non-recursive with last mark",
+				marker:     "oo",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+			}, {
+				name:       "Basic non-recursive with past last mark",
+				marker:     "ooa",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 0",
+				marker:     "",
+				delimiter:  "/",
+				maxUploads: 0,
+				more:       false,
+				prefixes:   nil,
+				uploads:    nil,
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 0 and marker",
+				marker:     "b",
+				delimiter:  "/",
+				maxUploads: 0,
+				more:       false,
+				prefixes:   nil,
+				uploads:    nil,
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 1",
+				delimiter:  "/",
+				maxUploads: 1,
+				more:       true,
+				uploads:    []string{"a"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 1 with non-existing mark",
+				marker:     "`",
+				delimiter:  "/",
+				maxUploads: 1,
+				more:       true,
+				uploads:    []string{"a"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 1 with existing mark",
+				marker:     "aa",
+				delimiter:  "/",
+				maxUploads: 1,
+				more:       true,
+				uploads:    []string{"b"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 1 with last mark",
+				marker:     "oo",
+				delimiter:  "/",
+				maxUploads: 1,
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 1 past last mark",
+				marker:     "ooa",
+				delimiter:  "/",
+				maxUploads: 1,
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 2",
+				delimiter:  "/",
+				maxUploads: 2,
+				more:       true,
+				prefixes:   []string{"a/"},
+				uploads:    []string{"a"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 2 with non-existing mark",
+				marker:     "`",
+				delimiter:  "/",
+				maxUploads: 2,
+				more:       true,
+				prefixes:   []string{"a/"},
+				uploads:    []string{"a"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 2 with existing mark",
+				marker:     "aa",
+				delimiter:  "/",
+				maxUploads: 2,
+				more:       true,
+				prefixes:   []string{"b/"},
+				uploads:    []string{"b"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 2 with mark right before the end",
+				marker:     "nm",
+				delimiter:  "/",
+				maxUploads: 2,
+				uploads:    []string{"oo"},
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 2 with last mark",
+				marker:     "oo",
+				delimiter:  "/",
+				maxUploads: 2,
+			}, {
+				name:       "Basic non-recursive with max uploads limit of 2 past last mark",
+				marker:     "ooa",
+				delimiter:  "/",
+				maxUploads: 2,
+			}, {
+				name:       "Prefix non-recursive",
+				prefix:     "a/",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+				uploads:    []string{"xa", "xaa", "xb", "xbb", "xc"},
+			}, {
+				name:       "Prefix non-recursive with mark",
+				prefix:     "a/",
+				marker:     "xb",
+				delimiter:  "/",
+				maxUploads: maxUploadsLimit,
+				uploads:    []string{"xbb", "xc"},
+			}, {
+				name:       "Prefix non-recursive with mark and max keys",
+				prefix:     "a/",
+				marker:     "xaa",
+				delimiter:  "/",
+				maxUploads: 2,
+				more:       true,
+				uploads:    []string{"xb", "xbb"},
+			},
+		} {
+			errTag := fmt.Sprintf("%d. %+v", i, tt)
 
-			assert.Equal(t, testBucket, uploads.Uploads[0].Bucket)
-			assert.Equal(t, uploadName, uploads.Uploads[0].Object)
-			assert.Equal(t, upload, uploads.Uploads[0].UploadID)
-			assert.WithinDuration(t, now, uploads.Uploads[0].Initiated, time.Minute)
-			assert.EqualValues(t, userDefined, uploads.Uploads[0].UserDefined)
+			result, err := layer.ListMultipartUploads(ctx, testBucket, tt.prefix, tt.marker, "", tt.delimiter, tt.maxUploads)
+			require.NoError(t, err, errTag)
+			assert.Equal(t, tt.more, result.IsTruncated, errTag)
+			assert.Equal(t, tt.marker, result.KeyMarker, errTag)
+			assert.Equal(t, tt.prefixes, result.CommonPrefixes, errTag)
+			require.Equal(t, len(tt.uploads), len(result.Uploads), errTag)
+			for i, uploadInfo := range result.Uploads {
+				metadata, found := keys[uploadInfo.Object]
+				if assert.True(t, found) {
+					if tt.prefix != "" && strings.HasSuffix(tt.prefix, "/") {
+						assert.Equal(t, tt.prefix+tt.uploads[i], uploadInfo.Object, errTag)
+					} else {
+						assert.Equal(t, tt.uploads[i], uploadInfo.Object, errTag)
+					}
+					assert.Equal(t, testBucket, uploadInfo.Bucket, errTag)
+					assert.Equal(t, metadata, uploadInfo.UserDefined, errTag)
+				}
+			}
 		}
 	})
 }
@@ -3771,6 +3944,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 			IncludeCustomMetadataListing: true,
 			MaxKeysLimit:                 maxKeysLimit,
 			MaxKeysExhaustiveLimit:       100000,
+			MaxUploadsLimit:              maxUploadsLimit,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
