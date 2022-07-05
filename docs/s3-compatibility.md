@@ -64,7 +64,7 @@ S3 Compatibility
 | ListBucketInventoryConfigurations           | No      | No                                                           |                                                     |
 | ListBucketMetricsConfigurations             | No      | No                                                           |                                                     |
 | ListBuckets                                 | Full    |                                                              |                                                     |
-| ListMultipartUploads                        | Partial | Planned full. See https://github.com/storj/roadmap/issues/20 | TODO(artur): support status needs verification      |
+| ListMultipartUploads                        | Partial | Planned full. See https://github.com/storj/roadmap/issues/20 | See ListMultipartUploads section                    |
 | ListObjectVersions                          | No      | Planned. See https://github.com/storj/roadmap/issues/23      |                                                     |
 | ListObjects                                 | Partial | Planned full. See https://github.com/storj/roadmap/issues/20 | See ListObjects section                             |
 | ListObjectsV2                               | Partial | Planned full. See https://github.com/storj/roadmap/issues/20 | See ListObjects section                             |
@@ -132,6 +132,24 @@ paths gateway-side. In this case, gateways return listing in lexicographical
 order. Forcing exhaustive listing for any request is not possible for Storj
 production deployments of Gateway-MT, and for, e.g. Gateway-ST can be achieved
 with `--s3.fully-compatible-listing`.
+
+### ListMultipartUploads
+
+This endpoint has the same ordering characteristics as `ListObjects` described
+above, in that lexicographic ordering works on encrypted upload paths, not the
+decrypted uploads paths. It also only supports prefixes that contain a trailing
+forward-slash, as well as a forward-slash delimiter. An exhaustive search
+similar to what `ListObjects` does with arbitrary prefixes and delimiters is not
+supported.
+
+`UploadIdMarker` and `NextUploadIdMarker` are not supported. This is used to
+filter out uploads that come before the given upload ID marker. This is tracked at
+[storj/gateway-mt#213](https://github.com/storj/gateway-mt/issues/213)
+
+Multiple pending uploads with the same key are not supported. Any upload created
+with the same key will overwrite any existing pending uploads with the same key,
+and this endpoint will only return one upload per key. This is tracked at
+[storj/gateway-mt#149](https://github.com/storj/gateway-mt/issues/149).
 
 ### ACL-related actions
 

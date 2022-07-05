@@ -87,7 +87,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		nextKeyMarker = ""
 	}
 
-	// TODO: NextUploadID
+	// TODO: support NextUploadID (https://github.com/storj/gateway-mt/issues/213)
 	return minio.ListMultipartsInfo{
 		KeyMarker:      keyMarker,
 		NextKeyMarker:  nextKeyMarker,
