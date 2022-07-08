@@ -159,7 +159,7 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucket st
 
 	_, err = project.CreateBucket(ctx, bucket)
 
-	return convertError(err, bucket, "")
+	return ConvertError(err, bucket, "")
 }
 
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {
@@ -172,7 +172,7 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 
 	bucket, err := project.StatBucket(ctx, bucketName)
 	if err != nil {
-		return minio.BucketInfo{}, convertError(err, bucketName, "")
+		return minio.BucketInfo{}, ConvertError(err, bucketName, "")
 	}
 
 	return minio.BucketInfo{
@@ -198,7 +198,7 @@ func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.Bucke
 		})
 	}
 	if buckets.Err() != nil {
-		return nil, convertError(buckets.Err(), "", "")
+		return nil, ConvertError(buckets.Err(), "", "")
 	}
 	return items, nil
 }
@@ -213,7 +213,7 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 
 	if forceDelete {
 		_, err = project.DeleteBucketWithObjects(ctx, bucket)
-		return convertError(err, bucket, "")
+		return ConvertError(err, bucket, "")
 	}
 
 	_, err = project.DeleteBucket(ctx, bucket)
@@ -226,11 +226,11 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 		it := project.ListObjects(ctx, bucket, nil)
 		if !it.Next() && it.Err() == nil {
 			_, err = project.DeleteBucketWithObjects(ctx, bucket)
-			return convertError(err, bucket, "")
+			return ConvertError(err, bucket, "")
 		}
 	}
 
-	return convertError(err, bucket, "")
+	return ConvertError(err, bucket, "")
 }
 
 func (layer *gatewayLayer) listObjectsFast(
@@ -666,7 +666,7 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, mark
 		Prefixes:    v2.Prefixes,
 	}
 
-	return result, convertError(err, bucket, "")
+	return result, ConvertError(err, bucket, "")
 }
 
 // ListObjectsV2 calls listObjectsGeneral.
@@ -680,7 +680,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 
 	result, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, continuationToken, delimiter, maxKeys, startAfter)
 
-	return result, convertError(err, bucket, "")
+	return result, ConvertError(err, bucket, "")
 }
 
 func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
@@ -703,7 +703,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 
 	download, err := project.DownloadObject(ctx, bucket, object, downloadOpts)
 	if err != nil {
-		return nil, convertError(err, bucket, object)
+		return nil, ConvertError(err, bucket, object)
 	}
 
 	objectInfo := minioObjectInfo(bucket, "", download.Info())
@@ -755,7 +755,7 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	return minioObjectInfo(bucket, "", object), nil
@@ -785,7 +785,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	if data == nil {
 		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0)
 		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, bucket, object)
+			return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 		}
 		data = minio.NewPutObjReader(hashReader)
 	}
@@ -798,14 +798,14 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		Expires: e,
 	})
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, object)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	_, err = io.Copy(upload, data)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, bucket, object)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
@@ -820,12 +820,12 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, convertError(err, bucket, object)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	err = upload.Commit()
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, object)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	return minioObjectInfo(bucket, etag, upload.Info()), nil
@@ -868,7 +868,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// TODO this should be removed and implemented on satellite side
 		_, err = project.StatBucket(ctx, srcBucket)
 		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, srcBucket, "")
+			return minio.ObjectInfo{}, ConvertError(err, srcBucket, "")
 		}
 
 		// Source and destination are the same. Do nothing, apart from ensuring
@@ -878,14 +878,14 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// manipulating existing object's metadata.
 		info, err := project.StatObject(ctx, srcBucket, srcObject)
 		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
+			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
 
 		upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
 
 		err = project.UpdateObjectMetadata(ctx, srcBucket, srcObject, srcInfo.UserDefined, nil)
 		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, srcBucket, srcObject)
+			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
 
 		return srcInfo, nil
@@ -901,7 +901,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 				return minio.ObjectInfo{}, minio.BucketNotFound{Bucket: destBucket}
 			}
 		}
-		return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
+		return minio.ObjectInfo{}, ConvertError(err, destBucket, destObject)
 	}
 
 	// TODO most probably we need better condition
@@ -912,7 +912,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 
 		err = project.UpdateObjectMetadata(ctx, destBucket, destObject, srcInfo.UserDefined, nil)
 		if err != nil {
-			return minio.ObjectInfo{}, convertError(err, destBucket, destObject)
+			return minio.ObjectInfo{}, ConvertError(err, destBucket, destObject)
 		}
 		object.Custom = uplink.CustomMetadata(srcInfo.UserDefined)
 	}
@@ -935,12 +935,12 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 	// maintain consistency, we need to manually check if the bucket exists.
 	_, err = project.StatBucket(ctx, bucket)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	object, err := project.DeleteObject(ctx, bucket, objectPath)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	return minioObjectInfo(bucket, "", object), nil
@@ -952,7 +952,7 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 	for i, object := range objects {
 		_, deleteErr := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
 		if deleteErr != nil && !errors.As(deleteErr, &minio.ObjectNotFound{}) {
-			errs[i] = convertError(deleteErr, bucket, object.ObjectName)
+			errs[i] = ConvertError(deleteErr, bucket, object.ObjectName)
 			continue
 		}
 		deleted[i].ObjectName = object.ObjectName
@@ -976,7 +976,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
@@ -992,7 +992,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 
 	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, newMetadata, nil)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	return minioObjectInfo(bucket, "", object), nil
@@ -1010,12 +1010,12 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return nil, convertError(err, bucket, objectPath)
+		return nil, ConvertError(err, bucket, objectPath)
 	}
 
 	t, err = tags.ParseObjectTags(object.Custom["s3:tags"])
 	if err != nil {
-		return nil, convertError(err, bucket, objectPath)
+		return nil, ConvertError(err, bucket, objectPath)
 	}
 
 	return t, nil
@@ -1033,7 +1033,7 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok {
@@ -1045,60 +1045,15 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 
 	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, newMetadata, nil)
 	if err != nil {
-		return minio.ObjectInfo{}, convertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	return minioObjectInfo(bucket, "", object), nil
 }
 
-func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
-	pr, ok := GetUplinkProject(ctx)
-	if !ok {
-		return nil, convertError(ErrNoUplinkProject.New("not found"), bucket, object)
-	}
-	return pr, nil
-}
-
-func upsertObjectMetadata(metadata map[string]string, existingMetadata uplink.CustomMetadata) {
-	// if X-Amz-Metadata-Directive header is provided and is set to "REPLACE",
-	// then srcInfo.UserDefined will contain new metadata from the copy request.
-	// If the directive is "COPY", or undefined, the source object's metadata
-	// will be contained in srcInfo.UserDefined instead. This is done by the
-	// caller handler in minio.
-
-	// if X-Amz-Tagging-Directive is set to "REPLACE", we need to set the copied
-	// object's tags to the tags provided in the copy request. If the directive
-	// is "COPY", or undefined, copy over any existing tags from the source
-	// object.
-	if td, ok := metadata[xhttp.AmzTagDirective]; ok && td == "REPLACE" {
-		metadata["s3:tags"] = metadata[xhttp.AmzObjectTagging]
-	} else if tags, ok := existingMetadata["s3:tags"]; ok {
-		metadata["s3:tags"] = tags
-	}
-
-	delete(metadata, xhttp.AmzObjectTagging)
-	delete(metadata, xhttp.AmzTagDirective)
-
-	// if X-Amz-Metadata-Directive header is set to "REPLACE", then
-	// srcInfo.UserDefined will be missing s3:etag, so make sure it's copied.
-	metadata["s3:etag"] = existingMetadata["s3:etag"]
-}
-
-// checkBucketError will stat the bucket if the provided error is not nil, in
-// order to check if the proper error to return is really a bucket not found
-// error. If the satellite has already returned this error, do not make an
-// additional check.
-func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, object string, err error) error {
-	if err != nil && !errors.Is(err, uplink.ErrBucketNotFound) {
-		_, statErr := project.StatBucket(ctx, bucketName)
-		if statErr != nil {
-			return convertError(statErr, bucketName, object)
-		}
-	}
-	return err
-}
-
-func convertError(err error, bucket, object string) error {
+// ConvertError translates Storj-specific err associated with object to
+// MinIO/S3-specific error. It returns nil if err is nil.
+func ConvertError(err error, bucket, object string) error {
 	switch {
 	case err == nil:
 		return nil
@@ -1140,6 +1095,53 @@ func convertError(err error, bucket, object string) error {
 	default:
 		return err
 	}
+}
+
+func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
+	pr, ok := GetUplinkProject(ctx)
+	if !ok {
+		return nil, ConvertError(ErrNoUplinkProject.New("not found"), bucket, object)
+	}
+	return pr, nil
+}
+
+func upsertObjectMetadata(metadata map[string]string, existingMetadata uplink.CustomMetadata) {
+	// if X-Amz-Metadata-Directive header is provided and is set to "REPLACE",
+	// then srcInfo.UserDefined will contain new metadata from the copy request.
+	// If the directive is "COPY", or undefined, the source object's metadata
+	// will be contained in srcInfo.UserDefined instead. This is done by the
+	// caller handler in minio.
+
+	// if X-Amz-Tagging-Directive is set to "REPLACE", we need to set the copied
+	// object's tags to the tags provided in the copy request. If the directive
+	// is "COPY", or undefined, copy over any existing tags from the source
+	// object.
+	if td, ok := metadata[xhttp.AmzTagDirective]; ok && td == "REPLACE" {
+		metadata["s3:tags"] = metadata[xhttp.AmzObjectTagging]
+	} else if tags, ok := existingMetadata["s3:tags"]; ok {
+		metadata["s3:tags"] = tags
+	}
+
+	delete(metadata, xhttp.AmzObjectTagging)
+	delete(metadata, xhttp.AmzTagDirective)
+
+	// if X-Amz-Metadata-Directive header is set to "REPLACE", then
+	// srcInfo.UserDefined will be missing s3:etag, so make sure it's copied.
+	metadata["s3:etag"] = existingMetadata["s3:etag"]
+}
+
+// checkBucketError will stat the bucket if the provided error is not nil, in
+// order to check if the proper error to return is really a bucket not found
+// error. If the satellite has already returned this error, do not make an
+// additional check.
+func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, object string, err error) error {
+	if err != nil && !errors.Is(err, uplink.ErrBucketNotFound) {
+		_, statErr := project.StatBucket(ctx, bucketName)
+		if statErr != nil {
+			return ConvertError(statErr, bucketName, object)
+		}
+	}
+	return err
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {

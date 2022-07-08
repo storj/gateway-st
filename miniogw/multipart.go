@@ -223,7 +223,7 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket, object,
 		}
 	}
 	if list.Err() != nil {
-		return minio.MultipartInfo{}, convertError(list.Err(), bucket, object)
+		return minio.MultipartInfo{}, ConvertError(list.Err(), bucket, object)
 	}
 	return minio.MultipartInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
 }
@@ -416,5 +416,5 @@ func convertMultipartError(err error, bucket, object, uploadID string) error {
 		return minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 	}
 
-	return convertError(err, bucket, object)
+	return ConvertError(err, bucket, object)
 }
