@@ -43,7 +43,7 @@ rclone config create TestS3 s3 \
 
 # get rclone version, and trim "-DEV" suffix if it exists, which is added
 # if installing rclone using `go install` (as in the storjlabs/ci image)
-RCLONE_VERSION=$(rclone version | head -n1 | awk '{ print $2 }')
+RCLONE_VERSION=$(head -n1 <(rclone version) | awk '{ print $2 }')
 RCLONE_VERSION=${RCLONE_VERSION%-DEV}
 
 # test_all uses some code in the rclone repo, so ensure it's checked out
