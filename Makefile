@@ -1,4 +1,4 @@
-GO_VERSION ?= 1.17.5
+GO_VERSION ?= 1.17.12
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 LATEST_DEV_TAG := dev
 
