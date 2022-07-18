@@ -54,7 +54,7 @@ endif
 
 .PHONY: install-hooks
 install-hooks: ## Install helpful Git hooks
-	ln -s .git/hooks/pre-commit githooks/pre-commit
+	ln -s ../../githooks/pre-commit .git/hooks/pre-commit
 
 ##@ Local development/Public Jenkins/Lint
 
