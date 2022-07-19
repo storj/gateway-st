@@ -213,7 +213,7 @@ func (l *singleTenancyLayer) CompleteMultipartUpload(ctx context.Context, bucket
 
 func (l *singleTenancyLayer) GetBucketPolicy(ctx context.Context, bucket string) (*policy.Policy, error) {
 	if !l.website {
-		return &policy.Policy{}, nil
+		return nil, minio.NotImplemented{}
 	}
 
 	// Allow reading any file from any bucket

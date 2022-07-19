@@ -55,20 +55,42 @@ as well as (Get/Put/Delete)ObjectTagging actions.
 For more details on gateway's S3 compatibility, please refer to [Compatibility
 Table](docs/s3-compatibility.md).
 
-We run a fork of the [minio/mint](https://github.com/minio/mint) repository at
-[storj/gateway-mint](https://github.com/storj/gateway-mint/) used to test the
-correctness of the gateway.
+## Testing
+
+### Correctness
+
+A suite of integration tests can be run on the checked out code.
+
+`make integration-run` will start a new integration environment using Docker
+and run all the integration tests.
+
+At the end of the run, you can run `make integration-env-purge` to remove the
+integration environment.
+
+This requires `docker` to be installed on your local machine for this to work.
+
+#### mint
+
+We run mint tests based on MinIO's mint
+([gateway-mint](https://github.com/storj/gateway-mint)) on every commit.
 
 To run the tests:
 
-```shell
-docker run --rm \
-	-e SERVER_ENDPOINT=endpoint_address \
-	-e ACCESS_KEY=myaccesskey \
-	-e SECRET_KEY=mysecretkey \
-	-e ENABLE_HTTPS=0 \
-	storjlabs/gateway-mint
-```
+`make integration-env-start integration-mint-tests`
+
+You can also run a specific test using the `TEST` environment variable:
+
+`TEST=aws-sdk-php make integration-mint-tests`
+
+#### ceph/splunk-s3-tests
+
+We run S3 tests based on Splunk's fork (which is better suited for us) of
+Ceph's S3 tests ([splunk-s3-tests](https://github.com/storj/splunk-s3-tests)) on
+every commit.
+
+To run the tests:
+
+`make integration-env-start integration-splunk-tests`
 
 ## License
 
