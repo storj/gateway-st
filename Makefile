@@ -222,7 +222,7 @@ push-images: ## Push Docker images to Docker Hub
 			storjlabs/$$c:${TAG}-arm64v8 \
 			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-amd64 --os linux --arch amd64 \
 			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-arm32v6 --os linux --arch arm --variant v6 \
-			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-arm64v8 --os linux --arch arm64 \
+			&& docker manifest annotate storjlabs/$$c:$$t storjlabs/$$c:${TAG}-arm64v8 --os linux --arch arm64 --variant v8 \
 			&& docker manifest push --purge storjlabs/$$c:$$t \
 		; done \
 	; done
