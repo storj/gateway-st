@@ -178,7 +178,7 @@ pipeline {
                                     }
                                 }
                             }
-                            ['aws-sdk-go', 'aws-sdk-java', 'awscli', 'minio-go', 's3cmd'].each { test ->
+                            ['aws-sdk-go', 'aws-sdk-java', 'awscli', 'minio-go', 's3cmd', 's3select'].each { test ->
                                 tests["mint-test ${test}"] = {
                                     stage("mint-test ${test}") {
                                         sh "TEST=${test} make integration-mint-tests"
