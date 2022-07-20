@@ -143,8 +143,8 @@ similar to what `ListObjects` does with arbitrary prefixes and delimiters is not
 supported.
 
 `UploadIdMarker` and `NextUploadIdMarker` are not supported. This is used to
-filter out uploads that come before the given upload ID marker. This is tracked at
-[storj/gateway-mt#213](https://github.com/storj/gateway-mt/issues/213)
+filter out uploads that come before the given upload ID marker. This is tracked
+at [storj/gateway-mt#213](https://github.com/storj/gateway-mt/issues/213)
 
 Multiple pending uploads with the same key are not supported. Any upload created
 with the same key will overwrite any existing pending uploads with the same key,
@@ -154,10 +154,12 @@ and this endpoint will only return one upload per key. This is tracked at
 ### PutObject/CreateMultipartUpload
 
 PutObject and CreateMultipartUpload do not have strong consistency, as described
-in [AWS S3 data consistency model](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel).
+in [AWS S3 data consistency
+model](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel).
 If multiple clients or requests are putting an object to the same key, this can
 result in "object already exists" errors being returned. There are some plans to
-improve object consistency in [storj/storj#4788](https://github.com/storj/storj/issues/4788).
+improve object consistency in
+[storj/storj#4788](https://github.com/storj/storj/issues/4788).
 
 ### ACL-related actions
 

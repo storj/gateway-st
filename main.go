@@ -60,7 +60,7 @@ var (
 	// rootCmd represents the base gateway command when called without any subcommands.
 	rootCmd = &cobra.Command{
 		Use:   "gateway",
-		Short: "The Storj client-side S3 gateway",
+		Short: "Single-tenant, S3-compatible gateway to Storj DCS",
 		Args:  cobra.OnlyValidArgs,
 	}
 	setupCmd = &cobra.Command{
