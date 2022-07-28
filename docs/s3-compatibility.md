@@ -242,3 +242,96 @@ upload: ./file to s3://bucket/object
 
 The value under `X-Amz-Meta-Storj-Expires` has priority over the value under
 `X-Minio-Meta-Storj-Expires`.
+
+### ListBucketsWithAttribution (Gateway-MT only)
+
+An alternate response of the S3 ListBuckets API endpoint which includes Attribution in the Bucket XML element.
+Other than the addition of Attribution in the response the endpoint behavior is the same as ListBuckets.
+
+#### Request Syntax
+
+```http
+GET /?attribution HTTP/1.1
+Host: gateway.storjshare.io
+```
+
+#### Response Syntax
+
+```http
+HTTP/1.1 200
+<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult>
+   <Buckets>
+      <Bucket>
+         <Attribution>string</Attribution>
+         <CreationDate>timestamp</CreationDate>
+         <Name>string</Name>
+      </Bucket>
+   </Buckets>
+   <Owner>
+      <DisplayName>string</DisplayName>
+      <ID>string</ID>
+   </Owner>
+</ListAllMyBucketsResult>
+```
+
+#### Example
+
+This sample code works with the AWS SDK for Go and derives from ListBuckets a call to ListBucketsWithAttribution.
+
+```go
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+)
+
+type BucketWithAttribution struct {
+	_            struct{}   `type:"structure"`
+	CreationDate *time.Time `type:"timestamp"`
+	Name         *string    `type:"string"`
+	Attribution  *string    `type:"string"`
+}
+
+type ListBucketsWithAttributionOutput struct {
+	_       struct{}                 `type:"structure"`
+	Buckets []*BucketWithAttribution `locationNameList:"Bucket" type:"list"`
+	Owner   *s3.Owner                `type:"structure"`
+}
+
+func main() {
+	// Note: YOUR-ACCESSKEYID and YOUR-SECRETACCESSKEY are example values, please replace them with your keys.
+	creds := credentials.NewCredentials(&credentials.StaticProvider{
+		Value: credentials.Value{
+			AccessKeyID:     "YOUR_ACCESSKEYID",
+			SecretAccessKey: "YOUR_SECRETACCESSKEY",
+		}})
+
+	ses := session.Must(session.NewSession(aws.NewConfig().WithCredentials(creds).WithRegion("eu1").WithEndpoint("https://gateway.storjshare.io")))
+	svc := s3.New(ses)
+
+	op := &request.Operation{
+		Name:       "ListBuckets",
+		HTTPMethod: "GET",
+		HTTPPath:   "/?attribution",
+	}
+
+	output := &ListBucketsWithAttributionOutput{}
+
+	req := svc.NewRequest(op, &s3.ListBucketsInput{}, output)
+
+	if err := req.Send(); err != nil {
+		panic(err)
+	}
+
+	fmt.Println(awsutil.Prettify(output))
+}
+```
