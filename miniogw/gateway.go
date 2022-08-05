@@ -462,13 +462,17 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	// have to comply with (*uplink.Project).ListObjects' API.
 	var listPrefix string
 
-	if strings.HasSuffix(prefix, "/") {
-		listPrefix = prefix
+	// There is a good chance we don't need to list the entire bucket if the
+	// prefix contains forward slashes! If it does, let's list from the last
+	// one. If the satellite doesn't give us anything after that chopped-off
+	// prefix, we won't return anything anyway.
+	if i := strings.LastIndex(prefix, "/"); i != -1 {
+		listPrefix = prefix[:i] + "/"
 	}
 
 	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 		Prefix:    listPrefix,
-		Recursive: delimiter != "/" || (strings.Contains(prefix, "/") && !strings.HasSuffix(prefix, "/")),
+		Recursive: delimiter != "/",
 		System:    true,
 		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
 	})
