@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sort"
 	"strings"
 	"testing"
@@ -494,7 +493,7 @@ func TestGetObjectNInfo(t *testing.T) {
 			if tt.err {
 				assert.Error(t, err, errTag)
 			} else if assert.NoError(t, err) {
-				data, err := ioutil.ReadAll(reader)
+				data, err := io.ReadAll(reader)
 				require.NoError(t, err, errTag)
 
 				err = reader.Close()
@@ -3848,12 +3847,12 @@ func TestProjectUsageLimit(t *testing.T) {
 		time.Sleep(10 * time.Second)
 		// We'll be able to download 5X before reach the limit.
 		for i := 0; i < 5; i++ {
-			err = minio.GetObject(ctxWithProject, layer, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
+			err = minio.GetObject(ctxWithProject, layer, "testbucket", "test/path1", 0, -1, io.Discard, "", minio.ObjectOptions{})
 			require.NoError(t, err)
 		}
 
 		// An extra download should return 'Exceeded Usage Limit' error
-		err = minio.GetObject(ctxWithProject, layer, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
+		err = minio.GetObject(ctxWithProject, layer, "testbucket", "test/path1", 0, -1, io.Discard, "", minio.ObjectOptions{})
 		require.Error(t, err)
 		require.ErrorIs(t, err, miniogw.ErrBandwidthLimitExceeded)
 
@@ -3863,7 +3862,7 @@ func TestProjectUsageLimit(t *testing.T) {
 		})
 
 		// Should not return an error since it's a new month
-		err = minio.GetObject(ctxWithProject, layer, "testbucket", "test/path1", 0, -1, ioutil.Discard, "", minio.ObjectOptions{})
+		err = minio.GetObject(ctxWithProject, layer, "testbucket", "test/path1", 0, -1, io.Discard, "", minio.ObjectOptions{})
 		require.NoError(t, err)
 	})
 }

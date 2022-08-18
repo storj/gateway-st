@@ -8,7 +8,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os/exec"
@@ -127,7 +127,7 @@ func TestUploadDownload(t *testing.T) {
 				response, err = httpGet(ctx, fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, response.StatusCode)
-				readData, err := ioutil.ReadAll(response.Body)
+				readData, err := io.ReadAll(response.Body)
 				require.NoError(t, err)
 				require.Equal(t, data, readData)
 				require.NoError(t, response.Body.Close())

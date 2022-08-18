@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"io/ioutil"
 
 	minio "github.com/minio/minio-go/v6"
 	"github.com/zeebo/errs"
@@ -127,7 +126,7 @@ func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte,
 
 	n, err := reader.Read(buffer[:cap(buffer)])
 	if !errors.Is(err, io.EOF) {
-		rest, err := ioutil.ReadAll(reader)
+		rest, err := io.ReadAll(reader)
 		if errors.Is(err, io.EOF) {
 			err = nil
 		}
