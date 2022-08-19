@@ -2685,9 +2685,9 @@ func TestStorageClassSupport(t *testing.T) {
 			opts := minio.ObjectOptions{UserDefined: userDefined}
 			info := minio.ObjectInfo{UserDefined: userDefined}
 
-			_, errPutObject := layer.PutObject(ctx, "b", "o", nil, opts)
-			_, errNewMultipartUpload := layer.NewMultipartUpload(ctx, "b", "o", opts)
-			_, errCopyObject := layer.CopyObject(ctx, "sb", "so", "db", "do", info, minio.ObjectOptions{}, minio.ObjectOptions{})
+			_, errPutObject := layer.PutObject(ctx, "test-a", "o", nil, opts)
+			_, errNewMultipartUpload := layer.NewMultipartUpload(ctx, "test-a", "o", opts)
+			_, errCopyObject := layer.CopyObject(ctx, "test-a", "so", "test-b", "do", info, minio.ObjectOptions{}, minio.ObjectOptions{})
 
 			if class != storageclass.STANDARD {
 				assert.ErrorIs(t, errPutObject, minio.NotImplemented{Message: apiPutObjectStorageClass})
@@ -3651,6 +3651,85 @@ func TestObjectNameTooLong(t *testing.T) {
 
 		_, err = layer.CopyObject(ctx, "", "", bucket, object, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
 		require.ErrorIs(t, err, minio.ObjectNameTooLong{Bucket: bucket, Object: object})
+	})
+}
+
+func TestBucketNameInvalid(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		for _, bucket := range []string{
+			"",
+			"test.",
+			"-test",
+			"test-",
+			"!test",
+			"Test",
+			"a",
+			".",
+			"1.1.1.1",
+			string(testrand.Bytes(memory.KiB + 1)),
+		} {
+			require.ErrorIs(t, layer.MakeBucketWithLocation(ctx, bucket, minio.BucketOptions{}),
+				minio.BucketNameInvalid{Bucket: bucket}, bucket,
+				bucket)
+
+			require.ErrorIs(t, layer.DeleteBucket(ctx, bucket, false),
+				minio.BucketNameInvalid{Bucket: bucket},
+				bucket)
+
+			_, err := layer.ListObjects(ctx, bucket, "", "", "", 1000)
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.ListObjectsV2(ctx, bucket, "", "", "", 1000, false, "")
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.GetObjectNInfo(ctx, bucket, "test", nil, nil, 0, minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.GetObjectInfo(ctx, bucket, "test", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.PutObject(ctx, bucket, "test", nil, minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.CopyObject(ctx, bucket, "test", "test", "test", minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.CopyObject(ctx, "test", "test", bucket, "test", minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.DeleteObject(ctx, bucket, "test", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.PutObjectTags(ctx, bucket, "test", "", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.GetObjectTags(ctx, bucket, "test", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.DeleteObjectTags(ctx, bucket, "test", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.ListMultipartUploads(ctx, bucket, "", "", "", "", 1000)
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.NewMultipartUpload(ctx, bucket, "test", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.GetMultipartInfo(ctx, bucket, "test", "", minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			_, err = layer.ListObjectParts(ctx, bucket, "test", "", 0, 1000, minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+
+			require.ErrorIs(t, layer.AbortMultipartUpload(ctx, bucket, "test", "", minio.ObjectOptions{}),
+				minio.BucketNameInvalid{Bucket: bucket},
+				bucket)
+
+			_, err = layer.CompleteMultipartUpload(ctx, bucket, "test", "", []minio.CompletePart{}, minio.ObjectOptions{})
+			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
+		}
 	})
 }
 
