@@ -3948,26 +3948,16 @@ func TestProjectUsageLimit(t *testing.T) {
 
 // TestSlowDown tests whether uplink.ErrTooManyRequests error converts to
 // ErrSlowDown correctly.
-//
-// It assumes that the test's body will execute in less than a second. It has
-// the potential to be flaky in that regard, so it's not executed in parallel
-// with other tests.
 func TestSlowDown(t *testing.T) {
+	t.Parallel()
+
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount:   1,
 		StorageNodeCount: 0,
 		UplinkCount:      1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				// Metainfo's rate limiter adds Rate per second to the token
-				// bucket and has a bucket size of Rate. We need to trigger rate
-				// limitation response with some call to object API layer (like
-				// MakeBucketWithLocation), but setupAccess needs one token.
-				// After setupAccess burns through the bucket of size one, we
-				// rely on the assumption that the rest of the test executes in
-				// under one second, as this will allow us to get rate limited
-				// in the next call.
-				config.Metainfo.RateLimiter.Rate = 1
+				config.Metainfo.RateLimiter.Rate = 0
 			},
 		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
