@@ -21,7 +21,7 @@ export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:=$GATEWAY_0_SECRET_KEY}
 TMPDIR=$(mktemp -d -t tmp.XXXXXXXXXX)
 cleanup(){
     umount "$MOUNT_DST_DIR"
-    kill -SIGTERM "$S3FS_PID"
+    kill -SIGTERM "$S3FS_PID" || true
     rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
