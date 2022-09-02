@@ -118,7 +118,16 @@ aws s3 --endpoint="$AWS_ENDPOINT" --no-progress cp s3://$BUCKET/big-testfile-mov
 require_equal_files_content "$SRC_DIR/big-upload-testfile" "$DST_DIR/big-download-testfile-moved"
 
 # cleanup
-aws s3 --endpoint "$AWS_ENDPOINT" rb "s3://$BUCKET" --force
+#
+# NOTE(artur): because AWS CLI does parallel deletes, this causes problems for
+# copied files (storj/storj#4745). To avoid that, we delete files sequentially
+# and delete the bucket non-forcefully.
+aws s3 --endpoint "$AWS_ENDPOINT" rm "s3://$BUCKET/big-testfile"
+aws s3 --endpoint "$AWS_ENDPOINT" rm "s3://$BUCKET/big-testfile-copy"
+aws s3 --endpoint "$AWS_ENDPOINT" rm "s3://$BUCKET/big-testfile-moved"
+aws s3 --endpoint "$AWS_ENDPOINT" rm "s3://$BUCKET/small-testfile"
+aws s3 --endpoint "$AWS_ENDPOINT" rm "s3://$BUCKET/multipart-testfile"
+aws s3 --endpoint "$AWS_ENDPOINT" rb "s3://$BUCKET"
 
 echo "Creating Bucket for sync test"
 aws s3 --endpoint "$AWS_ENDPOINT" mb "s3://$BUCKET_SYNC"
