@@ -30,7 +30,7 @@ S3 Compatibility
 | GetBucketAccelerateConfiguration            | No      | No                                                           |                                                     |
 | GetBucketAcl                                | No      | No                                                           |                                                     |
 | GetBucketAnalyticsConfiguration             | No      | No                                                           |                                                     |
-| GetBucketCors                               | No      | No                                                           |                                                     |
+| GetBucketCors                               | Partial      | No                                                           |    See GetBucketCors section below                                                 |
 | GetBucketEncryption                         | No      | No                                                           |                                                     |
 | GetBucketIntelligentTieringConfiguration    | No      | No                                                           |                                                     |
 | GetBucketInventoryConfiguration             | No      | No                                                           |                                                     |
@@ -166,6 +166,26 @@ improve object consistency in
 [Secure access control in the decentralized
 cloud](https://www.storj.io/blog/secure-access-control-in-the-decentralized-cloud)
 is a good read for why we don't support ACL-related actions.
+
+### GetBucketCors
+While the `GetBucketCors` method is supported, `PutBucketCors` and `DeleteBucketCors` are not available. The response body returned when making a `GetBucketCors` request will always be the following:
+
+```xml
+<CORSConfiguration>
+    <CORSRule>
+        <AllowedOrigin>*</AllowedOrigin>
+        <AllowedMethod>GET</AllowedMethod>
+        <AllowedMethod>PUT</AllowedMethod>
+        <AllowedMethod>HEAD</AllowedMethod>
+        <AllowedMethod>POST</AllowedMethod>
+        <AllowedMethod>DELETE</AllowedMethod>
+        <AllowedMethod>OPTIONS</AllowedMethod>
+        <AllowedMethod>PATCH</AllowedMethod>
+        <AllowedHeader>*</AllowedHeader>
+        <ExposeHeader>*</ExposeHeader>
+    </CORSRule>
+</CORSConfiguration>
+```
 
 ## Limits
 
