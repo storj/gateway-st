@@ -767,7 +767,9 @@ func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *uplink.DownloadO
 			Length: -1,
 		}, nil
 	default:
-		return nil, errs.New("Unexpected range specification case: %#v", rs)
+		// note: we do not specify ResourceSize here because that would require
+		// an additional stat call to get the ContentLength from metadata.
+		return nil, minio.InvalidRange{OffsetBegin: rs.Start, OffsetEnd: rs.End}
 	}
 }
 
