@@ -13,10 +13,10 @@ require (
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
-	storj.io/common v0.0.0-20220919132116-2cec0a7d54e2
+	storj.io/common v0.0.0-20221019194537-83504d6cb1c1
 	storj.io/minio v0.0.0-20220404203534-ae15cc41053b
 	storj.io/private v0.0.0-20221019181214-bb056017e937
-	storj.io/uplink v1.9.1-0.20220914125355-1fd9e5347768
+	storj.io/uplink v1.9.1-0.20221019010609-a7cb5aecc981
 )
 
 require (

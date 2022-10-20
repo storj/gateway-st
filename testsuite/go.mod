@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	storj.io/common v0.0.0-20220919132116-2cec0a7d54e2
+	storj.io/common v0.0.0-20221019194537-83504d6cb1c1
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20220404203534-ae15cc41053b
-	storj.io/storj v0.12.1-0.20220922103230-0bfaadcc6cc1
-	storj.io/uplink v1.9.1-0.20220914125355-1fd9e5347768
+	storj.io/storj v0.12.1-0.20221020142234-56128b972b0a
+	storj.io/uplink v1.9.1-0.20221019010609-a7cb5aecc981
 )
 
 require (
@@ -94,7 +94,8 @@ require (
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/jtolds/monkit-hw/v2 v2.0.0-20191108235325-141a0da276b3 // indirect
 	github.com/jtolds/tracetagger/v2 v2.0.0-rc5 // indirect
-	github.com/klauspost/compress v1.13.4 // indirect
+	github.com/jtolio/eventkit v0.0.0-20221007130042-690145affff8 // indirect
+	github.com/klauspost/compress v1.15.10 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
@@ -175,7 +176,6 @@ require (
 	github.com/xtgo/uuid v0.0.0-20140804021211-a0b114877d4c // indirect
 	github.com/yuin/gopher-lua v0.0.0-20191220021717-ab39c6098bdb // indirect
 	github.com/zeebo/admission/v3 v3.0.3 // indirect
-	github.com/zeebo/assert v1.3.1 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	github.com/zeebo/float16 v0.1.0 // indirect
 	github.com/zeebo/incenc v0.0.0-20180505221441-0d92902eec54 // indirect
