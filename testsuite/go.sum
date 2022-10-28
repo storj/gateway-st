@@ -1606,5 +1606,6 @@ storj.io/private v0.0.0-20221019181214-bb056017e937 h1:CiBqgB4qdVEzsNhMMX0ihdRbY
 storj.io/private v0.0.0-20221019181214-bb056017e937/go.mod h1:hc63X333SVJ3UrOxXpGN4VnwqnmbWgAHln3wYJ8AroI=
 storj.io/storj v0.12.1-0.20221020142234-56128b972b0a h1:vy1xVUUWpt/iqJve/pwALWxiGLZwAIjnBI7UoLt/Xho=
 storj.io/storj v0.12.1-0.20221020142234-56128b972b0a/go.mod h1:zyNfnAvFFL1ktBZLUojWMqTVfS7hz0eG0n1YKsN8K68=
-storj.io/uplink v1.9.1-0.20221019010609-a7cb5aecc981 h1:4zgXrWodAnq3fjuBxn8FRT3EeblN4xkaSgEOkPJbJpU=
 storj.io/uplink v1.9.1-0.20221019010609-a7cb5aecc981/go.mod h1:GFXg/hWi64mk1BG/oE8rPIlzk5iwbEg+TVyb37DxUtA=
+storj.io/uplink v1.9.1-0.20221028140107-e37234d89ffd h1:K7FjQcWUr5WnOijD4LJVyVz4gGl6i8gbLNRW4SJPgr4=
+storj.io/uplink v1.9.1-0.20221028140107-e37234d89ffd/go.mod h1:GFXg/hWi64mk1BG/oE8rPIlzk5iwbEg+TVyb37DxUtA=
