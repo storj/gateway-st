@@ -52,6 +52,8 @@ func (a AccessConfig) GetAccess() (_ *uplink.Access, err error) {
 // GetNamedAccess returns named access if exists.
 func (a AccessConfig) GetNamedAccess(name string) (_ *uplink.Access, err error) {
 	// if an access exists for that name, try to load it.
+	defer mon.Task()(nil)(&err)
+
 	if data, ok := a.Accesses[name]; ok {
 		return uplink.ParseAccess(data)
 	}
