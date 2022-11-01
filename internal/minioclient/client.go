@@ -13,9 +13,11 @@ import (
 	"github.com/zeebo/errs"
 )
 
-// MinioError is class for minio errors.
-var MinioError = errs.Class("minio error")
-var mon = monkit.Package()
+var (
+	// MinioError is class for minio errors.
+	MinioError = errs.Class("minio error")
+	mon        = monkit.Package()
+)
 
 // Config is the setup for a particular client.
 type Config struct {
@@ -129,7 +131,7 @@ func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, par
 }
 
 // Download downloads object data.
-func (client *Minio) Download(bucket, objectName string, buffer []byte) (buf []byte, err error) {
+func (client *Minio) Download(bucket, objectName string, buffer []byte) (_ []byte, err error) {
 	defer mon.Task()(nil)(&err)
 
 	reader, err := client.API.GetObject(bucket, objectName, minio.GetObjectOptions{})
