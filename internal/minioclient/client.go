@@ -88,7 +88,6 @@ func (client *Minio) ListBuckets() (names []string, err error) {
 		return nil, MinioError.Wrap(err)
 	}
 
-	names = []string{}
 	for _, bucket := range buckets {
 		names = append(names, bucket.Name)
 	}
@@ -175,7 +174,6 @@ func (client *Minio) ListObjects(bucket, prefix string) (names []string, err err
 	doneCh := make(chan struct{})
 	defer close(doneCh)
 
-	names = []string{}
 	for message := range client.API.ListObjects(bucket, prefix, false, doneCh) {
 		names = append(names, message.Key)
 	}
