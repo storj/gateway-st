@@ -356,14 +356,15 @@ func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, ov
 		process.SaveConfigRemovingDeprecated()))
 }
 
-/*	`setUsageFunc` is a bit unconventional but cobra didn't leave much room for
-	extensibility here. `cmd.SetUsageTemplate` is fairly useless for our case without
-	the ability to add to the template's function map (see: https://golang.org/pkg/text/template/#hdr-Functions).
+/*
+`setUsageFunc` is a bit unconventional but cobra didn't leave much room for
+extensibility here. `cmd.SetUsageTemplate` is fairly useless for our case without
+the ability to add to the template's function map (see: https://golang.org/pkg/text/template/#hdr-Functions).
 
-	Because we can't alter what `cmd.Usage` generates, we have to edit it afterwards.
-	In order to hook this function *and* get the usage string, we have to juggle the
-	`cmd.usageFunc` between our hook and `nil`, so that we can get the usage string
-	from the default usage func.
+Because we can't alter what `cmd.Usage` generates, we have to edit it afterwards.
+In order to hook this function *and* get the usage string, we have to juggle the
+`cmd.usageFunc` between our hook and `nil`, so that we can get the usage string
+from the default usage func.
 */
 func setUsageFunc(cmd *cobra.Command) {
 	if findBoolFlagEarly("advanced") {
