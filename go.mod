@@ -1,6 +1,6 @@
 module storj.io/gateway
 
-go 1.17
+go 1.18
 
 require (
 	github.com/minio/cli v1.22.0
@@ -13,10 +13,10 @@ require (
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
-	storj.io/common v0.0.0-20221019194537-83504d6cb1c1
+	storj.io/common v0.0.0-20221101132628-f2f1c7a50597
 	storj.io/minio v0.0.0-20220404203534-ae15cc41053b
-	storj.io/private v0.0.0-20221019181214-bb056017e937
-	storj.io/uplink v1.9.1-0.20221028140107-e37234d89ffd
+	storj.io/private v0.0.0-20221102175440-7c84ef61baa5
+	storj.io/uplink v1.9.1-0.20221107144433-bc7119be2b18
 )
 
 require (

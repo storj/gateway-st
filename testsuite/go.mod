@@ -1,6 +1,6 @@
 module storj.io/gateway/testsuite
 
-go 1.17
+go 1.18
 
 replace storj.io/gateway => ../
 
@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	storj.io/common v0.0.0-20221019194537-83504d6cb1c1
+	storj.io/common v0.0.0-20221101132628-f2f1c7a50597
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20220404203534-ae15cc41053b
-	storj.io/storj v0.12.1-0.20221020142234-56128b972b0a
-	storj.io/uplink v1.9.1-0.20221028140107-e37234d89ffd
+	storj.io/storj v0.12.1-0.20221107134831-e4fab975ad9c
+	storj.io/uplink v1.9.1-0.20221107144433-bc7119be2b18
 )
 
 require (
@@ -210,5 +210,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
 	storj.io/drpc v0.0.32 // indirect
 	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
-	storj.io/private v0.0.0-20221019181214-bb056017e937 // indirect
+	storj.io/private v0.0.0-20221102175440-7c84ef61baa5 // indirect
 )
