@@ -9,11 +9,15 @@ import (
 	"io"
 
 	minio "github.com/minio/minio-go/v6"
+	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 )
 
-// MinioError is class for minio errors.
-var MinioError = errs.Class("minio error")
+var (
+	// MinioError is class for minio errors.
+	MinioError = errs.Class("minio error")
+	mon        = monkit.Package()
+)
 
 // Config is the setup for a particular client.
 type Config struct {
@@ -54,8 +58,10 @@ func NewMinio(conf Config) (Client, error) {
 }
 
 // MakeBucket makes a new bucket.
-func (client *Minio) MakeBucket(bucket, location string) error {
-	err := client.API.MakeBucket(bucket, location)
+func (client *Minio) MakeBucket(bucket, location string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	err = client.API.MakeBucket(bucket, location)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -63,8 +69,10 @@ func (client *Minio) MakeBucket(bucket, location string) error {
 }
 
 // RemoveBucket removes a bucket.
-func (client *Minio) RemoveBucket(bucket string) error {
-	err := client.API.RemoveBucket(bucket)
+func (client *Minio) RemoveBucket(bucket string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	err = client.API.RemoveBucket(bucket)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -72,13 +80,14 @@ func (client *Minio) RemoveBucket(bucket string) error {
 }
 
 // ListBuckets lists all buckets.
-func (client *Minio) ListBuckets() ([]string, error) {
+func (client *Minio) ListBuckets() (names []string, err error) {
+	defer mon.Task()(nil)(&err)
+
 	buckets, err := client.API.ListBuckets()
 	if err != nil {
 		return nil, MinioError.Wrap(err)
 	}
 
-	names := []string{}
 	for _, bucket := range buckets {
 		names = append(names, bucket.Name)
 	}
@@ -86,8 +95,10 @@ func (client *Minio) ListBuckets() ([]string, error) {
 }
 
 // Upload uploads object data to the specified path.
-func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map[string]string) error {
-	_, err := client.API.PutObject(
+func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map[string]string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	_, err = client.API.PutObject(
 		bucket, objectName,
 		bytes.NewReader(data), int64(len(data)),
 		minio.PutObjectOptions{
@@ -101,8 +112,10 @@ func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map
 }
 
 // UploadMultipart uses multipart uploads, has hardcoded threshold.
-func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int, metadata map[string]string) error {
-	_, err := client.API.PutObject(
+func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int, metadata map[string]string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	_, err = client.API.PutObject(
 		bucket, objectName,
 		bytes.NewReader(data), -1,
 		minio.PutObjectOptions{
@@ -117,7 +130,9 @@ func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, par
 }
 
 // Download downloads object data.
-func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte, error) {
+func (client *Minio) Download(bucket, objectName string, buffer []byte) (_ []byte, err error) {
+	defer mon.Task()(nil)(&err)
+
 	reader, err := client.API.GetObject(bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, MinioError.Wrap(err)
@@ -142,8 +157,10 @@ func (client *Minio) Download(bucket, objectName string, buffer []byte) ([]byte,
 }
 
 // Delete deletes object.
-func (client *Minio) Delete(bucket, objectName string) error {
-	err := client.API.RemoveObject(bucket, objectName)
+func (client *Minio) Delete(bucket, objectName string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	err = client.API.RemoveObject(bucket, objectName)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -151,11 +168,12 @@ func (client *Minio) Delete(bucket, objectName string) error {
 }
 
 // ListObjects lists objects.
-func (client *Minio) ListObjects(bucket, prefix string) ([]string, error) {
+func (client *Minio) ListObjects(bucket, prefix string) (names []string, err error) {
+	defer mon.Task()(nil)(&err)
+
 	doneCh := make(chan struct{})
 	defer close(doneCh)
 
-	names := []string{}
 	for message := range client.API.ListObjects(bucket, prefix, false, doneCh) {
 		names = append(names, message.Key)
 	}
