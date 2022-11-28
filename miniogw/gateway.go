@@ -7,8 +7,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"go.opentelemetry.io/otel"
 	"io"
 	"net/http"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -16,7 +19,6 @@ import (
 
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
-	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 
 	"storj.io/common/memory"
@@ -31,8 +33,6 @@ import (
 )
 
 var (
-	mon = monkit.Package()
-
 	// ErrBandwidthLimitExceeded is a custom error for when a user has reached their
 	// Satellite bandwidth limit.
 	//
@@ -150,7 +150,9 @@ func (layer *gatewayLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, 
 }
 
 func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) (err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.BucketNameInvalid{Bucket: bucket}
@@ -167,7 +169,9 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucket st
 }
 
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucketName); err != nil {
 		return minio.BucketInfo{}, minio.BucketNameInvalid{Bucket: bucketName}
@@ -190,7 +194,9 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 }
 
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	project, err := projectFromContext(ctx, "", "")
 	if err != nil {
@@ -212,7 +218,9 @@ func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.Bucke
 }
 
 func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) (err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.BucketNameInvalid{Bucket: bucket}
@@ -257,7 +265,9 @@ func (layer *gatewayLayer) listObjectsFast(
 	nextContinuationToken string,
 	err error,
 ) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	after := startAfter
 
@@ -318,7 +328,9 @@ func (layer *gatewayLayer) listObjectsSingle(
 	nextContinuationToken string,
 	err error,
 ) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	after := startAfter
 
@@ -467,7 +479,9 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	nextContinuationToken string,
 	err error,
 ) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	// Filling Prefix and Recursive are a few optimizations that try to make
 	// exhaustive listing less resource-intensive if it's possible. We still
@@ -595,7 +609,9 @@ func (layer *gatewayLayer) listObjectsGeneral(
 	maxKeys int,
 	startAfter string,
 ) (_ minio.ListObjectsV2Info, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	var (
 		prefixes []string
@@ -665,7 +681,9 @@ func (layer *gatewayLayer) listObjectsGeneral(
 // delimiter request parameter specified; MinIO always returns NextMarker.
 // ListObjects does what MinIO does.
 func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (_ minio.ListObjectsInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -691,7 +709,9 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, mark
 
 // ListObjectsV2 calls listObjectsGeneral.
 func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (_ minio.ListObjectsV2Info, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ListObjectsV2Info{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -708,7 +728,9 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 }
 
 func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return nil, minio.BucketNameInvalid{Bucket: bucket}
@@ -774,7 +796,9 @@ func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *uplink.DownloadO
 }
 
 func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -796,7 +820,9 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 }
 
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -870,7 +896,9 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 }
 
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	srcAndDestSame := srcBucket == destBucket && srcObject == destObject
 
@@ -962,7 +990,9 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 }
 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -1010,7 +1040,9 @@ func (layer *gatewayLayer) IsTaggingSupported() bool {
 }
 
 func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath string, tags string, opts minio.ObjectOptions) (_ minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -1048,7 +1080,9 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 }
 
 func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return nil, minio.BucketNameInvalid{Bucket: bucket}
@@ -1075,7 +1109,9 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath
 }
 
 func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (_ minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -1145,7 +1181,9 @@ func ConvertError(err error, bucket, object string) error {
 		//
 		// TODO(artur): what other information we should add to the monkit
 		// event?
-		mon.Event("connection reset by peer")
+		_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), "ConvertError")
+		span.AddEvent("connection reset by peer")
+		span.End()
 		// There's not much we can do at this point but report that we won't
 		// continue with this request.
 		return minio.OperationTimedOut{}

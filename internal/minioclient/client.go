@@ -5,18 +5,20 @@ package minioclient
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"go.opentelemetry.io/otel"
 	"io"
+	"os"
+	"runtime"
 
 	minio "github.com/minio/minio-go/v6"
-	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 )
 
 var (
 	// MinioError is class for minio errors.
 	MinioError = errs.Class("minio error")
-	mon        = monkit.Package()
 )
 
 // Config is the setup for a particular client.
@@ -59,7 +61,9 @@ func NewMinio(conf Config) (Client, error) {
 
 // MakeBucket makes a new bucket.
 func (client *Minio) MakeBucket(bucket, location string) (err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	err = client.API.MakeBucket(bucket, location)
 	if err != nil {
@@ -70,7 +74,9 @@ func (client *Minio) MakeBucket(bucket, location string) (err error) {
 
 // RemoveBucket removes a bucket.
 func (client *Minio) RemoveBucket(bucket string) (err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	err = client.API.RemoveBucket(bucket)
 	if err != nil {
@@ -81,7 +87,9 @@ func (client *Minio) RemoveBucket(bucket string) (err error) {
 
 // ListBuckets lists all buckets.
 func (client *Minio) ListBuckets() (names []string, err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	buckets, err := client.API.ListBuckets()
 	if err != nil {
@@ -96,7 +104,9 @@ func (client *Minio) ListBuckets() (names []string, err error) {
 
 // Upload uploads object data to the specified path.
 func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map[string]string) (err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	_, err = client.API.PutObject(
 		bucket, objectName,
@@ -113,7 +123,9 @@ func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map
 
 // UploadMultipart uses multipart uploads, has hardcoded threshold.
 func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int, metadata map[string]string) (err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	_, err = client.API.PutObject(
 		bucket, objectName,
@@ -131,7 +143,9 @@ func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, par
 
 // Download downloads object data.
 func (client *Minio) Download(bucket, objectName string, buffer []byte) (_ []byte, err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	reader, err := client.API.GetObject(bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
@@ -158,7 +172,9 @@ func (client *Minio) Download(bucket, objectName string, buffer []byte) (_ []byt
 
 // Delete deletes object.
 func (client *Minio) Delete(bucket, objectName string) (err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	err = client.API.RemoveObject(bucket, objectName)
 	if err != nil {
@@ -169,7 +185,9 @@ func (client *Minio) Delete(bucket, objectName string) (err error) {
 
 // ListObjects lists objects.
 func (client *Minio) ListObjects(bucket, prefix string) (names []string, err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	doneCh := make(chan struct{})
 	defer close(doneCh)

@@ -5,7 +5,10 @@ package miniogw
 
 import (
 	"context"
+	"go.opentelemetry.io/otel"
+	"os"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/zeebo/errs"
@@ -18,7 +21,9 @@ var ipRegexp = regexp.MustCompile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[
 // is the source of truth for these rules, and any changes there need to also be
 // made here.
 func validateBucket(ctx context.Context, bucket string) (err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if len(bucket) == 0 {
 		return errs.New("no bucket specified")

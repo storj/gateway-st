@@ -4,14 +4,14 @@
 package main
 
 import (
+	"context"
+	"go.opentelemetry.io/otel"
+	"os"
+	"runtime"
 	"time"
-
-	"github.com/spacemonkeygo/monkit/v3"
 
 	"storj.io/uplink"
 )
-
-var mon = monkit.Package()
 
 // ClientConfig is a configuration struct for the uplink that controls how
 // to talk to the rest of the network.
@@ -35,7 +35,9 @@ type AccessConfig struct {
 
 // GetAccess returns the appropriate access for the config.
 func (a AccessConfig) GetAccess() (_ *uplink.Access, err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	access, err := a.GetNamedAccess(a.Access)
 	if err != nil {
@@ -51,7 +53,9 @@ func (a AccessConfig) GetAccess() (_ *uplink.Access, err error) {
 
 // GetNamedAccess returns named access if exists.
 func (a AccessConfig) GetNamedAccess(name string) (_ *uplink.Access, err error) {
-	defer mon.Task()(nil)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	_, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(context.Background(), runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	// if an access exists for that name, try to load it.
 	if data, ok := a.Accesses[name]; ok {

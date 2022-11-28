@@ -7,7 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.opentelemetry.io/otel"
 	"math"
+	"os"
+	"runtime"
 	"strings"
 
 	"github.com/zeebo/errs"
@@ -23,7 +26,9 @@ import (
 
 // ListMultipartUploads lists all multipart uploads.
 func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ListMultipartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -101,7 +106,9 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 }
 
 func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return "", minio.BucketNameInvalid{Bucket: bucket}
@@ -140,7 +147,9 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 }
 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.PartInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -194,7 +203,9 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 }
 
 func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket, object, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.MultipartInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -236,7 +247,9 @@ func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket, object,
 }
 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ListPartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -292,7 +305,9 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 }
 
 func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ minio.ObjectOptions) (err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.BucketNameInvalid{Bucket: bucket}
@@ -317,7 +332,9 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 }
 
 func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
+	pc, _, _, _ := runtime.Caller(0)
+	ctx, span := otel.Tracer(os.Getenv("SERVICE_NAME")).Start(ctx, runtime.FuncForPC(pc).Name())
+	defer span.End()
 
 	if err := validateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
