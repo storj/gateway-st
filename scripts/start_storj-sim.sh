@@ -22,6 +22,10 @@ until storj-sim -x --host sim network setup; do
     sleep 3
 done
 
+sed -i 's/# metainfo.multiple-versions: false/metainfo.multiple-versions: true/g' "$(storj-sim network env SATELLITE_0_DIR)/config.yaml"
+
+echo "=== Enabled multiple versions"
+
 sed -i 's/# metainfo.rate-limiter.enabled: true/metainfo.rate-limiter.enabled: false/g' "$(storj-sim network env SATELLITE_0_DIR)/config.yaml"
 
 echo "=== Disabled rate limiting"
