@@ -285,7 +285,8 @@ func (layer *gatewayLayer) listObjectsFast(
 
 	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
-	for limit > 0 && list.Next() {
+	var more bool
+	for more = list.Next(); limit > 0 && more; more = list.Next() {
 		item := list.Item()
 
 		limit--
@@ -298,11 +299,6 @@ func (layer *gatewayLayer) listObjectsFast(
 
 		nextContinuationToken = item.Key
 	}
-	if list.Err() != nil {
-		return nil, nil, "", list.Err()
-	}
-
-	more := list.Next()
 	if list.Err() != nil {
 		return nil, nil, "", list.Err()
 	}
