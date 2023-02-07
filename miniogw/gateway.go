@@ -41,7 +41,7 @@ var (
 	// In this case though the user can solve it themselves by getting a
 	// limit increase, so it should be treated as a 4xx level error, not 5xx.
 	ErrBandwidthLimitExceeded = miniogo.ErrorResponse{
-		Code:       "XStorjBandwidthLimitExceeded",
+		Code:       "BandwidthLimitExceeded",
 		StatusCode: http.StatusForbidden,
 		Message:    "You have reached your Storj project bandwidth limit on the Satellite.",
 	}
@@ -55,7 +55,7 @@ var (
 	// case though the user can solve this themselves by upgrading their plan,
 	// so it should be treated as a 4xx level error, not 5xx.
 	ErrStorageLimitExceeded = miniogo.ErrorResponse{
-		Code:       "XStorjStorageLimitExceeded",
+		Code:       "StorageLimitExceeded",
 		StatusCode: http.StatusForbidden,
 		Message:    "You have reached your Storj project storage limit on the Satellite.",
 	}
@@ -63,7 +63,7 @@ var (
 	// ErrSegmentsLimitExceeded is a custom error for when a user has reached their
 	// Satellite segment limit.
 	ErrSegmentsLimitExceeded = miniogo.ErrorResponse{
-		Code:       "XStorjSegmentsLimitExceeded",
+		Code:       "SegmentsLimitExceeded",
 		StatusCode: http.StatusForbidden,
 		Message:    "You have reached your Storj project segment limit on the Satellite.",
 	}
@@ -71,7 +71,7 @@ var (
 	// ErrInvalidTTL indicates that the value under
 	// X-Amz-Meta-Object-Expires/X-Minio-Meta-Object-Expires couldn't be parsed.
 	ErrInvalidTTL = miniogo.ErrorResponse{
-		Code:       "XStorjInvalidTTL",
+		Code:       "InvalidTTL",
 		Message:    "The TTL you have specified is invalid.",
 		StatusCode: http.StatusBadRequest,
 	}
