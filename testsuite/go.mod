@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	storj.io/common v0.0.0-20221215155610-3715c7f7ce66
+	storj.io/common v0.0.0-20230207160724-4deac3e5d0d6
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20230118205046-c025fcc9eef3
-	storj.io/storj v0.12.1-0.20221220165904-9535444dcde1
-	storj.io/uplink v1.10.0
+	storj.io/storj v0.12.1-0.20230210151034-491fa788407d
+	storj.io/uplink v1.10.1-0.20230207230755-d04ec4a303ef
 )
 
 require (
@@ -33,10 +33,10 @@ require (
 	github.com/beevik/ntp v0.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
+	github.com/bmkessler/fastdiv v0.0.0-20190227075523-41d5178f2044 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/calebcase/tmpfile v1.0.3 // indirect
-	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/cheekybits/genny v1.0.0 // indirect
+	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cheggaaa/pb v1.0.29 // indirect
 	github.com/cloudfoundry/gosigar v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -52,20 +52,21 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.3.0 // indirect
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
-	github.com/fsnotify/fsnotify v1.5.4 // indirect
+	github.com/flynn/noise v1.0.0 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.1 // indirect
 	github.com/go-ldap/ldap/v3 v3.2.4 // indirect
 	github.com/go-oauth2/oauth2/v4 v4.4.2 // indirect
 	github.com/go-ole/go-ole v1.2.4 // indirect
-	github.com/go-redis/redis/v8 v8.7.1 // indirect
+	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt v3.2.1+incompatible // indirect
+	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect
-	github.com/google/go-cmp v0.5.5 // indirect
+	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/google/pprof v0.0.0-20211108044417-e9b028704de0 // indirect
 	github.com/google/uuid v1.1.2 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
@@ -90,6 +91,7 @@ require (
 	github.com/jtolds/monkit-hw/v2 v2.0.0-20191108235325-141a0da276b3 // indirect
 	github.com/jtolds/tracetagger/v2 v2.0.0-rc5 // indirect
 	github.com/jtolio/eventkit v0.0.0-20221007130042-690145affff8 // indirect
+	github.com/jtolio/noiseconn v0.0.0-20230111204749-d7ec1a08b0b8 // indirect
 	github.com/klauspost/compress v1.15.10 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
@@ -97,12 +99,7 @@ require (
 	github.com/klauspost/readahead v1.3.1 // indirect
 	github.com/klauspost/reedsolomon v1.9.11 // indirect
 	github.com/lib/pq v1.10.2 // indirect
-	github.com/lucas-clemente/quic-go v0.28.1 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
-	github.com/marten-seemann/qtls-go1-16 v0.1.5 // indirect
-	github.com/marten-seemann/qtls-go1-17 v0.1.2 // indirect
-	github.com/marten-seemann/qtls-go1-18 v0.1.2 // indirect
-	github.com/marten-seemann/qtls-go1-19 v0.1.0-beta.1 // indirect
 	github.com/mattn/go-colorable v0.1.8 // indirect
 	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.12 // indirect
@@ -128,9 +125,8 @@ require (
 	github.com/nats-io/stan.go v0.8.3 // indirect
 	github.com/ncw/directio v1.0.5 // indirect
 	github.com/nsqio/go-nsq v1.0.8 // indirect
-	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/olivere/elastic/v7 v7.0.22 // indirect
-	github.com/onsi/ginkgo v1.16.5 // indirect
+	github.com/onsi/ginkgo/v2 v2.2.0 // indirect
 	github.com/oschwald/maxminddb-golang v1.8.0 // indirect
 	github.com/philhofer/fwd v1.1.1 // indirect
 	github.com/pierrec/lz4 v2.5.2+incompatible // indirect
@@ -141,6 +137,10 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.14.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
+	github.com/quic-go/qtls-go1-18 v0.2.0 // indirect
+	github.com/quic-go/qtls-go1-19 v0.2.0 // indirect
+	github.com/quic-go/qtls-go1-20 v0.1.0 // indirect
+	github.com/quic-go/quic-go v0.32.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20200313005456-10cdbea86bc0 // indirect
 	github.com/rjeczalik/notify v0.9.2 // indirect
 	github.com/rs/cors v1.7.0 // indirect
@@ -175,19 +175,17 @@ require (
 	github.com/zeebo/incenc v0.0.0-20180505221441-0d92902eec54 // indirect
 	github.com/zeebo/mwc v0.0.4 // indirect
 	go.etcd.io/bbolt v1.3.5 // indirect
-	go.opentelemetry.io/otel v0.18.0 // indirect
-	go.opentelemetry.io/otel/metric v0.18.0 // indirect
-	go.opentelemetry.io/otel/trace v0.18.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e // indirect
-	golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4 // indirect
-	golang.org/x/net v0.0.0-20220624214902-1bab6f366d9e // indirect
-	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde // indirect
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/crypto v0.5.0 // indirect
+	golang.org/x/exp v0.0.0-20221205204356-47842c84f3db // indirect
+	golang.org/x/mod v0.6.0 // indirect
+	golang.org/x/net v0.5.0 // indirect
+	golang.org/x/sync v0.1.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/text v0.6.0 // indirect
 	golang.org/x/time v0.0.0-20211116232009-f0f3c7e86c11 // indirect
-	golang.org/x/tools v0.1.10 // indirect
+	golang.org/x/tools v0.2.0 // indirect
 	google.golang.org/api v0.20.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
@@ -196,10 +194,10 @@ require (
 	gopkg.in/jcmturner/gokrb5.v7 v7.5.0 // indirect
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 	gopkg.in/segmentio/analytics-go.v3 v3.1.0 // indirect
-	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
-	storj.io/drpc v0.0.32 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	storj.io/drpc v0.0.33-0.20230204035225-c9649dee8f2a // indirect
 	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
-	storj.io/private v0.0.0-20221108123115-3a27297f0b78 // indirect
+	storj.io/picobuf v0.0.1 // indirect
+	storj.io/private v0.0.0-20230123202745-d3e63b336444 // indirect
 )

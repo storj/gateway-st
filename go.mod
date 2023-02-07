@@ -12,11 +12,11 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
-	storj.io/common v0.0.0-20221215155610-3715c7f7ce66
+	golang.org/x/term v0.4.0
+	storj.io/common v0.0.0-20230207160724-4deac3e5d0d6
 	storj.io/minio v0.0.0-20230118205046-c025fcc9eef3
 	storj.io/private v0.0.0-20221108123115-3a27297f0b78
-	storj.io/uplink v1.10.0
+	storj.io/uplink v1.10.1-0.20230207230755-d04ec4a303ef
 )
 
 require (
@@ -51,6 +51,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.3.0 // indirect
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/felixge/httpsnoop v1.0.1 // indirect
+	github.com/flynn/noise v1.0.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.1 // indirect
 	github.com/go-ldap/ldap/v3 v3.2.4 // indirect
@@ -75,6 +76,7 @@ require (
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/jtolds/tracetagger/v2 v2.0.0-rc5 // indirect
 	github.com/jtolio/eventkit v0.0.0-20221004135224-074cf276595b // indirect
+	github.com/jtolio/noiseconn v0.0.0-20230111204749-d7ec1a08b0b8 // indirect
 	github.com/klauspost/compress v1.13.4 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
@@ -150,11 +152,11 @@ require (
 	go.etcd.io/bbolt v1.3.5 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e // indirect
-	golang.org/x/net v0.0.0-20220624214902-1bab6f366d9e // indirect
-	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde // indirect
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
-	golang.org/x/text v0.3.7 // indirect
+	golang.org/x/crypto v0.5.0 // indirect
+	golang.org/x/net v0.5.0 // indirect
+	golang.org/x/sync v0.1.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/text v0.6.0 // indirect
 	google.golang.org/api v0.20.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
@@ -163,7 +165,8 @@ require (
 	gopkg.in/jcmturner/gokrb5.v7 v7.5.0 // indirect
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
-	storj.io/drpc v0.0.32 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	storj.io/drpc v0.0.33-0.20230204035225-c9649dee8f2a // indirect
 	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
+	storj.io/picobuf v0.0.1 // indirect
 )
