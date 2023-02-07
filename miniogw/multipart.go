@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/zeebo/errs"
 
@@ -130,7 +131,8 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		return "", ErrInvalidTTL
 	}
 	info, err := multipart.BeginUpload(ctx, project, bucket, object, &multipart.UploadOptions{
-		Expires:        e,
+		// TODO: Truncate works around https://github.com/storj/storj-private/issues/84 until fixed on the satellite.
+		Expires:        e.Truncate(time.Microsecond),
 		CustomMetadata: uplink.CustomMetadata(opts.UserDefined).Clone(),
 	})
 	if err != nil {

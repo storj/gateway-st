@@ -3847,6 +3847,10 @@ func testMultipartObjectTTL(
 	}
 	require.NoError(t, err)
 
+	// Call GetMultipartInfo to check the pending upload is discoverable correctly.
+	_, err = layer.GetMultipartInfo(ctx, bucket, object, uploadID, minio.ObjectOptions{})
+	require.NoError(t, err)
+
 	_, err = layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, nil, minio.ObjectOptions{})
 	require.NoError(t, err)
 
