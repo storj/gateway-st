@@ -214,8 +214,8 @@ $ aws --profile storj --endpoint-url https://gateway.storjshare.io s3 cp 6TiB_fi
 
 It's possible to specify TTL for the object by sending the
 
-- `X-Amz-Meta-Storj-Expires` or
-- `X-Minio-Meta-Storj-Expires`
+- `X-Amz-Meta-Object-Expires` or
+- `X-Minio-Meta-Object-Expires`
 
 header (note: S3-compatible clients usually add the `X-Amz-Meta-` /
 `X-Minio-Meta-` prefix themselves) with one of the following values:
@@ -231,19 +231,19 @@ It's also possible to specify `none` for no expiration (or not send the header).
 #### AWS CLI example
 
 ```console
-$ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Storj-Expires=+2h
+$ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Object-Expires=+2h
 upload: ./file to s3://bucket/object
 
 # or
 
-$ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Storj-Expires=2022-05-19T00:10:55Z
+$ aws s3 --endpoint-url https://gateway.storjshare.io cp file s3://bucket/object --metadata Object-Expires=2022-05-19T00:10:55Z
 upload: ./file to s3://bucket/object
 ```
 
 #### Caveats
 
-The value under `X-Amz-Meta-Storj-Expires` has priority over the value under
-`X-Minio-Meta-Storj-Expires`.
+The value under `X-Amz-Meta-Object-Expires` has priority over the value under
+`X-Minio-Meta-Object-Expires`.
 
 ### ListBucketsWithAttribution (Gateway-MT only)
 

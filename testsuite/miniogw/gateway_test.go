@@ -3783,8 +3783,12 @@ func TestObjectTTL(t *testing.T) {
 				expectedErr: miniogw.ErrInvalidTTL,
 			},
 		} {
+			testObjectTTL(ctx, t, layer, project, bucket, "X-Amz-Meta-Object-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+			testObjectTTL(ctx, t, layer, project, bucket, "X-Minio-Meta-Object-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
 			testObjectTTL(ctx, t, layer, project, bucket, "X-Amz-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
 			testObjectTTL(ctx, t, layer, project, bucket, "X-Minio-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+			testMultipartObjectTTL(ctx, t, layer, project, bucket, "X-Amz-Meta-Object-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
+			testMultipartObjectTTL(ctx, t, layer, project, bucket, "X-Minio-Meta-Object-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
 			testMultipartObjectTTL(ctx, t, layer, project, bucket, "X-Amz-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
 			testMultipartObjectTTL(ctx, t, layer, project, bucket, "X-Minio-Meta-Storj-Expires", tt.ttl, tt.expectedTTL, tt.expectedErr)
 		}

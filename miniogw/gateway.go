@@ -69,11 +69,19 @@ var (
 	}
 
 	// ErrInvalidTTL indicates that the value under
-	// X-Amz-Meta-Storj-Expires/X-Minio-Meta-Storj-Expires couldn't be parsed.
+	// X-Amz-Meta-Object-Expires/X-Minio-Meta-Object-Expires couldn't be parsed.
 	ErrInvalidTTL = miniogo.ErrorResponse{
 		Code:       "XStorjInvalidTTL",
 		Message:    "The TTL you have specified is invalid.",
 		StatusCode: http.StatusBadRequest,
+	}
+
+	// objectTTLKeyAliases is the list of all supported object TTL keys in custom metadata.
+	objectTTLKeyAliases = []string{
+		"X-Amz-Meta-Object-Expires",
+		"X-Minio-Meta-Object-Expires",
+		"X-Amz-Meta-Storj-Expires",
+		"X-Minio-Meta-Storj-Expires",
 	}
 
 	// ErrSlowDown is a custom error for when a user is exceeding Satellite
@@ -1228,22 +1236,25 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 }
 
 func parseTTL(userDefined map[string]string) (time.Time, error) {
-	date, ok := userDefined["X-Amz-Meta-Storj-Expires"]
-	if !ok {
-		if date, ok = userDefined["X-Minio-Meta-Storj-Expires"]; !ok {
+	for _, alias := range objectTTLKeyAliases {
+		date, ok := userDefined[alias]
+		if !ok {
+			continue
+		}
+		switch {
+		case date == "none":
 			return time.Time{}, nil
+		case date == "":
+			return time.Time{}, nil
+		case strings.HasPrefix(date, "+"):
+			d, err := time.ParseDuration(date)
+			return time.Now().Add(d), err
+		default:
+			return time.Parse(time.RFC3339, date)
 		}
 	}
 
-	if date == "none" {
-		return time.Time{}, nil
-	} else if date == "" {
-		return time.Time{}, nil
-	} else if strings.HasPrefix(date, "+") {
-		d, err := time.ParseDuration(date)
-		return time.Now().Add(d), err
-	}
-	return time.Parse(time.RFC3339, date)
+	return time.Time{}, nil
 }
 
 // limitResults returns limit restricted to configuredLimit, aligned with paging
