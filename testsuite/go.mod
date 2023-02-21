@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	storj.io/common v0.0.0-20230207160724-4deac3e5d0d6
+	storj.io/common v0.0.0-20230217130409-bbd76be085bc
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20230118205046-c025fcc9eef3
-	storj.io/storj v0.12.1-0.20230210151034-491fa788407d
-	storj.io/uplink v1.10.1-0.20230207230755-d04ec4a303ef
+	storj.io/storj v0.12.1-0.20230217130554-0cdef95d5550
+	storj.io/uplink v1.10.1-0.20230217232046-0618502c1396
 )
 
 require (
@@ -155,7 +155,7 @@ require (
 	github.com/spf13/cobra v1.1.3 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/streadway/amqp v1.0.0 // indirect
-	github.com/stripe/stripe-go/v72 v72.51.0 // indirect
+	github.com/stripe/stripe-go/v72 v72.90.0 // indirect
 	github.com/tidwall/gjson v1.9.3 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
@@ -199,5 +199,5 @@ require (
 	storj.io/drpc v0.0.33-0.20230204035225-c9649dee8f2a // indirect
 	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
 	storj.io/picobuf v0.0.1 // indirect
-	storj.io/private v0.0.0-20230123202745-d3e63b336444 // indirect
+	storj.io/private v0.0.0-20230217131736-be584dbddd08 // indirect
 )
