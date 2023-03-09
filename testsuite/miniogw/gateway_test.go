@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"storj.io/common/base58"
 	"storj.io/common/memory"
 	"storj.io/common/pb"
 	"storj.io/common/storj"
@@ -36,7 +35,6 @@ import (
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
 	"storj.io/uplink"
-	"storj.io/uplink/private/testuplink"
 )
 
 const (
@@ -2195,14 +2193,15 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 		SatelliteCount:   1,
 		StorageNodeCount: 4,
 		UplinkCount:      1,
+		Reconfigure: testplanet.Reconfigure{
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+			},
+		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
 		require.NoError(t, err)
-
-		project, err := uplink.OpenProject(ctx, access)
-		require.NoError(t, err)
-
-		defer func() { require.NoError(t, project.Close()) }()
+		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
@@ -3402,14 +3401,17 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+			},
+		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
 		require.NoError(t, err)
+		defer ctx.Check(project.Close)
 
-		project, err := uplink.OpenProject(ctx, access)
-		require.NoError(t, err)
-
-		defer func() { require.NoError(t, project.Close()) }()
+		access := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
@@ -3879,6 +3881,11 @@ func TestProjectUsageLimit(t *testing.T) {
 
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+			},
+		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
 		satDB := planet.Satellites[0].DB
 		acctDB := satDB.ProjectAccounting()
@@ -3893,13 +3900,9 @@ func TestProjectUsageLimit(t *testing.T) {
 		dataSize := 100 * memory.KiB
 		data := testrand.Bytes(dataSize)
 
-		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
 		require.NoError(t, err)
-
-		project, err := uplink.OpenProject(ctx, access)
-		require.NoError(t, err)
-
-		defer func() { require.NoError(t, project.Close()) }()
+		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
@@ -3969,13 +3972,9 @@ func TestSlowDown(t *testing.T) {
 			},
 		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		access, err := setupAccess(ctx, t, planet, storj.EncNull, uplink.FullPermission())
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
 		require.NoError(t, err)
-
-		project, err := uplink.OpenProject(ctx, access)
-		require.NoError(t, err)
-
-		defer func() { require.NoError(t, project.Close()) }()
+		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
@@ -4002,19 +4001,21 @@ func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLa
 func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.MaxSegmentSize = segmentSize
+			},
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = pathCipher
+			},
+		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		access, err := setupAccess(ctx, t, planet, pathCipher, uplink.FullPermission())
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
 		require.NoError(t, err)
-
-		maxSegmentSizeCtx := testuplink.WithMaxSegmentSize(ctx, segmentSize)
-
-		project, err := uplink.OpenProject(maxSegmentSizeCtx, access)
-		require.NoError(t, err)
-
-		defer func() { require.NoError(t, project.Close()) }()
+		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(maxSegmentSizeCtx, project)
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
@@ -4030,44 +4031,6 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 
 		test(t, ctxWithProject, layer, project)
 	})
-}
-
-func setupAccess(ctx context.Context, t *testing.T, planet *testplanet.Planet, pathCipher storj.CipherSuite, permission uplink.Permission) (*uplink.Access, error) {
-	access := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
-
-	access, err := access.Share(permission)
-	if err != nil {
-		return nil, err
-	}
-
-	serializedAccess, err := access.Serialize()
-	if err != nil {
-		return nil, err
-	}
-
-	data, version, err := base58.CheckDecode(serializedAccess)
-	if err != nil || version != 0 {
-		return nil, errors.New("invalid access grant format")
-	}
-
-	p := new(pb.Scope)
-
-	if err := pb.Unmarshal(data, p); err != nil {
-		return nil, err
-
-	}
-
-	p.EncryptionAccess.DefaultPathCipher = pb.CipherSuite(pathCipher)
-
-	accessData, err := pb.Marshal(p)
-	if err != nil {
-		return nil, err
-	}
-
-	serializedAccess = base58.CheckEncode(accessData, 0)
-
-	// workaround to set proper path cipher for uplink.Access
-	return uplink.ParseAccess(serializedAccess)
 }
 
 func createFile(ctx context.Context, project *uplink.Project, bucket, key string, data []byte, metadata map[string]string) (*uplink.Object, error) {
