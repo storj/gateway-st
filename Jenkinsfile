@@ -85,6 +85,7 @@ pipeline {
                                 SKIP_TESTSUITE       = true
                                 STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
                                 STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
+                                STORJ_TEST_LOG_LEVEL = 'info'
                             }
                             steps {
                                 sh 'make test 2>&1 | tee .build/tests.json | xunit -out .build/tests.xml'
@@ -104,6 +105,7 @@ pipeline {
                                 SHORT                = false
                                 STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
                                 STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
+                                STORJ_TEST_LOG_LEVEL = 'info'
                             }
                             steps {
                                 // exhaust ports from 1024 to 10000 to ensure we don't
