@@ -41,7 +41,7 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
 	# golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.47.3
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
 
 	# shellcheck (TODO(artur): Windows)
 ifneq ($(shell which apt-get),)
