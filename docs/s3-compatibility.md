@@ -99,7 +99,7 @@ S3 Compatibility
 | RestoreObject                               | No      | No                                                           |                                                     |
 | SelectObjectContent                         | No      | No                                                           |                                                     |
 | UploadPart                                  | Full    |                                                              |                                                     |
-| UploadPartCopy                              | No      | No                                                           | We may support it depending on reported needs       |
+| UploadPartCopy                              | No      | Planned. See https://github.com/storj/roadmap/issues/40      |                                                     |
 | WriteGetObjectResponse                      | No      | No                                                           |                                                     |
 
 ## Compatibility Table Support/Caveats
