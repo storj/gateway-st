@@ -43,7 +43,7 @@ var (
 	ErrBandwidthLimitExceeded = miniogo.ErrorResponse{
 		Code:       "BandwidthLimitExceeded",
 		StatusCode: http.StatusForbidden,
-		Message:    "You have reached your Storj project bandwidth limit on the Satellite.",
+		Message:    "You have reached your project bandwidth limit.",
 	}
 
 	// ErrStorageLimitExceeded is a custom error for when a user has reached their
@@ -57,7 +57,7 @@ var (
 	ErrStorageLimitExceeded = miniogo.ErrorResponse{
 		Code:       "StorageLimitExceeded",
 		StatusCode: http.StatusForbidden,
-		Message:    "You have reached your Storj project storage limit on the Satellite.",
+		Message:    "You have reached your project storage limit.",
 	}
 
 	// ErrSegmentsLimitExceeded is a custom error for when a user has reached their
@@ -65,7 +65,7 @@ var (
 	ErrSegmentsLimitExceeded = miniogo.ErrorResponse{
 		Code:       "SegmentsLimitExceeded",
 		StatusCode: http.StatusForbidden,
-		Message:    "You have reached your Storj project segment limit on the Satellite.",
+		Message:    "You have reached your project segment limit.",
 	}
 
 	// ErrInvalidTTL indicates that the value under
