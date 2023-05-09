@@ -14,7 +14,7 @@ require (
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.4.0
 	storj.io/common v0.0.0-20230224050842-81c8060f089b
-	storj.io/minio v0.0.0-20230118205046-c025fcc9eef3
+	storj.io/minio v0.0.0-20230509071714-0cbc90f649b1
 	storj.io/private v0.0.0-20230217131736-be584dbddd08
 	storj.io/uplink v1.10.1-0.20230306200956-ee06bd2adaad
 )
@@ -73,7 +73,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jcmturner/gofork v1.0.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/json-iterator/go v1.1.10 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jtolds/tracetagger/v2 v2.0.0-rc5 // indirect
 	github.com/jtolio/eventkit v0.0.0-20221004135224-074cf276595b // indirect
 	github.com/jtolio/noiseconn v0.0.0-20230111204749-d7ec1a08b0b8 // indirect
@@ -101,7 +101,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
-	github.com/modern-go/reflect2 v1.0.1 // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/montanaflynn/stats v0.5.0 // indirect
 	github.com/nats-io/nats.go v1.13.1-0.20220121202836-972a071d373d // indirect
 	github.com/nats-io/nkeys v0.3.0 // indirect
