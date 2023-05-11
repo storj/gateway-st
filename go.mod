@@ -6,17 +6,17 @@ require (
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
-	github.com/spacemonkeygo/monkit/v3 v3.0.19
+	github.com/spacemonkeygo/monkit/v3 v3.0.20-0.20230227152157-d00b379de191
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.8.2
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.4.0
-	storj.io/common v0.0.0-20230224050842-81c8060f089b
+	storj.io/common v0.0.0-20230509194752-f0e992003ae2
 	storj.io/minio v0.0.0-20230509071714-0cbc90f649b1
-	storj.io/private v0.0.0-20230217131736-be584dbddd08
-	storj.io/uplink v1.10.1-0.20230306200956-ee06bd2adaad
+	storj.io/private v0.0.0-20230504144224-245360dc8212
+	storj.io/uplink v1.10.1-0.20230505231818-081bed2b8f07
 )
 
 require (
@@ -166,7 +166,7 @@ require (
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	storj.io/drpc v0.0.33-0.20230224050324-1fd05d3459f8 // indirect
+	storj.io/drpc v0.0.33 // indirect
 	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
 	storj.io/picobuf v0.0.1 // indirect
 )

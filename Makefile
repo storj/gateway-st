@@ -52,6 +52,13 @@ else
 	$(error Can't install shellcheck without a supported package manager)
 endif
 
+.PHONY: bump-code-dependencies
+bump-code-dependencies:
+	go get storj.io/common@main  && go mod tidy && cd testsuite && go mod tidy && cd .. && \
+	go get storj.io/private@main && go mod tidy && cd testsuite && go mod tidy && cd .. && \
+	go get storj.io/uplink@main  && go mod tidy && cd testsuite && go mod tidy && \
+	go get storj.io/storj@latest && go mod tidy
+
 .PHONY: install-hooks
 install-hooks: ## Install helpful Git hooks
 	ln -s ../../githooks/pre-commit .git/hooks/pre-commit
