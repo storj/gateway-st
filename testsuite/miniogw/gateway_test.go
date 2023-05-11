@@ -4022,6 +4022,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func
 			MaxKeysLimit:                 maxKeysLimit,
 			MaxKeysExhaustiveLimit:       100000,
 			MaxUploadsLimit:              maxUploadsLimit,
+			DeleteObjectsConcurrency:     100,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})

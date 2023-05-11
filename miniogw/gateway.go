@@ -20,6 +20,7 @@ import (
 	"github.com/zeebo/errs"
 
 	"storj.io/common/memory"
+	"storj.io/common/sync2"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -998,14 +999,23 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []error) {
 	// TODO: implement multiple object deletion in libuplink API
 	deleted, errs := make([]minio.DeletedObject, len(objects)), make([]error, len(objects))
+
+	limiter := sync2.NewLimiter(layer.compatibilityConfig.DeleteObjectsConcurrency)
+
 	for i, object := range objects {
-		_, deleteErr := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
-		if deleteErr != nil && !errors.As(deleteErr, &minio.ObjectNotFound{}) {
-			errs[i] = ConvertError(deleteErr, bucket, object.ObjectName)
-			continue
-		}
-		deleted[i].ObjectName = object.ObjectName
+		i, object := i, object
+		limiter.Go(ctx, func() {
+			_, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
+			if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
+				errs[i] = ConvertError(err, bucket, object.ObjectName)
+				return
+			}
+			deleted[i].ObjectName = object.ObjectName
+		})
 	}
+
+	limiter.Wait()
+
 	return deleted, errs
 }
 
