@@ -30,7 +30,7 @@ S3 Compatibility
 | GetBucketAccelerateConfiguration            | No      | No                                                           |                                                     |
 | GetBucketAcl                                | No      | No                                                           |                                                     |
 | GetBucketAnalyticsConfiguration             | No      | No                                                           |                                                     |
-| GetBucketCors                               | Partial      | No                                                           |    See GetBucketCors section below                                                 |
+| GetBucketCors                          | Partial      | No                                                           |    See GetBucketCors section below                                                 |
 | GetBucketEncryption                         | No      | No                                                           |                                                     |
 | GetBucketIntelligentTieringConfiguration    | No      | No                                                           |                                                     |
 | GetBucketInventoryConfiguration             | No      | No                                                           |                                                     |
@@ -168,7 +168,10 @@ cloud](https://www.storj.io/blog/secure-access-control-in-the-decentralized-clou
 is a good read for why we don't support ACL-related actions.
 
 ### GetBucketCors
-While the `GetBucketCors` method is supported, `PutBucketCors` and `DeleteBucketCors` are not available. The response body returned when making a `GetBucketCors` request will always be the following:
+
+While the `GetBucketCors` method is supported, `PutBucketCors` and
+`DeleteBucketCors` are not available. The response body returned when
+making a `GetBucketCors` request will always be the following:
 
 ```xml
 <CORSConfiguration>
