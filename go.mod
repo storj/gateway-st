@@ -12,11 +12,11 @@ require (
 	github.com/stretchr/testify v1.8.2
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/term v0.4.0
+	golang.org/x/term v0.7.0
 	storj.io/common v0.0.0-20230602145716-d6ea82d58b3d
 	storj.io/minio v0.0.0-20230509071714-0cbc90f649b1
-	storj.io/private v0.0.0-20230504144224-245360dc8212
-	storj.io/uplink v1.10.1-0.20230602205250-0fac01fa40c8
+	storj.io/private v0.0.0-20230612092130-a0bd5759158e
+	storj.io/uplink v1.10.1-0.20230607180240-72bcffbeac33
 )
 
 require (
@@ -58,10 +58,10 @@ require (
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect
-	github.com/google/uuid v1.1.2 // indirect
+	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
@@ -145,20 +145,21 @@ require (
 	github.com/xdg/stringprep v1.0.0 // indirect
 	github.com/zeebo/admission/v3 v3.0.3 // indirect
 	github.com/zeebo/blake3 v0.2.3 // indirect
+	github.com/zeebo/errs/v2 v2.0.0-20190904185908-02a9c27c76d3 // indirect
 	github.com/zeebo/float16 v0.1.0 // indirect
 	github.com/zeebo/incenc v0.0.0-20180505221441-0d92902eec54 // indirect
 	github.com/zeebo/mwc v0.0.4 // indirect
-	github.com/zeebo/structs v1.0.2 // indirect
+	github.com/zeebo/structs v1.0.3-0.20230601144555-f2db46069602 // indirect
 	go.etcd.io/bbolt v1.3.5 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/crypto v0.5.0 // indirect
-	golang.org/x/net v0.5.0 // indirect
+	golang.org/x/crypto v0.7.0 // indirect
+	golang.org/x/net v0.9.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.4.0 // indirect
-	golang.org/x/text v0.6.0 // indirect
-	google.golang.org/api v0.20.0 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	golang.org/x/sys v0.7.0 // indirect
+	golang.org/x/text v0.9.0 // indirect
+	google.golang.org/api v0.118.0 // indirect
+	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
 	gopkg.in/jcmturner/aescts.v1 v1.0.1 // indirect
 	gopkg.in/jcmturner/dnsutils.v1 v1.0.1 // indirect
