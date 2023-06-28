@@ -54,6 +54,7 @@ endif
 
 .PHONY: bump-code-dependencies
 bump-code-dependencies:
+	go get storj.io/minio@main   && go mod tidy && cd testsuite && go mod tidy && cd .. && \
 	go get storj.io/common@main  && go mod tidy && cd testsuite && go mod tidy && cd .. && \
 	go get storj.io/private@main && go mod tidy && cd testsuite && go mod tidy && cd .. && \
 	go get storj.io/uplink@main  && go mod tidy && cd testsuite && go mod tidy && \

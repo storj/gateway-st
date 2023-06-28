@@ -11,7 +11,7 @@ require (
 	go.uber.org/zap v1.16.0
 	storj.io/common v0.0.0-20230602145716-d6ea82d58b3d
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20230509071714-0cbc90f649b1
+	storj.io/minio v0.0.0-20230627070725-370d887aacde
 	storj.io/storj v1.82.1
 	storj.io/uplink v1.10.1-0.20230626081029-035890d408c2
 )
@@ -200,5 +200,5 @@ require (
 	storj.io/drpc v0.0.33 // indirect
 	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
 	storj.io/picobuf v0.0.1 // indirect
-	storj.io/private v0.0.0-20230626092735-63e6dda5776c // indirect
+	storj.io/private v0.0.0-20230627140631-807a2f00d0e1 // indirect
 )
