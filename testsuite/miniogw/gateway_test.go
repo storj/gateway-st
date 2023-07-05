@@ -3666,6 +3666,8 @@ func TestBucketNameInvalid(t *testing.T) {
 			"-test",
 			"test-",
 			"!test",
+			"test\\",
+			"test%",
 			"Test",
 			"a",
 			".",
