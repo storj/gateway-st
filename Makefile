@@ -286,6 +286,9 @@ integration-env-clean:
 	-docker rmi postgres:latest
 	-docker rmi storjlabs/gateway-mint:latest
 	-docker rmi storjlabs/splunk-s3-tests:latest
+	-docker compose down
+	-rm -rf storj
+	-rm -rf edge.Dockerfile storj.Dockerfile docker-compose.yaml
 
 .PHONY: integration-env-purge
 integration-env-purge: integration-env-stop integration-env-clean integration-network-remove ## Purge the integration environment
@@ -301,12 +304,13 @@ integration-all-tests: integration-gateway-st-tests integration-mint-tests integ
 # note: umask 0000 is needed for rclone tests so files can be cleaned up.
 .PHONY: integration-gateway-st-tests
 integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to be started first)
+	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	--network integration-network-${BUILD_NUMBER} \
-	-e GATEWAY_0_ADDR=gateway:7777 \
-	-e "GATEWAY_0_ACCESS_KEY=$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_ACCESS_KEY)" \
-	-e "GATEWAY_0_SECRET_KEY=$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_SECRET_KEY)" \
+	-e GATEWAY_0_ADDR=gateway:9999 \
+	-e "GATEWAY_0_ACCESS_KEY=$$AWS_ACCESS_KEY_ID" \
+	-e "GATEWAY_0_SECRET_KEY=$$AWS_SECRET_ACCESS_KEY" \
 	-v $$PWD:/build \
 	-w /build \
 	--name integration-gateway-st-tests-${BUILD_NUMBER}-$$TEST \
@@ -316,22 +320,24 @@ integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to
 
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)
+	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} \
-	-e SERVER_ENDPOINT=gateway:7777 \
-	-e "ACCESS_KEY=$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_ACCESS_KEY)" \
-	-e "SECRET_KEY=$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_SECRET_KEY)" \
+	-e SERVER_ENDPOINT=gateway:9999 \
+	-e "ACCESS_KEY=$$AWS_ACCESS_KEY_ID" \
+	-e "SECRET_KEY=$$AWS_SECRET_ACCESS_KEY" \
 	-e ENABLE_HTTPS=0 \
 	--name integration-mint-tests-${BUILD_NUMBER}-$$TEST \
 	--rm storjlabs/gateway-mint:latest $$TEST
 
 .PHONY: integration-splunk-tests
 integration-splunk-tests: ## Run splunk test suite (environment needs to be started first)
+	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} \
-	-e ENDPOINT=gateway:7777 \
-	-e "AWS_ACCESS_KEY_ID=$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_ACCESS_KEY)" \
-	-e "AWS_SECRET_ACCESS_KEY=$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_SECRET_KEY)" \
+	-e ENDPOINT=gateway:9999 \
+	-e "AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID" \
+	-e "AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY" \
 	-e SECURE=0 \
 	--name integration-splunk-tests-${BUILD_NUMBER} \
 	--rm storjlabs/splunk-s3-tests:latest
@@ -339,6 +345,11 @@ integration-splunk-tests: ## Run splunk test suite (environment needs to be star
 .PHONY: integration-image-build
 integration-image-build:
 	./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
+
+	git clone --filter blob:none --no-checkout https://github.com/storj/storj
+	storj-up init minimal,db && \
+		storj-up build remote github minimal -c $$(git -C storj rev-list --exclude='*rc*' --tags --max-count=1) -s && \
+		docker compose -p storj-up-integration build
 
 .PHONY: integration-network-create
 integration-network-create:
@@ -350,34 +361,18 @@ integration-network-remove:
 
 .PHONY: integration-services-start
 integration-services-start:
-	docker run \
-	--network integration-network-${BUILD_NUMBER} --network-alias postgres \
-	-e POSTGRES_DB=sim -e POSTGRES_HOST_AUTH_METHOD=trust \
-	--name integration-postgres-${BUILD_NUMBER} \
-	--rm -d postgres:latest
+	storj-up network set minimal,db integration-network-${BUILD_NUMBER} && \
+        storj-up network unset minimal,db default && \
+        docker compose up -d && \
+        storj-up health
 
-	docker run \
-	--network integration-network-${BUILD_NUMBER} --network-alias redis \
-	--name integration-redis-${BUILD_NUMBER} \
-	--rm -d redis:latest
-
-	docker run \
-	--network integration-network-${BUILD_NUMBER} --network-alias sim \
-	-e STORJ_SIM_POSTGRES='postgres://postgres@postgres/sim?sslmode=disable' -e STORJ_SIM_REDIS=redis:6379 \
-	-v $$PWD/scripts:/scripts:ro \
-	--name integration-sim-${BUILD_NUMBER} \
-	--rm -d storjlabs/golang:${GO_VERSION} /scripts/start_storj-sim.sh
-
-	until [ ! -z $$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_ACCESS) ]; do \
-		echo "*** main access grant is not yet available; waiting for 3s..." && sleep 3; \
-	done
-
+	$$(docker compose exec -T satellite-api storj-up credentials -p -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} --network-alias gateway \
 	--name integration-gateway-${BUILD_NUMBER} \
 	--rm -d storjlabs/gateway:${BUILD_NUMBER} run \
-		--server.address 0.0.0.0:7777 \
-		--access "$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_ACCESS)" \
-		--minio.access-key "$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_ACCESS_KEY)" \
-		--minio.secret-key "$$(docker exec integration-sim-${BUILD_NUMBER} storj-sim network env GATEWAY_0_SECRET_KEY)" \
+		--server.address 0.0.0.0:9999 \
+		--access "$$STORJ_ACCESS" \
+		--minio.access-key "$$AWS_ACCESS_KEY_ID" \
+		--minio.secret-key "$$AWS_SECRET_ACCESS_KEY" \
 		--s3.fully-compatible-listing
