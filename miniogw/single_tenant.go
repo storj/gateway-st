@@ -101,7 +101,10 @@ func (l *singleTenancyLayer) log(err error) error {
 }
 
 func (l *singleTenancyLayer) Shutdown(ctx context.Context) error {
-	return l.log(l.project.Close())
+	var eg errs.Group
+	eg.Add(l.log(l.project.Close()))
+	eg.Add(l.layer.Shutdown(ctx))
+	return eg.Err()
 }
 
 func (l *singleTenancyLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
