@@ -144,7 +144,7 @@ type gatewayLayer struct {
 	compatibilityConfig S3CompatibilityConfig
 }
 
-// Shutdown is a no-op. It's never called from the layer above.
+// Shutdown is a no-op.
 func (layer *gatewayLayer) Shutdown(ctx context.Context) (err error) {
 	return nil
 }
