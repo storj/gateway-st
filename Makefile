@@ -249,7 +249,9 @@ binaries-upload: ## Upload release binaries to GCS
 			&& rm "$${f%%_*}" \
 		; fi \
 	; done
-	cd "release/${TAG}"; gsutil -m cp -r *.zip "gs://storj-v3-alpha-builds/${TAG}/"
+	cd "release/${TAG}" \
+		&& sha256sum *.zip > sha256sums \
+		&& gsutil -m cp -r *.zip sha256sums "gs://storj-v3-alpha-builds/${TAG}/"
 
 ##@ Release/Private Jenkins/Clean
 
