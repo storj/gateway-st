@@ -1,6 +1,6 @@
 module storj.io/gateway
 
-go 1.18
+go 1.19
 
 require (
 	github.com/minio/cli v1.22.0
@@ -12,11 +12,11 @@ require (
 	github.com/stretchr/testify v1.8.2
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/term v0.7.0
-	storj.io/common v0.0.0-20230712145526-9db74ed9918c
+	golang.org/x/term v0.11.0
+	storj.io/common v0.0.0-20230822112919-e5441f1061f5
 	storj.io/minio v0.0.0-20230809050351-70d4a6c974ce
 	storj.io/private v0.0.0-20230707205547-3f3b667f6ac0
-	storj.io/uplink v1.11.0
+	storj.io/uplink v1.11.1-0.20230824095320-ae5e4af292fa
 )
 
 require (
@@ -153,11 +153,11 @@ require (
 	go.etcd.io/bbolt v1.3.5 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/crypto v0.7.0 // indirect
-	golang.org/x/net v0.9.0 // indirect
-	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.7.0 // indirect
-	golang.org/x/text v0.9.0 // indirect
+	golang.org/x/crypto v0.12.0 // indirect
+	golang.org/x/net v0.10.0 // indirect
+	golang.org/x/sync v0.3.0 // indirect
+	golang.org/x/sys v0.11.0 // indirect
+	golang.org/x/text v0.12.0 // indirect
 	google.golang.org/api v0.118.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/ini.v1 v1.62.0 // indirect
