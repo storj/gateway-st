@@ -36,7 +36,7 @@ S3 Compatibility
 | GetBucketInventoryConfiguration             | No      | No                                                           |                                                     |
 | GetBucketLifecycle (deprecated)             | No      | We could partially support this                              |                                                     |
 | GetBucketLifecycleConfiguration             | No      | We could partially support this                              |                                                     |
-| GetBucketLocation                           | No      | We could support this                                        | Location constraints would be different from AWS S3 |
+| GetBucketLocation                           | Full    |                                                              | See GetBucketLocation section                       |
 | GetBucketLogging                            | No      | No                                                           |                                                     |
 | GetBucketMetricsConfiguration               | No      | No                                                           |                                                     |
 | GetBucketNotification (deprecated)          | No      | No                                                           |                                                     |
@@ -111,6 +111,12 @@ S3 Compatibility
 Full compatibility means that we support all features of a specific action
 except for features that rely on other actions that we haven't fully
 implemented.
+
+### GetBucketLocation
+
+This is currently supported in Gateway-MT only. GetBucketLocation responds with
+the annotation that the bucket's placement is labeled with. For most users, the
+response from this endpoint will be empty.
 
 #### Partial compatibility
 
