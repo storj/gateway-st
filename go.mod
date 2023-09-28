@@ -6,17 +6,17 @@ require (
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
-	github.com/spacemonkeygo/monkit/v3 v3.0.20-0.20230227152157-d00b379de191
+	github.com/spacemonkeygo/monkit/v3 v3.0.22
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.2
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.16.0
 	golang.org/x/term v0.11.0
-	storj.io/common v0.0.0-20230907123639-5fd0608fd947
+	storj.io/common v0.0.0-20230925131608-3c287852acde
 	storj.io/minio v0.0.0-20230901173759-f1d4dd341feb
-	storj.io/private v0.0.0-20230908120653-86a24151a5ef
-	storj.io/uplink v1.12.0
+	storj.io/private v0.0.0-20230918125712-2a31a93e18ab
+	storj.io/uplink v1.12.1-0.20230928093012-c46ff1e3c01a
 )
 
 require (
@@ -168,6 +168,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	storj.io/drpc v0.0.33 // indirect
-	storj.io/monkit-jaeger v0.0.0-20220915074555-d100d7589f41 // indirect
+	storj.io/monkit-jaeger v0.0.0-20230707083646-f15e6e8b7e8c // indirect
 	storj.io/picobuf v0.0.2-0.20230906122608-c4ba17033c6c // indirect
 )
