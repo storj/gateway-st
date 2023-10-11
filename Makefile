@@ -201,17 +201,19 @@ LDFLAGS := -X storj.io/minio/cmd.Version=2022-04-19T11:13:21Z \
 
 .PHONY: binaries
 binaries: ## Build binaries
-	CGO_ENABLED=0 LDFLAGS="${LDFLAGS}" storj-release \
+	CGO_ENABLED=0 storj-release \
 		--build-name gateway \
 		--build-tags kqueue \
+		--ldflags ${LDFLAGS} \
 		--go-version "${GO_VERSION}" \
 		--branch "${BRANCH_NAME}" \
 		--skip-osarches "freebsd/amd64"
 
 	# freebsd/amd64 requires CGO_ENABLED=1: https://github.com/storj/gateway-st/issues/62
-	CGO_ENABLED=1 LDFLAGS="${LDFLAGS}" storj-release \
+	CGO_ENABLED=1 storj-release \
 		--build-name gateway \
 		--build-tags kqueue \
+		--ldflags ${LDFLAGS} \
 		--go-version "${GO_VERSION}" \
 		--branch "${BRANCH_NAME}" \
 		--osarches "freebsd/amd64"
