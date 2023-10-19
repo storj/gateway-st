@@ -978,19 +978,21 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		return minio.ObjectInfo{}, err
 	}
 
-	// TODO this should be removed and implemented on satellite side.
-	//
-	// This call needs to occur prior to the DeleteObject call below, because
-	// project.DeleteObject will return a nil error for a missing bucket. To
-	// maintain consistency, we need to manually check if the bucket exists.
-	_, err = project.StatBucket(ctx, bucket)
+	object, err := project.DeleteObject(ctx, bucket, objectPath)
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	object, err := project.DeleteObject(ctx, bucket, objectPath)
-	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+	if object == nil {
+		// TODO this should be removed and implemented on satellite side.
+		//
+		// This call needs to occur with DeleteObject call, because project.DeleteObject
+		// will return a nil error for a missing bucket. To maintain consistency,
+		// we need to manually check if the bucket exists.
+		_, err = project.StatBucket(ctx, bucket)
+		if err != nil {
+			return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		}
 	}
 
 	return minioObjectInfo(bucket, "", object), nil
