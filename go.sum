@@ -594,8 +594,8 @@ github.com/prometheus/procfs v0.2.0/go.mod h1:lV6e/gmhEcM9IjHGsFOCxxuZ+z1YqCvr4O
 github.com/prometheus/procfs v0.6.0 h1:mxy4L2jP6qMonqmq+aTtOx1ifVWUgG/TAmntgbh3xv4=
 github.com/prometheus/procfs v0.6.0/go.mod h1:cz+aTbrPOrUb4q7XlbU9ygM+/jj0fzG6c1xBZuNvfVA=
 github.com/prometheus/tsdb v0.7.1/go.mod h1:qhTCs0VvXwvX/y3TZrWD7rabWM+ijKTux40TwIPHuXU=
-github.com/quic-go/qtls-go1-20 v0.3.4 h1:MfFAPULvst4yoMgY9QmtpYmfij/em7O8UUi+bNVm7Cg=
-github.com/quic-go/quic-go v0.39.0 h1:AgP40iThFMY0bj8jGxROhw3S0FMGa8ryqsmi9tBH3So=
+github.com/quic-go/qtls-go1-20 v0.4.1 h1:D33340mCNDAIKBqXuAvexTNMUByrYmFYVfKfDN5nfFs=
+github.com/quic-go/quic-go v0.40.0 h1:GYd1iznlKm7dpHD7pOVpUvItgMPo/jrMgDWZhMCecqw=
 github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
 github.com/rcrowley/go-metrics v0.0.0-20200313005456-10cdbea86bc0 h1:MkV+77GLUNo5oJ0jf870itWm3D0Sjh7+Za9gazKc5LQ=
 github.com/rcrowley/go-metrics v0.0.0-20200313005456-10cdbea86bc0/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
@@ -727,8 +727,6 @@ github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a h1:0R4NLDRDZX6Jc
 github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a/go.mod h1:v3UYOV9WzVtRmSR+PDvWpU/qWl4Wa5LApYYX4ZtKbio=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/toolbox v0.24.0/go.mod h1:OxMCG57V0PXuIP2HNQrtJf2CjqdmbrOx5EkMILuUhzM=
-github.com/vivint/infectious v0.0.0-20200605153912-25a574ae18a3 h1:zMsHhfK9+Wdl1F7sIKLyx3wrOFofpb3rWFbA4HgcK5k=
-github.com/vivint/infectious v0.0.0-20200605153912-25a574ae18a3/go.mod h1:R0Gbuw7ElaGSLOZUSwBm/GgVwMd30jWxBDdAyMOeTuc=
 github.com/willf/bitset v1.1.11 h1:N7Z7E9UvjW+sGsEl7k/SJrvY2reP1A07MrGuCjIOjRE=
 github.com/willf/bitset v1.1.11/go.mod h1:83CECat5yLh5zVOf4P1ErAgKA5UDvKtgyUABdr3+MjI=
 github.com/willf/bloom v2.0.3+incompatible h1:QDacWdqcAUI1MPOwIQZRy9kOR7yxfyEmxX8Wdm2/JPA=
@@ -967,8 +965,8 @@ golang.org/x/sys v0.0.0-20211007075335-d3039528d8ac/go.mod h1:oPkhp1MJrh7nUepCBc
 golang.org/x/sys v0.0.0-20211019181941-9d821ace8654/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.0.0-20220412211240-33da011f77ad/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
-golang.org/x/sys v0.11.0 h1:eG7RXZHdqOJ1i+0lgLgCpSXAp6M3LYlAo6osgSi0xOM=
-golang.org/x/sys v0.11.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.13.0 h1:Af8nKPmuFypiUBjVoU9V20FiaFXOcuZI21p0ycVYYGE=
+golang.org/x/sys v0.13.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
 golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
 golang.org/x/term v0.11.0 h1:F9tnn/DA/Im8nCwm+fX+1/eBwi4qFjRT++MhtVC4ZX0=
@@ -1138,11 +1136,13 @@ sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0/go.mod h1
 sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2zzQcaEFbx8wA8rck=
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
 storj.io/common v0.0.0-20220719163320-cd2ef8e1b9b0/go.mod h1:mCYV6Ud5+cdbuaxdPD5Zht/HYaIn0sffnnws9ErkrMQ=
-storj.io/common v0.0.0-20230925131608-3c287852acde h1:4RLVXpn7k5GtEo1S/aZ0gKIKjVw0x/+RIpfq+P3xoWg=
-storj.io/common v0.0.0-20230925131608-3c287852acde/go.mod h1:gwj8tuNxzTyBVdEux3qSznf4MkkugfEgFI/vWnaOtp8=
+storj.io/common v0.0.0-20231101115145-09481ec98b57 h1:/u6GmKmMzGdoc71B2Tg5ukJ1Lli/oyO6MQzJAyuUO+c=
+storj.io/common v0.0.0-20231101115145-09481ec98b57/go.mod h1:qjHfzW5RlGg5z04CwIEjJd1eQ3HCGhUNtxZ6K/W7yqM=
 storj.io/drpc v0.0.32/go.mod h1:6rcOyR/QQkSTX/9L5ZGtlZaE2PtXTTZl8d+ulSeeYEg=
 storj.io/drpc v0.0.33 h1:yCGZ26r66ZdMP0IcTYsj7WDAUIIjzXk6DJhbhvt9FHI=
 storj.io/drpc v0.0.33/go.mod h1:vR804UNzhBa49NOJ6HeLjd2H3MakC1j5Gv8bsOQT6N4=
+storj.io/infectious v0.0.1 h1:/EdG6zvf589iTaTBdv+7+Q34/gR/evAGyYT3I2XYRxw=
+storj.io/infectious v0.0.1/go.mod h1:QEjKKww28Sjl1x8iDsjBpOM4r1Yp8RsowNcItsZJ1Vs=
 storj.io/minio v0.0.0-20230901173759-f1d4dd341feb h1:v8nZcUG8KU5GYPXdAtGUpT7e7aF5kbVqm+66NRizl5o=
 storj.io/minio v0.0.0-20230901173759-f1d4dd341feb/go.mod h1:tNaALPgx7e3WNMauIXVKw2ygXk4+o11XIR672akiI7I=
 storj.io/monkit-jaeger v0.0.0-20230707083646-f15e6e8b7e8c h1:92Hl7mBzjfMNNkkO3uVp62ZC8yZuBNcz20EVcKNzpkQ=
@@ -1151,5 +1151,5 @@ storj.io/picobuf v0.0.2-0.20230906122608-c4ba17033c6c h1:or/DtG5uaZpzimL61ahlgAA
 storj.io/picobuf v0.0.2-0.20230906122608-c4ba17033c6c/go.mod h1:JCuc3C0gzCJHQ4J6SOx/Yjg+QTpX0D+Fvs5H46FETCk=
 storj.io/private v0.0.0-20230918125712-2a31a93e18ab h1:CE40+UL0ttxMmD+YnEOa7s7c7pLA2y577D3mp5prqS8=
 storj.io/private v0.0.0-20230918125712-2a31a93e18ab/go.mod h1:LuJVzguWEMXd8y/XRQZhWCUTmo5LpnYumiUgX+JAs6A=
-storj.io/uplink v1.12.1-0.20230928093012-c46ff1e3c01a h1:4ejFKdoi7F/OUcYLy+21fQ6FqLkaVgyJUJGbQH6RjC4=
-storj.io/uplink v1.12.1-0.20230928093012-c46ff1e3c01a/go.mod h1:1+czctHG25pMzcUp4Mds6QnoJ7LvbgYA5d1qlpFFexg=
+storj.io/uplink v1.12.2-0.20231101191324-61e765593356 h1:eNex7LrrhtTwglTYg0QxgBVuOrmI2dUXSSBRtPNfzsY=
+storj.io/uplink v1.12.2-0.20231101191324-61e765593356/go.mod h1:FijbSlvLWgzDg/gYyE+rVxTNOlQhCGTn7qPsbFHgeQU=
