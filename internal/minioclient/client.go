@@ -41,6 +41,10 @@ type Client interface {
 	Download(bucket, objectName string, buffer []byte) ([]byte, error)
 	Delete(bucket, objectName string) error
 	ListObjects(bucket, prefix string) ([]string, error)
+
+	GetBucketVersioning(bucket string) (_ string, err error)
+	EnableVersioning(bucketName string) error
+	DisableVersioning(bucketName string) error
 }
 
 // Minio implements basic S3 Client with minio.
@@ -179,4 +183,31 @@ func (client *Minio) ListObjects(bucket, prefix string) (names []string, err err
 	}
 
 	return names, nil
+}
+
+// GetBucketVersioning gets bucket versioning state.
+func (client *Minio) GetBucketVersioning(bucket string) (_ string, err error) {
+	defer mon.Task()(nil)(&err)
+
+	versioning, err := client.API.GetBucketVersioning(bucket)
+	if err != nil {
+		return "", MinioError.Wrap(err)
+	}
+	return versioning.Status, nil
+}
+
+// EnableVersioning enable versioning for bucket.
+func (client *Minio) EnableVersioning(bucket string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	err = client.API.EnableVersioning(bucket)
+	return MinioError.Wrap(err)
+}
+
+// DisableVersioning disable versioning for bucket.
+func (client *Minio) DisableVersioning(bucket string) (err error) {
+	defer mon.Task()(nil)(&err)
+
+	err = client.API.DisableVersioning(bucket)
+	return MinioError.Wrap(err)
 }

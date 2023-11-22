@@ -29,7 +29,9 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/internal/minioclient"
+	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/storj/private/testplanet"
+	"storj.io/storj/satellite"
 )
 
 func TestUploadDownload(t *testing.T) {
@@ -300,4 +302,67 @@ type logWriter struct{ log *zap.Logger }
 func (log logWriter) Write(p []byte) (n int, err error) {
 	log.log.Debug(string(p))
 	return len(p), nil
+}
+
+func TestVersioning(t *testing.T) {
+	var counter int64
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.UseBucketLevelObjectVersioning = true
+			},
+		},
+		NonParallel: true,
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		oldAccess := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
+
+		access, err := oldAccess.Serialize()
+		require.NoError(t, err)
+
+		index := atomic.AddInt64(&counter, 1)
+		// TODO: make address not hardcoded the address selection here
+		// may conflict with some automatically bound address.
+		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
+
+		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
+		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
+
+		gatewayExe := ctx.CompileAt("../..", "storj.io/gateway")
+
+		client, err := minioclient.NewMinio(minioclient.Config{
+			S3Gateway:     gatewayAddr,
+			Satellite:     planet.Satellites[0].Addr(),
+			AccessKey:     gatewayAccessKey,
+			SecretKey:     gatewaySecretKey,
+			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
+			EncryptionKey: "fake-encryption-key",
+			NoSSL:         true,
+		})
+		require.NoError(t, err)
+
+		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
+		require.NoError(t, err)
+		defer func() { processgroup.Kill(gateway) }()
+
+		bucket := "bucket"
+		err = client.MakeBucket(bucket, "")
+		require.NoError(t, err)
+
+		v, err := client.GetBucketVersioning(bucket)
+		require.NoError(t, err)
+		require.Empty(t, v)
+
+		require.NoError(t, client.EnableVersioning(bucket))
+
+		v, err = client.GetBucketVersioning(bucket)
+		require.NoError(t, err)
+		require.EqualValues(t, versioning.Enabled, v)
+
+		require.NoError(t, client.DisableVersioning(bucket))
+
+		v, err = client.GetBucketVersioning(bucket)
+		require.NoError(t, err)
+		require.EqualValues(t, versioning.Suspended, v)
+	})
 }

@@ -31,6 +31,7 @@ import (
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
@@ -3997,15 +3998,20 @@ func TestSlowDown(t *testing.T) {
 }
 
 func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
-	runTestWithPathCipher(t, storj.EncNull, test)
+	runTestWithPathCipher(t, storj.EncNull, false, test)
 }
 
-func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
+func runTestWithVersioning(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
+	runTestWithPathCipher(t, storj.EncNull, true, test)
+}
+
+func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versioning bool, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
+				config.Metainfo.UseBucketLevelObjectVersioning = versioning
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = pathCipher
@@ -4070,4 +4076,51 @@ func newMinioPutObjReader(t *testing.T) *minio.PutObjReader {
 	require.NoError(t, err)
 
 	return minio.NewPutObjReader(hashReader)
+}
+
+func TestGetSetBucketVersioning(t *testing.T) {
+	t.Parallel()
+
+	runTestWithVersioning(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := layer.GetBucketVersioning(ctx, "")
+		require.Equal(t, minio.BucketNameInvalid{}, err)
+
+		_, err = layer.GetBucketVersioning(ctx, testBucket)
+		require.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
+		err = layer.SetBucketVersioning(ctx, "", &versioning.Versioning{
+			Status: versioning.Enabled,
+		})
+		require.Equal(t, minio.BucketNameInvalid{}, err)
+
+		err = layer.SetBucketVersioning(ctx, testBucket, &versioning.Versioning{
+			Status: versioning.Enabled,
+		})
+		require.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		v, err := layer.GetBucketVersioning(ctx, testBucket)
+		require.NoError(t, err)
+		assert.Empty(t, v)
+
+		err = layer.SetBucketVersioning(ctx, testBucket, &versioning.Versioning{
+			Status: versioning.Enabled,
+		})
+		require.NoError(t, err)
+
+		v, err = layer.GetBucketVersioning(ctx, testBucket)
+		require.NoError(t, err)
+		assert.Equal(t, versioning.Enabled, v.Status)
+
+		err = layer.SetBucketVersioning(ctx, testBucket, &versioning.Versioning{
+			Status: versioning.Suspended,
+		})
+		require.NoError(t, err)
+
+		v, err = layer.GetBucketVersioning(ctx, testBucket)
+		require.NoError(t, err)
+		assert.Equal(t, versioning.Suspended, v.Status)
+	})
 }

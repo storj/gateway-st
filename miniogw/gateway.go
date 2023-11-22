@@ -25,10 +25,12 @@ import (
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/hash"
 	"storj.io/minio/pkg/madmin"
 	"storj.io/private/version"
 	"storj.io/uplink"
+	"storj.io/uplink/private/bucket"
 )
 
 var (
@@ -1122,6 +1124,62 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 	}
 
 	return minioObjectInfo(bucket, "", object), nil
+}
+
+// GetBucketVersioning retrieves versioning configuration of a bucket.
+func (layer *gatewayLayer) GetBucketVersioning(ctx context.Context, bucketName string) (_ *versioning.Versioning, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := validateBucket(ctx, bucketName); err != nil {
+		return nil, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return nil, err
+	}
+
+	state, err := bucket.GetBucketVersioning(ctx, project, bucketName)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	// TODO(ver): replace magic numbers with consts on libuplink side
+	v := &versioning.Versioning{}
+	switch state {
+	case 2:
+		v.Status = versioning.Enabled
+	case 3:
+		v.Status = versioning.Suspended
+	}
+
+	return v, nil
+}
+
+// SetBucketVersioning enables/suspends versioning for a bucket.
+func (layer *gatewayLayer) SetBucketVersioning(ctx context.Context, bucketName string, v *versioning.Versioning) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := validateBucket(ctx, bucketName); err != nil {
+		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return err
+	}
+
+	versioning := true
+	if v.Suspended() {
+		versioning = false
+	}
+
+	err = bucket.SetBucketVersioning(ctx, project, bucketName, versioning)
+	if err != nil {
+		return ConvertError(err, bucketName, "")
+	}
+
+	return nil
 }
 
 // ConvertError translates Storj-specific err associated with object to

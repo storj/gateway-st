@@ -18,6 +18,7 @@ import (
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/pkg/auth"
 	"storj.io/minio/pkg/bucket/policy"
+	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/uplink"
 )
 
@@ -265,4 +266,14 @@ func (l *singleTenancyLayer) GetObjectTags(ctx context.Context, bucketName, obje
 func (l *singleTenancyLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
 	objInfo, err := l.layer.DeleteObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, opts)
 	return objInfo, l.log(err)
+}
+
+func (l *singleTenancyLayer) GetBucketVersioning(ctx context.Context, bucket string) (_ *versioning.Versioning, err error) {
+	versioning, err := l.layer.GetBucketVersioning(WithUplinkProject(ctx, l.project), bucket)
+	return versioning, l.log(err)
+}
+
+func (l *singleTenancyLayer) SetBucketVersioning(ctx context.Context, bucket string, v *versioning.Versioning) (err error) {
+	err = l.layer.SetBucketVersioning(WithUplinkProject(ctx, l.project), bucket, v)
+	return l.log(err)
 }
