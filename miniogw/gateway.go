@@ -6,6 +6,7 @@ package miniogw
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"storj.io/private/version"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
+	versioned "storj.io/uplink/private/object"
 )
 
 var (
@@ -736,12 +738,17 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 		return nil, err
 	}
 
-	download, err := project.DownloadObject(ctx, bucket, object, downloadOpts)
+	version, err := decodeVersionID(opts.VersionID)
 	if err != nil {
 		return nil, ConvertError(err, bucket, object)
 	}
 
-	objectInfo := minioObjectInfo(bucket, "", download.Info())
+	download, err := versioned.DownloadObject(ctx, project, bucket, object, version, downloadOpts)
+	if err != nil {
+		return nil, ConvertError(err, bucket, object)
+	}
+
+	objectInfo := minioVersionedObjectInfo(bucket, "", download.Info())
 	downloadCloser := func() { _ = download.Close() }
 
 	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
@@ -792,14 +799,19 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 		return minio.ObjectInfo{}, err
 	}
 
-	object, err := project.StatObject(ctx, bucket, objectPath)
+	version, err := decodeVersionID(opts.VersionID)
+	if err != nil {
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+	}
+
+	object, err := versioned.StatObject(ctx, project, bucket, objectPath, version)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	return minioObjectInfo(bucket, "", object), nil
+	return minioVersionedObjectInfo(bucket, "", object), nil
 }
 
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -839,7 +851,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	if err != nil {
 		return minio.ObjectInfo{}, ErrInvalidTTL
 	}
-	upload, err := project.UploadObject(ctx, bucket, object, &uplink.UploadOptions{
+	upload, err := versioned.UploadObject(ctx, project, bucket, object, &uplink.UploadOptions{
 		Expires: e,
 	})
 	if err != nil {
@@ -873,11 +885,16 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
-	return minioObjectInfo(bucket, etag, upload.Info()), nil
+	return minioVersionedObjectInfo(bucket, etag, upload.Info()), nil
 }
 
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	// TODO(ver): should be implemented soon on libuplink side
+	if srcOpts.VersionID != "" || destOpts.VersionID != "" {
+		return minio.ObjectInfo{}, minio.NotImplemented{}
+	}
 
 	srcAndDestSame := srcBucket == destBucket && srcObject == destObject
 
@@ -980,7 +997,12 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		return minio.ObjectInfo{}, err
 	}
 
-	object, err := project.DeleteObject(ctx, bucket, objectPath)
+	version, err := decodeVersionID(opts.VersionID)
+	if err != nil {
+		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+	}
+
+	object, err := versioned.DeleteObject(ctx, project, bucket, objectPath, version)
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
@@ -997,7 +1019,7 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		}
 	}
 
-	return minioObjectInfo(bucket, "", object), nil
+	return minioVersionedObjectInfo(bucket, "", object), nil
 }
 
 func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []error) {
@@ -1008,6 +1030,8 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 
 	for i, object := range objects {
 		i, object := i, object
+		opts := opts
+		opts.VersionID = object.VersionID
 		limiter.Go(ctx, func() {
 			_, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
 			if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
@@ -1029,6 +1053,11 @@ func (layer *gatewayLayer) IsTaggingSupported() bool {
 
 func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath string, tags string, opts minio.ObjectOptions) (_ minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	// TODO(ver): not implemented yet
+	if opts.VersionID != "" {
+		return minio.ObjectInfo{}, minio.NotImplemented{}
+	}
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -1077,7 +1106,12 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath
 		return nil, err
 	}
 
-	object, err := project.StatObject(ctx, bucket, objectPath)
+	version, err := decodeVersionID(opts.VersionID)
+	if err != nil {
+		return nil, ConvertError(err, bucket, objectPath)
+	}
+
+	object, err := versioned.StatObject(ctx, project, bucket, objectPath, version)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
@@ -1094,6 +1128,11 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath
 
 func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (_ minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	// TODO(ver): not implemented yet
+	if opts.VersionID != "" {
+		return minio.ObjectInfo{}, minio.NotImplemented{}
+	}
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
@@ -1301,6 +1340,16 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	}
 }
 
+func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedObject) minio.ObjectInfo {
+	if object == nil {
+		object = &versioned.VersionedObject{}
+	}
+
+	minioObject := minioObjectInfo(bucket, etag, &object.Object)
+	minioObject.VersionID = encodeVersionID(object.Version)
+	return minioObject
+}
+
 func parseTTL(userDefined map[string]string) (time.Time, error) {
 	for _, alias := range objectTTLKeyAliases {
 		date, ok := userDefined[alias]
@@ -1338,4 +1387,17 @@ func limitResults(limit int, configuredLimit int) int {
 		return configuredLimit - 1
 	}
 	return limit
+}
+
+func decodeVersionID(versionID string) ([]byte, error) {
+	if versionID == "" {
+		return nil, nil
+	}
+
+	version, err := hex.DecodeString(versionID)
+	return version, err
+}
+
+func encodeVersionID(version []byte) string {
+	return hex.EncodeToString(version)
 }

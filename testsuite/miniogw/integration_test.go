@@ -4,6 +4,7 @@
 package miniogw_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	minio "github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
@@ -222,6 +224,7 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Cli
 	}, moreFlags...)
 
 	gateway := exec.Command(exe, args...)
+	processgroup.Setup(gateway)
 
 	log := zaptest.NewLogger(t)
 	gateway.Stdout = logWriter{log.Named("gateway:stdout")}
@@ -342,24 +345,168 @@ func TestVersioning(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { processgroup.Kill(gateway) }()
 
-		bucket := "bucket"
-		err = client.MakeBucket(ctx, bucket)
-		require.NoError(t, err)
+		rawClient, ok := client.(*minioclient.Minio)
+		require.True(t, ok)
 
-		v, err := client.GetBucketVersioning(ctx, bucket)
-		require.NoError(t, err)
-		require.Empty(t, v)
+		t.Run("bucket versioning enabling-disabling", func(t *testing.T) {
+			bucket := "bucket"
+			err = client.MakeBucket(ctx, bucket)
+			require.NoError(t, err)
 
-		require.NoError(t, client.EnableVersioning(ctx, bucket))
+			v, err := client.GetBucketVersioning(ctx, bucket)
+			require.NoError(t, err)
+			require.Empty(t, v)
 
-		v, err = client.GetBucketVersioning(ctx, bucket)
-		require.NoError(t, err)
-		require.EqualValues(t, versioning.Enabled, v)
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
 
-		require.NoError(t, client.DisableVersioning(ctx, bucket))
+			v, err = client.GetBucketVersioning(ctx, bucket)
+			require.NoError(t, err)
+			require.EqualValues(t, versioning.Enabled, v)
 
-		v, err = client.GetBucketVersioning(ctx, bucket)
-		require.NoError(t, err)
-		require.EqualValues(t, versioning.Suspended, v)
+			require.NoError(t, client.DisableVersioning(ctx, bucket))
+
+			v, err = client.GetBucketVersioning(ctx, bucket)
+			require.NoError(t, err)
+			require.EqualValues(t, versioning.Suspended, v)
+		})
+
+		t.Run("check VersionID support for different methods", func(t *testing.T) {
+			bucket := "second-bucket"
+
+			require.NoError(t, client.MakeBucket(ctx, bucket))
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
+
+			// upload first version
+			expectedContentA1 := testrand.Bytes(5 * memory.KiB)
+			uploadInfo, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContentA1), int64(len(expectedContentA1)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+			require.NotEmpty(t, uploadInfo.VersionID)
+
+			objectA1VersionID := uploadInfo.VersionID
+
+			statInfo, err := rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, objectA1VersionID, statInfo.VersionID)
+
+			// the same request but with VersionID specified
+			statInfo, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{
+				VersionID: objectA1VersionID,
+			})
+			require.NoError(t, err)
+			require.Equal(t, objectA1VersionID, statInfo.VersionID)
+
+			tags, err := tags.NewTags(map[string]string{
+				"key1": "tag1",
+			}, true)
+			require.NoError(t, err)
+			err = rawClient.API.PutObjectTagging(ctx, bucket, "objectA", tags, minio.PutObjectTaggingOptions{})
+			require.NoError(t, err)
+
+			// upload second version
+			expectedContentA2 := testrand.Bytes(5 * memory.KiB)
+			uploadInfo, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContentA2), int64(len(expectedContentA2)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+			require.NotEmpty(t, uploadInfo.VersionID)
+
+			objectA2VersionID := uploadInfo.VersionID
+
+			statInfo, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, objectA2VersionID, statInfo.VersionID)
+
+			// the same request but with VersionID specified
+			statInfo, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{
+				VersionID: objectA2VersionID,
+			})
+			require.NoError(t, err)
+			require.Equal(t, objectA2VersionID, statInfo.VersionID)
+
+			// // check that we have two different versions
+			object, err := rawClient.API.GetObject(ctx, bucket, "objectA", minio.GetObjectOptions{
+				VersionID: objectA1VersionID,
+			})
+			require.NoError(t, err)
+
+			contentA1, err := io.ReadAll(object)
+			require.NoError(t, err)
+			require.Equal(t, expectedContentA1, contentA1)
+
+			object, err = rawClient.API.GetObject(ctx, bucket, "objectA", minio.GetObjectOptions{
+				VersionID: objectA2VersionID,
+			})
+			require.NoError(t, err)
+
+			contentA2, err := io.ReadAll(object)
+			require.NoError(t, err)
+			require.Equal(t, expectedContentA2, contentA2)
+
+			tagsInfo, err := rawClient.API.GetObjectTagging(ctx, bucket, "objectA", minio.GetObjectTaggingOptions{
+				VersionID: objectA1VersionID,
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, tags.ToMap(), tagsInfo.ToMap())
+
+			// TODO(ver): add test for setting tag for specific version when implemented
+		})
+
+		t.Run("check VersionID while completing multipart upload", func(t *testing.T) {
+			bucket := testrand.BucketName()
+
+			require.NoError(t, client.MakeBucket(ctx, bucket))
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
+
+			expectedContent := testrand.Bytes(500 * memory.KiB)
+			uploadInfo, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), -1, minio.PutObjectOptions{})
+			require.NoError(t, err)
+			require.NotEmpty(t, uploadInfo.VersionID)
+		})
+
+		t.Run("check VersionID with delete object and delete objects", func(t *testing.T) {
+			bucket := testrand.BucketName()
+
+			require.NoError(t, client.MakeBucket(ctx, bucket))
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
+
+			versionIDs := make([]string, 5)
+
+			for i := range versionIDs {
+				expectedContent := testrand.Bytes(5 * memory.KiB)
+				uploadInfo, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
+				require.NoError(t, err)
+				require.NotEmpty(t, uploadInfo.VersionID)
+				versionIDs[i] = uploadInfo.VersionID
+			}
+
+			err := rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{
+				VersionID: versionIDs[0],
+			})
+			require.NoError(t, err)
+
+			objectsCh := make(chan minio.ObjectInfo)
+			ctx.Go(func() error {
+				defer close(objectsCh)
+				for _, versionID := range versionIDs[1:] {
+					objectsCh <- minio.ObjectInfo{
+						Key:       "objectA",
+						VersionID: versionID,
+					}
+				}
+				return nil
+			})
+
+			errorCh := rawClient.API.RemoveObjects(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{})
+			for e := range errorCh {
+				require.NoError(t, e.Err)
+			}
+
+			// TODO(ver): replace with ListObjectVersions when implemented
+			for _, versionID := range versionIDs {
+				_, err := rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{
+					VersionID: versionID,
+				})
+				require.Error(t, err)
+				require.Equal(t, "NoSuchKey", minio.ToErrorResponse(err).Code)
+			}
+		})
 	})
 }

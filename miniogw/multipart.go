@@ -20,6 +20,7 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/uplink"
 	"storj.io/uplink/private/multipart"
+	versioned "storj.io/uplink/private/object"
 )
 
 // ListMultipartUploads lists all multipart uploads.
@@ -408,14 +409,14 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	metadata = metadata.Clone()
 	metadata["s3:etag"] = etag
 
-	obj, err := project.CommitUpload(ctx, bucket, object, uploadID, &uplink.CommitUploadOptions{
+	obj, err := versioned.CommitUpload(ctx, project, bucket, object, uploadID, &uplink.CommitUploadOptions{
 		CustomMetadata: metadata,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	return minioObjectInfo(bucket, etag, obj), nil
+	return minioVersionedObjectInfo(bucket, etag, obj), nil
 }
 
 func minioMultipartInfo(bucket string, object *uplink.UploadInfo) minio.MultipartInfo {
