@@ -553,5 +553,34 @@ func TestVersioning(t *testing.T) {
 
 			// TODO(ver): add tests to check listing order when will be fixed on satellite side: https://github.com/storj/storj/issues/6550
 		})
+
+		t.Run("checks MethodNotAllowed error on retrieve (head/download) the object using its delete marker ", func(t *testing.T) {
+			bucket := testrand.BucketName()
+
+			require.NoError(t, client.MakeBucket(ctx, bucket))
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
+
+			expectedContent := testrand.Bytes(5 * memory.KiB)
+			_, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
+			require.NoError(t, err)
+
+			var deleteMarkerVersionID string
+			for objectInfo := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				if objectInfo.IsDeleteMarker {
+					deleteMarkerVersionID = objectInfo.VersionID
+				}
+			}
+			require.NotEmpty(t, deleteMarkerVersionID)
+
+			_, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.StatObjectOptions{
+				VersionID: deleteMarkerVersionID,
+			})
+			require.Error(t, err)
+		})
 	})
 }

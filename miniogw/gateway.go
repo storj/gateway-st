@@ -1321,6 +1321,8 @@ func ConvertError(err error, bucket, object string) error {
 		return minio.PrefixAccessDenied{Bucket: bucket, Object: object}
 	case errors.Is(err, uplink.ErrTooManyRequests):
 		return ErrSlowDown
+	case errors.Is(err, versioned.ErrMethodNotAllowed):
+		return minio.MethodNotAllowed{Bucket: bucket, Object: object}
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return minio.IncompleteBody{Bucket: bucket, Object: object}
 	case errors.Is(err, syscall.ECONNRESET):
