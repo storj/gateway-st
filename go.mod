@@ -4,7 +4,6 @@ go 1.19
 
 require (
 	github.com/minio/cli v1.22.0
-	github.com/minio/minio-go/v6 v6.0.58-0.20200612001654-a57fec8037ec
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
 	github.com/spacemonkeygo/monkit/v3 v3.0.22
 	github.com/spf13/cobra v1.1.3

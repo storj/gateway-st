@@ -5,10 +5,12 @@ package minioclient
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 
-	minio "github.com/minio/minio-go/v6"
+	minio "github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 )
@@ -33,18 +35,18 @@ type Config struct {
 
 // Client is the common interface for different implementations.
 type Client interface {
-	MakeBucket(bucket, location string) error
-	RemoveBucket(bucket string) error
-	ListBuckets() ([]string, error)
+	MakeBucket(ctx context.Context, bucket string) error
+	RemoveBucket(ctx context.Context, bucket string) error
+	ListBuckets(ctx context.Context) ([]string, error)
 
-	Upload(bucket, objectName string, data []byte, metadata map[string]string) error
-	Download(bucket, objectName string, buffer []byte) ([]byte, error)
-	Delete(bucket, objectName string) error
-	ListObjects(bucket, prefix string) ([]string, error)
+	Upload(ctx context.Context, bucket, objectName string, data []byte, metadata map[string]string) error
+	Download(ctx context.Context, bucket, objectName string, buffer []byte) ([]byte, error)
+	Delete(ctx context.Context, bucket, objectName string) error
+	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
 
-	GetBucketVersioning(bucket string) (_ string, err error)
-	EnableVersioning(bucketName string) error
-	DisableVersioning(bucketName string) error
+	GetBucketVersioning(ctx context.Context, bucket string) (_ string, err error)
+	EnableVersioning(ctx context.Context, bucketName string) error
+	DisableVersioning(ctx context.Context, bucketName string) error
 }
 
 // Minio implements basic S3 Client with minio.
@@ -54,7 +56,10 @@ type Minio struct {
 
 // NewMinio creates new Client.
 func NewMinio(conf Config) (Client, error) {
-	api, err := minio.New(conf.S3Gateway, conf.AccessKey, conf.SecretKey, !conf.NoSSL)
+	api, err := minio.New(conf.S3Gateway, &minio.Options{
+		Creds:  credentials.NewStaticV4(conf.AccessKey, conf.SecretKey, ""),
+		Secure: !conf.NoSSL,
+	})
 	if err != nil {
 		return nil, MinioError.Wrap(err)
 	}
@@ -62,10 +67,10 @@ func NewMinio(conf Config) (Client, error) {
 }
 
 // MakeBucket makes a new bucket.
-func (client *Minio) MakeBucket(bucket, location string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) MakeBucket(ctx context.Context, bucket string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	err = client.API.MakeBucket(bucket, location)
+	err = client.API.MakeBucket(ctx, bucket, minio.MakeBucketOptions{})
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -73,10 +78,10 @@ func (client *Minio) MakeBucket(bucket, location string) (err error) {
 }
 
 // RemoveBucket removes a bucket.
-func (client *Minio) RemoveBucket(bucket string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) RemoveBucket(ctx context.Context, bucket string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	err = client.API.RemoveBucket(bucket)
+	err = client.API.RemoveBucket(ctx, bucket)
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -84,10 +89,10 @@ func (client *Minio) RemoveBucket(bucket string) (err error) {
 }
 
 // ListBuckets lists all buckets.
-func (client *Minio) ListBuckets() (names []string, err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) ListBuckets(ctx context.Context) (names []string, err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	buckets, err := client.API.ListBuckets()
+	buckets, err := client.API.ListBuckets(ctx)
 	if err != nil {
 		return nil, MinioError.Wrap(err)
 	}
@@ -99,11 +104,11 @@ func (client *Minio) ListBuckets() (names []string, err error) {
 }
 
 // Upload uploads object data to the specified path.
-func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map[string]string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) Upload(ctx context.Context, bucket, objectName string, data []byte, metadata map[string]string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
 	_, err = client.API.PutObject(
-		bucket, objectName,
+		ctx, bucket, objectName,
 		bytes.NewReader(data), int64(len(data)),
 		minio.PutObjectOptions{
 			ContentType:  "application/octet-stream",
@@ -116,11 +121,11 @@ func (client *Minio) Upload(bucket, objectName string, data []byte, metadata map
 }
 
 // UploadMultipart uses multipart uploads, has hardcoded threshold.
-func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, partSize int, threshold int, metadata map[string]string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) UploadMultipart(ctx context.Context, bucket, objectName string, data []byte, partSize int, threshold int, metadata map[string]string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
 	_, err = client.API.PutObject(
-		bucket, objectName,
+		ctx, bucket, objectName,
 		bytes.NewReader(data), -1,
 		minio.PutObjectOptions{
 			ContentType:  "application/octet-stream",
@@ -134,10 +139,10 @@ func (client *Minio) UploadMultipart(bucket, objectName string, data []byte, par
 }
 
 // Download downloads object data.
-func (client *Minio) Download(bucket, objectName string, buffer []byte) (_ []byte, err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) Download(ctx context.Context, bucket, objectName string, buffer []byte) (_ []byte, err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	reader, err := client.API.GetObject(bucket, objectName, minio.GetObjectOptions{})
+	reader, err := client.API.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, MinioError.Wrap(err)
 	}
@@ -161,10 +166,10 @@ func (client *Minio) Download(bucket, objectName string, buffer []byte) (_ []byt
 }
 
 // Delete deletes object.
-func (client *Minio) Delete(bucket, objectName string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) Delete(ctx context.Context, bucket, objectName string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	err = client.API.RemoveObject(bucket, objectName)
+	err = client.API.RemoveObject(ctx, bucket, objectName, minio.RemoveObjectOptions{})
 	if err != nil {
 		return MinioError.Wrap(err)
 	}
@@ -172,13 +177,13 @@ func (client *Minio) Delete(bucket, objectName string) (err error) {
 }
 
 // ListObjects lists objects.
-func (client *Minio) ListObjects(bucket, prefix string) (names []string, err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) ListObjects(ctx context.Context, bucket, prefix string) (names []string, err error) {
+	defer mon.Task()(&ctx)(&err)
 
 	doneCh := make(chan struct{})
 	defer close(doneCh)
 
-	for message := range client.API.ListObjects(bucket, prefix, false, doneCh) {
+	for message := range client.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{}) {
 		names = append(names, message.Key)
 	}
 
@@ -186,10 +191,10 @@ func (client *Minio) ListObjects(bucket, prefix string) (names []string, err err
 }
 
 // GetBucketVersioning gets bucket versioning state.
-func (client *Minio) GetBucketVersioning(bucket string) (_ string, err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) GetBucketVersioning(ctx context.Context, bucket string) (_ string, err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	versioning, err := client.API.GetBucketVersioning(bucket)
+	versioning, err := client.API.GetBucketVersioning(ctx, bucket)
 	if err != nil {
 		return "", MinioError.Wrap(err)
 	}
@@ -197,17 +202,17 @@ func (client *Minio) GetBucketVersioning(bucket string) (_ string, err error) {
 }
 
 // EnableVersioning enable versioning for bucket.
-func (client *Minio) EnableVersioning(bucket string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) EnableVersioning(ctx context.Context, bucket string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	err = client.API.EnableVersioning(bucket)
+	err = client.API.EnableVersioning(ctx, bucket)
 	return MinioError.Wrap(err)
 }
 
 // DisableVersioning disable versioning for bucket.
-func (client *Minio) DisableVersioning(bucket string) (err error) {
-	defer mon.Task()(nil)(&err)
+func (client *Minio) DisableVersioning(ctx context.Context, bucket string) (err error) {
+	defer mon.Task()(&ctx)(&err)
 
-	err = client.API.DisableVersioning(bucket)
+	err = client.API.SuspendVersioning(ctx, bucket)
 	return MinioError.Wrap(err)
 }

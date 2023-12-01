@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	minio "github.com/minio/minio-go/v6"
+	minio "github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
@@ -73,7 +73,7 @@ func TestUploadDownload(t *testing.T) {
 		{ // normal upload
 			bucket := "bucket"
 
-			err = client.MakeBucket(bucket, "")
+			err = client.MakeBucket(ctx, bucket)
 			require.NoError(t, err)
 
 			// generate enough data for a remote segment
@@ -86,10 +86,10 @@ func TestUploadDownload(t *testing.T) {
 			expectedMetadata := map[string]string{
 				"foo": "bar",
 			}
-			err = rawClient.Upload(bucket, objectName, data, expectedMetadata)
+			err = rawClient.Upload(ctx, bucket, objectName, data, expectedMetadata)
 			require.NoError(t, err)
 
-			object, err := rawClient.API.StatObjectWithContext(ctx, bucket, objectName, minio.StatObjectOptions{})
+			object, err := rawClient.API.StatObject(ctx, bucket, objectName, minio.StatObjectOptions{})
 			require.NoError(t, err)
 			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
 			require.EqualValues(t, map[string]string{
@@ -98,7 +98,7 @@ func TestUploadDownload(t *testing.T) {
 
 			buffer := make([]byte, len(data))
 
-			bytes, err := client.Download(bucket, objectName, buffer)
+			bytes, err := client.Download(ctx, bucket, objectName, buffer)
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
@@ -139,7 +139,7 @@ func TestUploadDownload(t *testing.T) {
 		{ // multipart upload
 			bucket := "bucket-multipart"
 
-			err = client.MakeBucket(bucket, "")
+			err = client.MakeBucket(ctx, bucket)
 			require.NoError(t, err)
 
 			// minimum single part size is 5mib
@@ -161,14 +161,11 @@ func TestUploadDownload(t *testing.T) {
 			expectedMetadata := map[string]string{
 				"foo": "bar",
 			}
-			err = rawClient.UploadMultipart(bucket, objectName, data, partSize.Int(), 0, expectedMetadata)
+			err = rawClient.UploadMultipart(ctx, bucket, objectName, data, partSize.Int(), 0, expectedMetadata)
 			require.NoError(t, err)
 
-			doneCh := make(chan struct{})
-			defer close(doneCh)
-
 			// TODO find out why with prefix set its hanging test
-			for message := range rawClient.API.ListObjectsV2WithMetadataWithContext(ctx, bucket, "", true, doneCh) {
+			for message := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{WithMetadata: true}) {
 				require.Equal(t, objectName, message.Key)
 				require.NotEmpty(t, message.ETag)
 
@@ -183,7 +180,7 @@ func TestUploadDownload(t *testing.T) {
 				break
 			}
 
-			object, err := rawClient.API.StatObjectWithContext(ctx, bucket, objectName, minio.StatObjectOptions{})
+			object, err := rawClient.API.StatObject(ctx, bucket, objectName, minio.StatObjectOptions{})
 			require.NoError(t, err)
 			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
 			require.EqualValues(t, map[string]string{
@@ -191,7 +188,7 @@ func TestUploadDownload(t *testing.T) {
 			}, object.UserMetadata)
 
 			buffer := make([]byte, len(data))
-			bytes, err := client.Download(bucket, objectName, buffer)
+			bytes, err := client.Download(ctx, bucket, objectName, buffer)
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
@@ -235,7 +232,7 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Cli
 		return nil, err
 	}
 
-	err = waitToStart(client, address, 5*time.Second)
+	err = waitToStart(ctx, client, address, 5*time.Second)
 	if err != nil {
 		killErr := gateway.Process.Kill()
 		return nil, errs.Combine(err, killErr)
@@ -267,10 +264,10 @@ func stopGateway(gateway *exec.Cmd, address string) error {
 }
 
 // waitToStart will monitor starting when we are able to start the process.
-func waitToStart(client minioclient.Client, address string, maxStartupWait time.Duration) error {
+func waitToStart(ctx context.Context, client minioclient.Client, address string, maxStartupWait time.Duration) error {
 	start := time.Now()
 	for {
-		_, err := client.ListBuckets()
+		_, err := client.ListBuckets(ctx)
 		if err == nil {
 			return nil
 		}
@@ -346,22 +343,22 @@ func TestVersioning(t *testing.T) {
 		defer func() { processgroup.Kill(gateway) }()
 
 		bucket := "bucket"
-		err = client.MakeBucket(bucket, "")
+		err = client.MakeBucket(ctx, bucket)
 		require.NoError(t, err)
 
-		v, err := client.GetBucketVersioning(bucket)
+		v, err := client.GetBucketVersioning(ctx, bucket)
 		require.NoError(t, err)
 		require.Empty(t, v)
 
-		require.NoError(t, client.EnableVersioning(bucket))
+		require.NoError(t, client.EnableVersioning(ctx, bucket))
 
-		v, err = client.GetBucketVersioning(bucket)
+		v, err = client.GetBucketVersioning(ctx, bucket)
 		require.NoError(t, err)
 		require.EqualValues(t, versioning.Enabled, v)
 
-		require.NoError(t, client.DisableVersioning(bucket))
+		require.NoError(t, client.DisableVersioning(ctx, bucket))
 
-		v, err = client.GetBucketVersioning(bucket)
+		v, err = client.GetBucketVersioning(ctx, bucket)
 		require.NoError(t, err)
 		require.EqualValues(t, versioning.Suspended, v)
 	})
