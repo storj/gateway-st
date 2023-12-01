@@ -53,7 +53,7 @@ We support all essential API actions, like
 as well as (Get/Put/Delete)ObjectTagging actions.
 
 For more details on gateway's S3 compatibility, please refer to [Compatibility
-Table](docs/s3-compatibility.md).
+Table](https://docs.storj.io/dcs/api/s3/s3-compatibility).
 
 ## Testing
 
