@@ -13,11 +13,11 @@ import (
 
 var ipRegexp = regexp.MustCompile(`^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$`)
 
-// validateBucket will check the given bucket conforms to our validation criteria.
-// Note that these rules are copied from metainfo endpoint.validateBucket() which
-// is the source of truth for these rules, and any changes there need to also be
-// made here.
-func validateBucket(ctx context.Context, bucket string) (err error) {
+// ValidateBucket will check the given bucket conforms to our validation
+// criteria. Note that these rules are copied from metainfo
+// endpoint.validateBucket() which is the source of truth for these rules, and
+// any changes there need to also be made here.
+func ValidateBucket(ctx context.Context, bucket string) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if len(bucket) == 0 {
