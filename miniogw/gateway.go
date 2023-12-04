@@ -716,6 +716,78 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 	return result, ConvertError(err, bucket, "")
 }
 
+// ListObjectVersions returns information about all versions of the objects in a bucket.
+func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (_ minio.ListObjectVersionsInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucket); err != nil {
+		return minio.ListObjectVersionsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+	}
+
+	// TODO(ver): move it to satellite
+	// TODO(ver): check how AWS S3 behaves in such case
+	if len(marker) == 0 && len(versionMarker) != 0 {
+		return minio.ListObjectVersionsInfo{}, minio.InvalidArgument{Bucket: bucket}
+	}
+
+	project, err := projectFromContext(ctx, bucket, "")
+	if err != nil {
+		return minio.ListObjectVersionsInfo{}, err
+	}
+
+	recursive := delimiter == ""
+
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
+
+	version, err := decodeVersionID(versionMarker)
+	if err != nil {
+		return minio.ListObjectVersionsInfo{}, err
+	}
+
+	items, more, err := versioned.ListObjectVersions(ctx, project, bucket, &versioned.ListObjectVersionsOptions{
+		Prefix:        prefix,
+		Cursor:        strings.TrimPrefix(marker, prefix),
+		VersionCursor: version,
+		Recursive:     recursive,
+		System:        true,
+		Custom:        layer.compatibilityConfig.IncludeCustomMetadataListing,
+		Limit:         limit,
+	})
+	if err != nil {
+		return minio.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
+	}
+
+	var prefixes []string
+	var objects []minio.ObjectInfo
+	var nextMarker, nextVersionIDMarker string
+	for _, item := range items {
+		key := item.Key
+		if prefix != "" {
+			key = prefix + key
+		}
+		if item.IsPrefix {
+			prefixes = append(prefixes, key)
+		} else {
+			object := minioVersionedObjectInfo(bucket, "", item)
+			object.Name = key
+			objects = append(objects, object)
+		}
+
+		if more {
+			nextMarker = item.Key
+			nextVersionIDMarker = encodeVersionID(item.Version)
+		}
+	}
+
+	return minio.ListObjectVersionsInfo{
+		IsTruncated:         more,
+		NextMarker:          nextMarker,
+		NextVersionIDMarker: nextVersionIDMarker,
+		Objects:             objects,
+		Prefixes:            prefixes,
+	}, nil
+}
+
 func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	defer mon.Task()(&ctx)(&err)
 
@@ -1347,6 +1419,7 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 
 	minioObject := minioObjectInfo(bucket, etag, &object.Object)
 	minioObject.VersionID = encodeVersionID(object.Version)
+	minioObject.DeleteMarker = object.IsDeleteMarker
 	return minioObject
 }
 

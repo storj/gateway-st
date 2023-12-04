@@ -508,5 +508,50 @@ func TestVersioning(t *testing.T) {
 				require.Equal(t, "NoSuchKey", minio.ToErrorResponse(err).Code)
 			}
 		})
+
+		t.Run("ListObjectVersions", func(t *testing.T) {
+			bucket := testrand.BucketName()
+
+			require.NoError(t, client.MakeBucket(ctx, bucket))
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
+
+			for range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				require.Fail(t, "no objects to list")
+			}
+
+			expectedContent := testrand.Bytes(5 * memory.KiB)
+			_, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
+			require.NoError(t, err)
+
+			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
+			require.NoError(t, err)
+
+			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			listedObjects := 0
+			listedDeleteMarkers := 0
+			for objectInfo := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				if objectInfo.IsDeleteMarker {
+					listedDeleteMarkers++
+				} else {
+					listedObjects++
+				}
+			}
+			require.Equal(t, 2, listedDeleteMarkers)
+			require.Equal(t, 3, listedObjects)
+
+			// TODO(ver): add tests to check listing order when will be fixed on satellite side: https://github.com/storj/storj/issues/6550
+		})
 	})
 }

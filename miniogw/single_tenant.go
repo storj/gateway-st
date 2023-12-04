@@ -146,6 +146,11 @@ func (l *singleTenancyLayer) ListObjectsV2(ctx context.Context, bucket, prefix, 
 	return result, l.log(err)
 }
 
+func (l *singleTenancyLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (result minio.ListObjectVersionsInfo, err error) {
+	result, err = l.layer.ListObjectVersions(WithUplinkProject(ctx, l.project), bucket, prefix, marker, versionMarker, delimiter, maxKeys)
+	return result, l.log(err)
+}
+
 func (l *singleTenancyLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	reader, err = l.layer.GetObjectNInfo(WithUplinkProject(ctx, l.project), bucket, object, rs, h, lockType, opts)
 	return reader, l.log(err)

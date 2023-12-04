@@ -3458,15 +3458,6 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 	})
 }
 
-func TestListObjectVersions(t *testing.T) {
-	t.Parallel()
-
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		_, err := layer.ListObjectVersions(ctx, "bucket", "prefix", "marker", "versionMarker", "delimiter", 0)
-		require.EqualError(t, err, minio.NotImplemented{}.Error())
-	})
-}
-
 // TODO(artur): TestPutObjectTags should check all PutObjectTags's return
 // values.
 func TestPutObjectTags(t *testing.T) {
