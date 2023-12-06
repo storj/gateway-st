@@ -61,3 +61,9 @@ test_all \
     -maxtries 1 \
     -verbose \
     -output "$SCRIPTDIR"/../../.build/rclone-integration-tests
+
+echo "Start Rclone versioning tests"
+
+pushd "$SCRIPTDIR"
+    go test -run ^TestRcloneVersioning$ ./...
+popd
