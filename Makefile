@@ -322,6 +322,21 @@ integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to
 	--rm storjlabs/ci:latest \
 	-c "umask 0000; scripts/run-integration-tests.sh $$TEST"
 
+.PHONY: integration-ceph-tests
+integration-ceph-tests: ## (environment needs to be started first)
+	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
+	docker run \
+	--cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
+	--network integration-network-${BUILD_NUMBER} \
+	-e GATEWAY_0_ADDR=gateway:9999 \
+	-e "GATEWAY_0_ACCESS_KEY=$$AWS_ACCESS_KEY_ID" \
+	-e "GATEWAY_0_SECRET_KEY=$$AWS_SECRET_ACCESS_KEY" \
+	-v $$PWD:/build \
+	-w /build \
+	--name integration-ceph-tests-${BUILD_NUMBER}-$$TEST \
+	--entrypoint /bin/bash \
+	--rm storjlabs/ci:latest testsuite/ceph-s3-tests/run.sh
+
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)
 	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \

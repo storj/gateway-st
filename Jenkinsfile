@@ -175,6 +175,11 @@ pipeline {
                                     sh 'make integration-splunk-tests'
                                 }
                             }
+                            tests['ceph-tests'] = {
+                                stage('ceph-tests') {
+                                    sh 'make integration-ceph-tests'
+                                }
+                            }
                             ['awscli', 'awscli_multipart', 'duplicity', 'duplicati', 'rclone', 's3fs'].each { test ->
                                 tests["gateway-st-test ${test}"] = {
                                     stage("gateway-st-test ${test}") {
@@ -212,6 +217,8 @@ pipeline {
             }
             post {
                 always {
+                    junit '.build/ceph.xml'
+
                     script {
                         if(fileExists('.build/rclone-integration-tests')) {
                             zip zipFile: 'rclone-integration-tests.zip', archive: true, dir: '.build/rclone-integration-tests'
