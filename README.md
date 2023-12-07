@@ -7,7 +7,7 @@ S3-compatible gateway for Storj V3 Network, based on a [MinIO
 fork](https://github.com/storj/minio).
 
 If you're looking for the rest of Storj's edge services, check out
-[Gateway-MT](https://github.com/storj/gateway-mt).
+[Edge](https://github.com/storj/edge).
 
 <img src="https://github.com/storj/storj/raw/main/resources/logo.png" width="100">
 
