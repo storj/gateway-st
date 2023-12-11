@@ -1283,6 +1283,20 @@ func (layer *gatewayLayer) SetBucketVersioning(ctx context.Context, bucketName s
 	versioning := true
 	if v.Suspended() {
 		versioning = false
+
+		// TODO(ver): workaround for not being able to change from unversionded to suspended
+		// https://github.com/storj/storj/issues/6591
+		state, err := bucket.GetBucketVersioning(ctx, project, bucketName)
+		if err != nil {
+			return ConvertError(err, bucketName, "")
+		}
+
+		if state == 1 {
+			err = bucket.SetBucketVersioning(ctx, project, bucketName, true)
+			if err != nil {
+				return ConvertError(err, bucketName, "")
+			}
+		}
 	}
 
 	err = bucket.SetBucketVersioning(ctx, project, bucketName, versioning)

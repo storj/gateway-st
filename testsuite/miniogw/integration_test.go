@@ -349,29 +349,40 @@ func TestVersioning(t *testing.T) {
 		require.True(t, ok)
 
 		t.Run("bucket versioning enabling-disabling", func(t *testing.T) {
-			bucket := "bucket"
-			err = client.MakeBucket(ctx, bucket)
+			bucketA := testrand.BucketName()
+			err = client.MakeBucket(ctx, bucketA)
 			require.NoError(t, err)
 
-			v, err := client.GetBucketVersioning(ctx, bucket)
+			v, err := client.GetBucketVersioning(ctx, bucketA)
 			require.NoError(t, err)
 			require.Empty(t, v)
 
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
+			// try to change bucket state unversioned -> enabled -> suspended
+			require.NoError(t, client.EnableVersioning(ctx, bucketA))
 
-			v, err = client.GetBucketVersioning(ctx, bucket)
+			v, err = client.GetBucketVersioning(ctx, bucketA)
 			require.NoError(t, err)
 			require.EqualValues(t, versioning.Enabled, v)
 
-			require.NoError(t, client.DisableVersioning(ctx, bucket))
+			require.NoError(t, client.DisableVersioning(ctx, bucketA))
 
-			v, err = client.GetBucketVersioning(ctx, bucket)
+			v, err = client.GetBucketVersioning(ctx, bucketA)
+			require.NoError(t, err)
+			require.EqualValues(t, versioning.Suspended, v)
+
+			bucketB := testrand.BucketName()
+			err = client.MakeBucket(ctx, bucketB)
+			require.NoError(t, err)
+
+			// try to change bucket state unversioned -> suspended
+			require.NoError(t, client.DisableVersioning(ctx, bucketB))
+			v, err = client.GetBucketVersioning(ctx, bucketB)
 			require.NoError(t, err)
 			require.EqualValues(t, versioning.Suspended, v)
 		})
 
 		t.Run("check VersionID support for different methods", func(t *testing.T) {
-			bucket := "second-bucket"
+			bucket := testrand.BucketName()
 
 			require.NoError(t, client.MakeBucket(ctx, bucket))
 			require.NoError(t, client.EnableVersioning(ctx, bucket))
