@@ -1105,12 +1105,26 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 		opts := opts
 		opts.VersionID = object.VersionID
 		limiter.Go(ctx, func() {
-			_, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
+			info, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
 			if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
 				errs[i] = ConvertError(err, bucket, object.ObjectName)
 				return
 			}
+			// DeleteMarker/DeleteMarkerVersionId have different meaning if request VersionID was specified.
+			//
+			// VersionID IS specified
+			// 	DeleteMarker true, delete marker was permanently deleted
+			// 	DeleteMarkerVersionId set, VersionID of deleted delete marker
+			// VersionID IS NOT specified
+			// 	DeleteMarker true, delete marker was created
+			// 	DeleteMarkerVersionId set, VersionID of created marker
+
 			deleted[i].ObjectName = object.ObjectName
+			deleted[i].VersionID = info.VersionID
+			deleted[i].DeleteMarker = info.DeleteMarker
+			if deleted[i].DeleteMarker {
+				deleted[i].DeleteMarkerVersionID = info.VersionID
+			}
 		})
 	}
 

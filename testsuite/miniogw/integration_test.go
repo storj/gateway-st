@@ -493,31 +493,73 @@ func TestVersioning(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			objectsCh := make(chan minio.ObjectInfo)
-			ctx.Go(func() error {
-				defer close(objectsCh)
-				for _, versionID := range versionIDs[1:] {
-					objectsCh <- minio.ObjectInfo{
-						Key:       "objectA",
-						VersionID: versionID,
+			removeObjects := func(versionIDs []string) <-chan minio.RemoveObjectResult {
+				objectsCh := make(chan minio.ObjectInfo)
+				ctx.Go(func() error {
+					defer close(objectsCh)
+					for _, versionID := range versionIDs {
+						objectsCh <- minio.ObjectInfo{
+							Key:       "objectA",
+							VersionID: versionID,
+						}
 					}
-				}
-				return nil
-			})
-
-			errorCh := rawClient.API.RemoveObjects(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{})
-			for e := range errorCh {
-				require.NoError(t, e.Err)
-			}
-
-			// TODO(ver): replace with ListObjectVersions when implemented
-			for _, versionID := range versionIDs {
-				_, err := rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{
-					VersionID: versionID,
+					return nil
 				})
-				require.Error(t, err)
-				require.Equal(t, "NoSuchKey", minio.ToErrorResponse(err).Code)
+
+				return rawClient.API.RemoveObjectsWithResult(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{})
 			}
+
+			i := 1
+			for result := range removeObjects(versionIDs[1:]) {
+				require.NoError(t, result.Err)
+				require.Equal(t, "objectA", result.ObjectName)
+				require.Equal(t, versionIDs[i], result.ObjectVersionID)
+				require.False(t, result.DeleteMarker)
+				i++
+			}
+
+			for range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				require.Fail(t, "no objects to list")
+			}
+
+			// create one object and one delete marker
+			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(testrand.Bytes(5*memory.KiB)), -1, minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
+			require.NoError(t, err)
+
+			for result := range removeObjects([]string{""}) {
+				require.NoError(t, result.Err)
+				require.Equal(t, "objectA", result.ObjectName)
+				require.NotEmpty(t, result.ObjectVersionID)
+				require.True(t, result.DeleteMarker)
+				require.NotEmpty(t, result.DeleteMarkerVersionID)
+			}
+
+			listedIDs := []string{}
+			for listed := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				listedIDs = append(listedIDs, listed.VersionID)
+			}
+
+			resultChan := removeObjects(listedIDs)
+
+			// TODO(ver): order here will change when listing order will be fixed
+			result := <-resultChan
+			require.NoError(t, result.Err)
+			require.Equal(t, "objectA", result.ObjectName)
+			require.False(t, result.DeleteMarker)
+			require.Empty(t, result.DeleteMarkerVersionID)
+
+			result = <-resultChan
+			require.NoError(t, result.Err)
+			require.Equal(t, "objectA", result.ObjectName)
+			require.True(t, result.DeleteMarker)
+			require.NotEmpty(t, result.DeleteMarkerVersionID)
 		})
 
 		t.Run("ListObjectVersions", func(t *testing.T) {
