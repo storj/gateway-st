@@ -39,7 +39,8 @@ rclone config create TestS3 s3 \
     provider Minio \
     endpoint "${AWS_ENDPOINT}" \
     chunk_size 64M \
-    upload_cutoff 64M
+    upload_cutoff 64M \
+    use_already_exists false
 
 # get rclone version, and trim "-DEV" suffix if it exists, which is added
 # if installing rclone using `go install` (as in the storjlabs/ci image)
