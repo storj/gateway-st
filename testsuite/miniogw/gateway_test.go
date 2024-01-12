@@ -24,6 +24,7 @@ import (
 	"storj.io/common/memory"
 	"storj.io/common/pb"
 	"storj.io/common/storj"
+	"storj.io/common/sync2"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/miniogw"
@@ -2891,7 +2892,7 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 
 		buf := new(bytes.Buffer)
 
-		_, err = io.Copy(buf, downloaded)
+		_, err = sync2.Copy(ctx, buf, downloaded)
 		require.NoError(t, err)
 
 		assert.Equal(t, nonZeroContent+nonZeroContent, buf.String())
@@ -2958,7 +2959,7 @@ func TestPutObjectPartSegmentSize(t *testing.T) {
 
 		buf := new(bytes.Buffer)
 
-		_, err = io.Copy(buf, downloaded)
+		_, err = sync2.Copy(ctx, buf, downloaded)
 		require.NoError(t, err)
 
 		expectedSize := segmentSize + memory.KiB
@@ -4039,7 +4040,7 @@ func createFile(ctx context.Context, project *uplink.Project, bucket, key string
 		return nil, err
 	}
 
-	_, err = io.Copy(upload, bytes.NewBuffer(data))
+	_, err = sync2.Copy(ctx, upload, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}

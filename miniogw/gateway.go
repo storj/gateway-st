@@ -930,7 +930,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
-	_, err = io.Copy(upload, data)
+	_, err = sync2.Copy(ctx, upload, data)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
