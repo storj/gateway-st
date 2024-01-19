@@ -25,7 +25,7 @@ retrieve those files!
 ## Documentation
 
 * [Using the S3 Gateway](https://docs.storj.io/api-reference/s3-gateway)
-* [S3 Compatibility](docs/s3-compatibility.md)
+* [S3 Compatibility](https://docs.storj.io/dcs/api/s3/s3-compatibility)
 
 ## S3 API Compatibility
 
