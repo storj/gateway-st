@@ -34,7 +34,7 @@ pipeline {
                                 // bash requires the extglob option to support !(.git)
                                 // syntax, and we don't want to delete .git to have
                                 // faster clones.
-                                sh 'bash -O extglob -c "rm -rf !(.git)"'
+                                sh 'bash -O extglob -O dotglob -c "rm -rf !(.git)"'
 
                                 checkout scm
 
