@@ -130,6 +130,12 @@ pipeline {
                     }
                 }
             }
+
+            post {
+                always {
+                    sh 'bash -O extglob -O dotglob -c "rm -rf !(.git)"'
+                }
+            }
         }
 
         stage('Integration') {
@@ -142,18 +148,6 @@ pipeline {
             stages {
                 stage('Checkout') {
                     steps {
-                        // delete any content leftover from a previous run:
-                        // this chmod command is allowed to fail, e.g. it may encounter
-                        // operation denied errors trying to change permissions of root
-                        // owned files put into the workspace by tests running inside
-                        // docker containers, but these files can still be cleaned up.
-                        sh 'chmod -R 777 . || true'
-
-                        // bash requires the extglob option to support !(.git)
-                        // syntax, and we don't want to delete .git to have
-                        // faster clones.
-                        sh 'bash -O extglob -c "rm -rf !(.git)"'
-
                         checkout scm
                         // install storj-up dependency
                         sh 'go install storj.io/storj-up@latest'
