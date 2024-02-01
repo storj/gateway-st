@@ -548,18 +548,19 @@ func TestVersioning(t *testing.T) {
 
 			resultChan := removeObjects(listedIDs)
 
-			// TODO(ver): order here will change when listing order will be fixed
+			for i := 0; i < 2; i++ {
+				result := <-resultChan
+				require.NoError(t, result.Err)
+				require.Equal(t, "objectA", result.ObjectName)
+				require.True(t, result.DeleteMarker)
+				require.NotEmpty(t, result.DeleteMarkerVersionID)
+			}
+
 			result := <-resultChan
 			require.NoError(t, result.Err)
 			require.Equal(t, "objectA", result.ObjectName)
 			require.False(t, result.DeleteMarker)
 			require.Empty(t, result.DeleteMarkerVersionID)
-
-			result = <-resultChan
-			require.NoError(t, result.Err)
-			require.Equal(t, "objectA", result.ObjectName)
-			require.True(t, result.DeleteMarker)
-			require.NotEmpty(t, result.DeleteMarkerVersionID)
 		})
 
 		t.Run("ListObjectVersions", func(t *testing.T) {
