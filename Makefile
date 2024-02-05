@@ -37,6 +37,10 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install github.com/storj/ci/check-deferloop@latest
 	go install github.com/storj/ci/check-downgrades@latest
 
+ifeq ($(shell which storj-release),)
+	go install github.com/storj/ci/storj-release@latest
+endif
+
 	# staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
