@@ -1,6 +1,6 @@
 module storj.io/gateway
 
-go 1.19
+go 1.20
 
 require (
 	github.com/minio/cli v1.22.0
