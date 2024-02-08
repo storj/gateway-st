@@ -34,7 +34,7 @@ pipeline {
                                 // bash requires the extglob option to support !(.git)
                                 // syntax, and we don't want to delete .git to have
                                 // faster clones.
-                                sh 'bash -O extglob -O dotglob -c "rm -rf !(.git)"'
+                                sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
 
                                 checkout scm
 
@@ -133,7 +133,7 @@ pipeline {
 
             post {
                 always {
-                    sh 'bash -O extglob -O dotglob -c "rm -rf !(.git)"'
+                    sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
                 }
             }
         }
@@ -148,6 +148,12 @@ pipeline {
             stages {
                 stage('Checkout') {
                     steps {
+                        // delete any content leftover from a previous run.
+                        // bash requires the extglob option to support !(.git)
+                        // syntax, and we don't want to delete .git to have
+                        // faster clones.
+                        sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
+
                         checkout scm
                         // install storj-up dependency
                         sh 'go install storj.io/storj-up@latest'
@@ -211,16 +217,21 @@ pipeline {
             }
             post {
                 always {
-                    junit '.build/ceph.xml'
-
-                    script {
-                        if(fileExists('.build/rclone-integration-tests')) {
-                            zip zipFile: 'rclone-integration-tests.zip', archive: true, dir: '.build/rclone-integration-tests'
-                            archiveArtifacts artifacts: 'rclone-integration-tests.zip'
+                    catchError {
+                        junit '.build/ceph.xml'
+                    }
+                    catchError {
+                        script {
+                            if(fileExists('.build/rclone-integration-tests')) {
+                                zip zipFile: 'rclone-integration-tests.zip', archive: true, dir: '.build/rclone-integration-tests'
+                                archiveArtifacts artifacts: 'rclone-integration-tests.zip'
+                            }
                         }
                     }
-
-                    sh 'make integration-env-purge'
+                    catchError {
+                        sh 'make integration-env-purge'
+                    }
+                    sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
                 }
             }
         }

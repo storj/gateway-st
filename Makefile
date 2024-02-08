@@ -326,6 +326,7 @@ integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to
 	--rm storjlabs/ci:latest \
 	-c "umask 0000; scripts/run-integration-tests.sh $$TEST"
 
+# note: umask 0000 is needed for ceph tests so files can be cleaned up.
 .PHONY: integration-ceph-tests
 integration-ceph-tests: ## (environment needs to be started first)
 	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
@@ -339,7 +340,8 @@ integration-ceph-tests: ## (environment needs to be started first)
 	-w /build \
 	--name integration-ceph-tests-${BUILD_NUMBER}-$$TEST \
 	--entrypoint /bin/bash \
-	--rm storjlabs/ci:latest testsuite/ceph-s3-tests/run.sh
+	--rm storjlabs/ci:latest \
+	-c "umask 0000; testsuite/ceph-s3-tests/run.sh"
 
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)
