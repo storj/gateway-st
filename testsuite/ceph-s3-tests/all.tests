@@ -248,6 +248,10 @@ s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chu
 s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_2
 s3tests_boto3/functional/test_s3.py::test_sse_kms_no_key
 s3tests_boto3/functional/test_s3.py::test_sse_kms_read_declare
+s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_read_remove
+s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_versions_remove_all
+s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_versions_remove_special_names
+s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_overwrite_multipart
 
 # disabled because of https://github.com/storj/gateway-st/issues/79
 # s3tests_boto3/functional/test_s3.py::test_get_obj_tagging
@@ -546,14 +550,10 @@ s3tests_boto3/functional/test_utils.py::test_generate
 # s3tests_boto3/functional/test_s3.py::test_set_bucket_tagging
 # s3tests_boto3/functional/test_s3.py::test_atomic_dual_conditional_write_1mb
 # s3tests_boto3/functional/test_s3.py::test_multipart_resend_first_finishes_last
-# s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_read_remove
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_plain_null_version_removal
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_plain_null_version_overwrite
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_plain_null_version_overwrite_suspended
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_suspend_versions
-# s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_versions_remove_all
-# s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_versions_remove_special_names
-# s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_overwrite_multipart
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_list_marker
 # s3tests_boto3/functional/test_s3.py::test_versioning_copy_obj_version
 # s3tests_boto3/functional/test_s3.py::test_versioned_object_acl
