@@ -12,19 +12,14 @@ require (
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.26.0
 	golang.org/x/term v0.15.0
-	storj.io/common v0.0.0-20240201104234-da78d5ebf307
-	storj.io/minio v0.0.0-20231122123534-730e38e5b7ab
+	storj.io/common v0.0.0-20240213162259-8eec320f6530
+	storj.io/minio v0.0.0-20240208172754-95a3fa194e41
 	storj.io/private v0.0.0-20240112163619-cfc17a2921bf
-	storj.io/uplink v1.12.3-0.20240126222353-354cc4d89a50
+	storj.io/uplink v1.12.3-0.20240214095003-ec3b952477db
 )
 
 require (
 	git.apache.org/thrift.git v0.13.0 // indirect
-	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
-	github.com/Azure/azure-storage-blob-go v0.10.0 // indirect
-	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
-	github.com/Azure/go-autorest/autorest/date v0.3.0 // indirect
-	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
 	github.com/Azure/go-ntlmssp v0.0.0-20200615164410-66371956d46c // indirect
 	github.com/Shopify/sarama v1.27.2 // indirect
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
@@ -60,6 +55,7 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.4.0 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
@@ -88,7 +84,6 @@ require (
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/mattn/go-runewidth v0.0.4 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
@@ -163,7 +158,6 @@ require (
 	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/api v0.153.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/jcmturner/aescts.v1 v1.0.1 // indirect

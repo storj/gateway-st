@@ -9,17 +9,15 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.26.0
-	storj.io/common v0.0.0-20240201104234-da78d5ebf307
+	storj.io/common v0.0.0-20240213162259-8eec320f6530
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20231122123534-730e38e5b7ab
-	storj.io/storj v1.97.0-rc
-	storj.io/uplink v1.12.3-0.20240126222353-354cc4d89a50
+	storj.io/minio v0.0.0-20240208172754-95a3fa194e41
+	storj.io/storj v1.98.0-rc
+	storj.io/uplink v1.12.3-0.20240214095003-ec3b952477db
 )
 
 require (
 	git.apache.org/thrift.git v0.13.0 // indirect
-	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
-	github.com/Azure/azure-storage-blob-go v0.10.0 // indirect
 	github.com/Azure/go-ntlmssp v0.0.0-20200615164410-66371956d46c // indirect
 	github.com/Shopify/sarama v1.27.2 // indirect
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
@@ -101,7 +99,6 @@ require (
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/mattn/go-sqlite3 v1.14.19 // indirect
@@ -201,7 +198,6 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
-	google.golang.org/api v0.153.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/jcmturner/aescts.v1 v1.0.1 // indirect
