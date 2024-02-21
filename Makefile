@@ -369,7 +369,7 @@ integration-splunk-tests: ## Run splunk test suite (environment needs to be star
 
 .PHONY: integration-image-build
 integration-image-build:
-	./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
+	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
 
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
 	storj-up init minimal,db && \

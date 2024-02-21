@@ -3,6 +3,7 @@ set -euo pipefail
 
 BUILD_NUMBER=${1:-}
 GO_VERSION=${2:-}
+CGO_ENABLED=${CGO_ENABLED:-1}
 
 if [ -z "$BUILD_NUMBER" ]; then
 	echo "Missing first arg build number, e.g. 123"
@@ -33,7 +34,7 @@ docker run \
 	-u "$(id -u)":"$(id -g)" \
 	-v "$PWD":/go/build \
 	-v "$PKG_CACHE_PATH":/go/pkg \
-	-e GOARM=6 -e GOOS=linux -e GOARCH="$GOARCH" -e GOPROXY \
+	-e GOARM=6 -e GOOS=linux -e GOARCH="$GOARCH" -e GOPROXY -e CGO_ENABLED \
 	-w /go/build \
 	--rm storjlabs/golang:"$GO_VERSION" \
 	go build -o release/"$BUILD_NUMBER"/gateway_linux_"$GOARCH" \
