@@ -13,7 +13,7 @@ require (
 	go.uber.org/zap v1.26.0
 	golang.org/x/term v0.15.0
 	storj.io/common v0.0.0-20240213162259-8eec320f6530
-	storj.io/minio v0.0.0-20240208172754-95a3fa194e41
+	storj.io/minio v0.0.0-20240223180920-70e374683c7e
 	storj.io/private v0.0.0-20240112163619-cfc17a2921bf
 	storj.io/uplink v1.12.3-0.20240214095003-ec3b952477db
 )
