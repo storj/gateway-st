@@ -22,6 +22,7 @@ import (
 
 	"storj.io/common/memory"
 	"storj.io/common/sync2"
+	"storj.io/common/version"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -29,7 +30,6 @@ import (
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/hash"
 	"storj.io/minio/pkg/madmin"
-	"storj.io/private/version"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
 	versioned "storj.io/uplink/private/object"

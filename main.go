@@ -22,13 +22,13 @@ import (
 	"go.uber.org/zap"
 
 	"storj.io/common/base58"
+	"storj.io/common/cfgstruct"
 	"storj.io/common/fpath"
+	"storj.io/common/process"
+	"storj.io/common/version"
 	"storj.io/gateway/internal/wizard"
 	"storj.io/gateway/miniogw"
 	minio "storj.io/minio/cmd"
-	"storj.io/private/cfgstruct"
-	"storj.io/private/process"
-	"storj.io/private/version"
 	"storj.io/uplink"
 )
 

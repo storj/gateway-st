@@ -212,5 +212,4 @@ require (
 	storj.io/infectious v0.0.2 // indirect
 	storj.io/monkit-jaeger v0.0.0-20230707083646-f15e6e8b7e8c // indirect
 	storj.io/picobuf v0.0.3 // indirect
-	storj.io/private v0.0.0-20240112163619-cfc17a2921bf // indirect
 )
