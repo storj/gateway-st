@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os/exec"
@@ -31,6 +33,7 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/internal/minioclient"
+	miniocmd "storj.io/minio/cmd"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
@@ -608,7 +611,7 @@ func TestVersioning(t *testing.T) {
 			// TODO(ver): add tests to check listing order when will be fixed on satellite side: https://github.com/storj/storj/issues/6550
 		})
 
-		t.Run("checks MethodNotAllowed error on retrieve (head/download) the object using its delete marker ", func(t *testing.T) {
+		t.Run("checks MethodNotAllowed error on retrieve (head/download) the object using its delete marker", func(t *testing.T) {
 			bucket := testrand.BucketName()
 
 			require.NoError(t, client.MakeBucket(ctx, bucket))
@@ -636,5 +639,72 @@ func TestVersioning(t *testing.T) {
 			})
 			require.Error(t, err)
 		})
+
+		t.Run("CopyObject with source VersionID", func(t *testing.T) {
+			bucket := testrand.BucketName()
+
+			require.NoError(t, client.MakeBucket(ctx, bucket))
+			require.NoError(t, client.EnableVersioning(ctx, bucket))
+
+			expectedSize := 5 * memory.KiB
+			expectedContent := testrand.Bytes(expectedSize)
+			info, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), expectedSize.Int64(), minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(testrand.Bytes(expectedSize)), expectedSize.Int64(), minio.PutObjectOptions{})
+			require.NoError(t, err)
+
+			copyInfo, err := rawClient.API.CopyObject(ctx, minio.CopyDestOptions{
+				Bucket: bucket,
+				Object: "objectA-copy",
+			}, minio.CopySrcOptions{
+				Bucket:    bucket,
+				Object:    "objectA",
+				VersionID: info.VersionID,
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, copyInfo.VersionID)
+			require.NotEqual(t, info.VersionID, copyInfo.VersionID)
+
+			download, err := rawClient.API.GetObject(ctx, bucket, "objectA-copy", minio.GetObjectOptions{})
+			require.NoError(t, err)
+			defer ctx.Check(download.Close)
+
+			data, err := io.ReadAll(download)
+			require.NoError(t, err)
+			require.Equal(t, expectedContent, data)
+
+			nonExistingVersionID := randomVersionID()
+			_, err = rawClient.API.CopyObject(ctx, minio.CopyDestOptions{
+				Bucket: bucket,
+				Object: "objectA-copy",
+			}, minio.CopySrcOptions{
+				Bucket:    bucket,
+				Object:    "objectA",
+				VersionID: nonExistingVersionID,
+			})
+
+			var objNotFound miniocmd.ObjectNotFound
+			require.ErrorAs(t, miniocmd.ErrorRespToObjectError(err, bucket, "objectA-copy"), &objNotFound)
+
+			// copy objectA with VersionID into objectA
+			copyInfo, err = rawClient.API.CopyObject(ctx, minio.CopyDestOptions{
+				Bucket: bucket,
+				Object: "objectA",
+			}, minio.CopySrcOptions{
+				Bucket:    bucket,
+				Object:    "objectA",
+				VersionID: info.VersionID,
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, copyInfo.VersionID)
+			require.NotEqual(t, info.VersionID, copyInfo.VersionID)
+		})
 	})
+}
+
+func randomVersionID() string {
+	version := testrand.UUID()
+	binary.BigEndian.PutUint64(version[:8], uint64(rand.Uint32()))
+	return hex.EncodeToString(version.Bytes())
 }

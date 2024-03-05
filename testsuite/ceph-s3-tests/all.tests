@@ -527,7 +527,7 @@ s3tests_boto3/functional/test_utils.py::test_generate
 # s3tests_boto3/functional/test_s3.py::test_object_copy_not_owned_object_bucket
 # s3tests_boto3/functional/test_s3.py::test_object_copy_versioned_bucket
 # s3tests_boto3/functional/test_s3.py::test_object_copy_versioned_url_encoding
-# s3tests_boto3/functional/test_s3.py::test_object_copy_versioning_multipart_upload
+s3tests_boto3/functional/test_s3.py::test_object_copy_versioning_multipart_upload
 # s3tests_boto3/functional/test_s3.py::test_multipart_upload_empty
 # s3tests_boto3/functional/test_s3.py::test_multipart_upload_small
 # s3tests_boto3/functional/test_s3.py::test_multipart_copy_small
@@ -555,7 +555,7 @@ s3tests_boto3/functional/test_utils.py::test_generate
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_plain_null_version_overwrite_suspended
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_suspend_versions
 # s3tests_boto3/functional/test_s3.py::test_versioning_obj_list_marker
-# s3tests_boto3/functional/test_s3.py::test_versioning_copy_obj_version
+s3tests_boto3/functional/test_s3.py::test_versioning_copy_obj_version
 # s3tests_boto3/functional/test_s3.py::test_versioned_object_acl
 # s3tests_boto3/functional/test_s3.py::test_versioned_object_acl_no_version_specified
 # s3tests_boto3/functional/test_s3.py::test_versioned_concurrent_object_create_concurrent_remove

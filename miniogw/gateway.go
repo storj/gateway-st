@@ -958,8 +958,8 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	// TODO(ver): should be implemented soon on libuplink side
-	if srcOpts.VersionID != "" || destOpts.VersionID != "" {
+	// S3 doesn't support destination VersionID but let's handle this just in case
+	if destOpts.VersionID != "" {
 		return minio.ObjectInfo{}, minio.NotImplemented{}
 	}
 
@@ -996,7 +996,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, err
 	}
 
-	if srcAndDestSame {
+	if srcAndDestSame && srcInfo.VersionID == "" {
 		// TODO this should be removed and implemented on satellite side
 		_, err = project.StatBucket(ctx, srcBucket)
 		if err != nil {
@@ -1023,7 +1023,12 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return srcInfo, nil
 	}
 
-	object, err := project.CopyObject(ctx, srcBucket, srcObject, destBucket, destObject, nil)
+	version, err := decodeVersionID(srcInfo.VersionID)
+	if err != nil {
+		return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
+	}
+
+	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, nil)
 	if err != nil {
 		// TODO how we can improve it, its ugly
 		if errors.Is(err, uplink.ErrBucketNotFound) {
@@ -1049,7 +1054,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		object.Custom = uplink.CustomMetadata(srcInfo.UserDefined)
 	}
 
-	return minioObjectInfo(destBucket, "", object), nil
+	return minioVersionedObjectInfo(destBucket, "", object), nil
 }
 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
