@@ -9,9 +9,9 @@ require (
 	github.com/stretchr/testify v1.8.4
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.26.0
-	storj.io/common v0.0.0-20240301181833-03510b6ae08b
+	storj.io/common v0.0.0-20240305185125-a78b763577bc
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20240223180920-70e374683c7e
+	storj.io/minio v0.0.0-20240305214730-e70e32900cff
 	storj.io/storj v1.99.2
 	storj.io/uplink v1.12.3-0.20240227083244-7974a2e1a6c2
 )
