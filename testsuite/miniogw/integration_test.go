@@ -574,6 +574,7 @@ func TestVersioning(t *testing.T) {
 		t.Run("ListObjectVersions", func(t *testing.T) {
 			bucketA := testrand.BucketName()
 			bucketB := testrand.BucketName()
+			bucketC := testrand.BucketName()
 
 			require.NoError(t, client.MakeBucket(ctx, bucketA))
 			require.NoError(t, client.EnableVersioning(ctx, bucketA))
@@ -581,7 +582,22 @@ func TestVersioning(t *testing.T) {
 			require.NoError(t, client.MakeBucket(ctx, bucketB))
 			require.NoError(t, client.EnableVersioning(ctx, bucketB))
 
+			require.NoError(t, client.MakeBucket(ctx, bucketC))
+			require.NoError(t, client.EnableVersioning(ctx, bucketC))
+
 			for range rawClient.API.ListObjects(ctx, bucketA, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				require.Fail(t, "no objects to list")
+			}
+
+			for range rawClient.API.ListObjects(ctx, bucketB, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				require.Fail(t, "no objects to list")
+			}
+
+			for range rawClient.API.ListObjects(ctx, bucketC, minio.ListObjectsOptions{
 				WithVersions: true,
 			}) {
 				require.Fail(t, "no objects to list")
@@ -640,6 +656,8 @@ func TestVersioning(t *testing.T) {
 								MaxKeys:      maxKeys,
 								WithVersions: true,
 							}) {
+								require.NoError(t, objectInfo.Err)
+
 								// TODO(ver) check IsLatest field when it will be implemented
 
 								version := tc.versions[count]
@@ -742,6 +760,80 @@ func TestVersioning(t *testing.T) {
 						{"aprefix/1", versions["aprefix/1"][0]},
 						{"aprefix/2", versions["aprefix/2"][0]},
 					}},
+				})
+			})
+
+			t.Run("specific to single object optimization", func(t *testing.T) {
+				versions := upload(t, bucketC, []uploadEntry{
+					{key: "p/a"},
+					{key: "p/b"},
+					{key: "p/b"},
+					{key: "p/aa"},
+					{key: "p/aaa"},
+					{key: "a"},
+					{key: "p/aaa"},
+					{key: "p/aa"},
+					{key: "p/a"},
+					{key: "p/a"},
+					{key: "a"},
+					{key: "p/a", action: "deletemarker"},
+					{key: "p/aaa", action: "deletemarker"},
+				})
+
+				checkListing(t, bucketC, []testCase{
+					{"p/a as a single object", "p/a", true, []objectVersion{
+						{"p/a", versions["p/a"][0]},
+						{"p/a", versions["p/a"][1]},
+						{"p/a", versions["p/a"][2]},
+						{"p/a", versions["p/a"][3]},
+						{"p/aa", versions["p/aa"][0]},
+						{"p/aa", versions["p/aa"][1]},
+						{"p/aaa", versions["p/aaa"][0]},
+						{"p/aaa", versions["p/aaa"][1]},
+						{"p/aaa", versions["p/aaa"][2]},
+					}},
+					{"p/aa as a single object", "p/aa", true, []objectVersion{
+						{"p/aa", versions["p/aa"][0]},
+						{"p/aa", versions["p/aa"][1]},
+						{"p/aaa", versions["p/aaa"][0]},
+						{"p/aaa", versions["p/aaa"][1]},
+						{"p/aaa", versions["p/aaa"][2]},
+					}},
+					{"p/aaa as a single object", "p/aaa", true, []objectVersion{
+						{"p/aaa", versions["p/aaa"][0]},
+						{"p/aaa", versions["p/aaa"][1]},
+						{"p/aaa", versions["p/aaa"][2]},
+					}},
+
+					{"p/aaaa as a single object", "p/aaaa", true, nil},
+
+					{"p/b as a single object", "p/b", true, []objectVersion{
+						{"p/b", versions["p/b"][0]},
+						{"p/b", versions["p/b"][1]},
+					}},
+
+					{"p/bb as a single object", "p/bb", true, nil},
+
+					{"p as a single object", "p", true, []objectVersion{
+						{"p/a", versions["p/a"][0]},
+						{"p/a", versions["p/a"][1]},
+						{"p/a", versions["p/a"][2]},
+						{"p/a", versions["p/a"][3]},
+						{"p/aa", versions["p/aa"][0]},
+						{"p/aa", versions["p/aa"][1]},
+						{"p/aaa", versions["p/aaa"][0]},
+						{"p/aaa", versions["p/aaa"][1]},
+						{"p/aaa", versions["p/aaa"][2]},
+						{"p/b", versions["p/b"][0]},
+						{"p/b", versions["p/b"][1]},
+					}},
+
+					{"a as a single object", "a", true, []objectVersion{
+						{"a", versions["a"][0]},
+						{"a", versions["a"][1]},
+					}},
+
+					{"aa as a single object", "aa", true, nil},
 				})
 			})
 		})

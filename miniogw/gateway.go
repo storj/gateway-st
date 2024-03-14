@@ -735,34 +735,23 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		return minio.ListObjectVersionsInfo{}, err
 	}
 
-	recursive := delimiter == ""
-
-	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
+	// [1/2] We begin listing with an optimization for prefixes that aren't
+	// terminated with a forward slash. For example, for prefixes such as "p/a"
+	// we will start listing from "p/".
+	originalPrefix, prefix := prefix, prefix[:strings.LastIndex(prefix, "/")+1]
 
 	version, err := decodeVersionID(versionMarker)
 	if err != nil {
 		return minio.ListObjectVersionsInfo{}, err
 	}
 
-	var singleObjectKey string
-	cursor := strings.TrimPrefix(marker, prefix)
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		// extract cursor from prefix and valid prefix
-		elements := strings.Split(prefix, "/")
-		cursor = elements[len(elements)-1]
-		prefix = strings.TrimSuffix(prefix, cursor)
+	recursive := delimiter == ""
 
-		// if prefix cursor and marker cursor mismatch then return nothing
-		if marker != "" && cursor != strings.TrimPrefix(marker, prefix) {
-			return minio.ListObjectVersionsInfo{}, nil
-		}
-
-		singleObjectKey = prefix + cursor
-	}
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	items, more, err := versioned.ListObjectVersions(ctx, project, bucket, &versioned.ListObjectVersionsOptions{
 		Prefix:        prefix,
-		Cursor:        cursor,
+		Cursor:        strings.TrimPrefix(marker, prefix),
 		VersionCursor: version,
 		Recursive:     recursive,
 		System:        true,
@@ -782,13 +771,17 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 			key = prefix + key
 		}
 
-		// if singleObjectKey is set it means we want list only all versions
-		// of this single object so if different key appears just stop
-		if singleObjectKey != "" && singleObjectKey != key {
-			more = false
-			nextMarker = ""
-			nextVersionIDMarker = ""
-			break
+		// [2/2] We filter results based on the originally supplied prefix and
+		// not the one we actually list from. This means that in rare cases we
+		// might return an empty list with just next markers changed, but
+		// because the S3 spec allows it, we can pressure the client to page
+		// results instead of the gateway listing exhaustively.
+		if !strings.HasPrefix(key, originalPrefix) {
+			if more {
+				nextMarker = item.Key
+				nextVersionIDMarker = encodeVersionID(item.Version)
+			}
+			continue
 		}
 
 		if item.IsPrefix {
