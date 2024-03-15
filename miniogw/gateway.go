@@ -906,11 +906,6 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return minio.ObjectInfo{}, err
 	}
 
-	// TODO this should be removed and implemented on satellite side
-	defer func() {
-		err = checkBucketError(ctx, project, bucket, object, err)
-	}()
-
 	if data == nil {
 		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0)
 		if err != nil {

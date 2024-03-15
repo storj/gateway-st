@@ -40,10 +40,6 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		return minio.ListMultipartsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
-	// TODO this should be removed and implemented on satellite side
-	defer func() {
-		err = checkBucketError(ctx, project, bucket, "", err)
-	}()
 	recursive := delimiter == ""
 
 	list := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
