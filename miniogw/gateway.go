@@ -744,9 +744,25 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		return minio.ListObjectVersionsInfo{}, err
 	}
 
+	var singleObjectKey string
+	cursor := strings.TrimPrefix(marker, prefix)
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		// extract cursor from prefix and valid prefix
+		elements := strings.Split(prefix, "/")
+		cursor = elements[len(elements)-1]
+		prefix = strings.TrimSuffix(prefix, cursor)
+
+		// if prefix cursor and marker cursor mismatch then return nothing
+		if marker != "" && cursor != strings.TrimPrefix(marker, prefix) {
+			return minio.ListObjectVersionsInfo{}, nil
+		}
+
+		singleObjectKey = prefix + cursor
+	}
+
 	items, more, err := versioned.ListObjectVersions(ctx, project, bucket, &versioned.ListObjectVersionsOptions{
 		Prefix:        prefix,
-		Cursor:        strings.TrimPrefix(marker, prefix),
+		Cursor:        cursor,
 		VersionCursor: version,
 		Recursive:     recursive,
 		System:        true,
@@ -765,6 +781,16 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		if prefix != "" {
 			key = prefix + key
 		}
+
+		// if singleObjectKey is set it means we want list only all versions
+		// of this single object so if different key appears just stop
+		if singleObjectKey != "" && singleObjectKey != key {
+			more = false
+			nextMarker = ""
+			nextVersionIDMarker = ""
+			break
+		}
+
 		if item.IsPrefix {
 			prefixes = append(prefixes, key)
 		} else {

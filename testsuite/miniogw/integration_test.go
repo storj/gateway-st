@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"storj.io/common/base58"
 	"storj.io/common/memory"
 	"storj.io/common/processgroup"
+	"storj.io/common/storj"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/internal/minioclient"
@@ -315,6 +317,9 @@ func TestVersioning(t *testing.T) {
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.UseBucketLevelObjectVersioning = true
 			},
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+			},
 		},
 		NonParallel: true,
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
@@ -567,48 +572,178 @@ func TestVersioning(t *testing.T) {
 		})
 
 		t.Run("ListObjectVersions", func(t *testing.T) {
-			bucket := testrand.BucketName()
+			bucketA := testrand.BucketName()
+			bucketB := testrand.BucketName()
 
-			require.NoError(t, client.MakeBucket(ctx, bucket))
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
+			require.NoError(t, client.MakeBucket(ctx, bucketA))
+			require.NoError(t, client.EnableVersioning(ctx, bucketA))
 
-			for range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+			require.NoError(t, client.MakeBucket(ctx, bucketB))
+			require.NoError(t, client.EnableVersioning(ctx, bucketB))
+
+			for range rawClient.API.ListObjects(ctx, bucketA, minio.ListObjectsOptions{
 				WithVersions: true,
 			}) {
 				require.Fail(t, "no objects to list")
 			}
 
 			expectedContent := testrand.Bytes(5 * memory.KiB)
-			_, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
-			require.NoError(t, err)
 
-			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
-			require.NoError(t, err)
+			type uploadEntry struct {
+				key    string
+				action string
+			}
 
-			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
-			require.NoError(t, err)
+			type objectVersion struct {
+				key       string
+				versionID string
+			}
 
-			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
-			require.NoError(t, err)
+			type testCase struct {
+				name      string
+				prefix    string
+				recursive bool
+				versions  []objectVersion
+			}
 
-			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
-			require.NoError(t, err)
+			upload := func(t *testing.T, bucket string, entries []uploadEntry) map[string][]string {
+				versions := map[string][]string{}
+				for _, upload := range entries {
+					if upload.action == "deletemarker" {
+						err = rawClient.API.RemoveObject(ctx, bucket, upload.key, minio.RemoveObjectOptions{})
+						require.NoError(t, err)
+						// Minio doesn't give easy access to delete marker after RemoveObject so just leave it empty
+						versions[upload.key] = append(versions[upload.key], "deletemarker")
+					} else {
+						uploadInfo, err := rawClient.API.PutObject(ctx, bucket, upload.key, bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
+						require.NoError(t, err)
+						versions[upload.key] = append(versions[upload.key], uploadInfo.VersionID)
+					}
+				}
+				for k := range versions {
+					slices.Reverse(versions[k])
+				}
+				return versions
+			}
 
-			listedObjects := 0
-			listedDeleteMarkers := 0
-			for objectInfo := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				if objectInfo.IsDeleteMarker {
-					listedDeleteMarkers++
-				} else {
-					listedObjects++
+			// TODO minio client ListObjects provides limited options list e.g. marker cannot be set
+			// so we cannot test many edge cases, we should figure out how to improve it
+
+			checkListing := func(t *testing.T, bucket string, testCases []testCase) {
+				for _, tc := range testCases {
+					t.Run(tc.name, func(t *testing.T) {
+						for _, maxKeys := range []int{0, 1, 2, 1000} {
+							count := 0
+							for objectInfo := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+								Prefix:       tc.prefix,
+								Recursive:    tc.recursive,
+								MaxKeys:      maxKeys,
+								WithVersions: true,
+							}) {
+								// TODO(ver) check IsLatest field when it will be implemented
+
+								version := tc.versions[count]
+								require.Equal(t, version.key, objectInfo.Key)
+								switch {
+								case version.versionID == "prefix":
+									require.True(t, strings.HasSuffix(objectInfo.Key, "/"))
+								case version.versionID == "deletemarker":
+									require.True(t, objectInfo.IsDeleteMarker)
+								default:
+									require.Equal(t, version.versionID, objectInfo.VersionID, "key %s", objectInfo.Key)
+								}
+								count++
+							}
+							require.Equal(t, len(tc.versions), count)
+						}
+					})
 				}
 			}
-			require.Equal(t, 2, listedDeleteMarkers)
-			require.Equal(t, 3, listedObjects)
 
-			// TODO(ver): add tests to check listing order when will be fixed on satellite side: https://github.com/storj/storj/issues/6550
+			t.Run("A", func(t *testing.T) {
+				versions := upload(t, bucketA, []uploadEntry{
+					{key: "objectA"},
+					{key: "objectA", action: "deletemarker"},
+					{key: "objectA"},
+					{key: "objectB"},
+					{key: "objectA", action: "deletemarker"},
+					{key: "xprefix/objectC"},
+					{key: "objectA"},
+				})
+
+				checkListing(t, bucketA, []testCase{
+					{"empty prefix", "", false, []objectVersion{
+						{"objectA", versions["objectA"][0]},
+						{"objectA", versions["objectA"][1]},
+						{"objectA", versions["objectA"][2]},
+						{"objectA", versions["objectA"][3]},
+						{"objectA", versions["objectA"][4]},
+						{"objectB", versions["objectB"][0]},
+						{"xprefix/", "prefix"},
+					}},
+					{"objectA", "objectA", false, []objectVersion{
+						{"objectA", versions["objectA"][0]},
+						{"objectA", versions["objectA"][1]},
+						{"objectA", versions["objectA"][2]},
+						{"objectA", versions["objectA"][3]},
+						{"objectA", versions["objectA"][4]},
+					}},
+					{"objectB", "objectB", false, []objectVersion{
+						{"objectB", versions["objectB"][0]},
+					}},
+					{"xprefix/objectC", "xprefix/", false, []objectVersion{
+						{"xprefix/objectC", versions["xprefix/objectC"][0]},
+					}},
+					{"xprefix/recursive", "xprefix/", true, []objectVersion{
+						{"xprefix/objectC", versions["xprefix/objectC"][0]},
+					}},
+					{"empty-prefix/recursive", "", true, []objectVersion{
+						{"objectA", versions["objectA"][0]},
+						{"objectA", versions["objectA"][1]},
+						{"objectA", versions["objectA"][2]},
+						{"objectA", versions["objectA"][3]},
+						{"objectA", versions["objectA"][4]},
+						{"objectB", versions["objectB"][0]},
+						{"xprefix/objectC", versions["xprefix/objectC"][0]},
+					}},
+				})
+			})
+
+			t.Run("B", func(t *testing.T) {
+				versions := upload(t, bucketB, []uploadEntry{
+					{key: "prefixO/O"},
+					{key: "prefixZ/Z"},
+					{key: "prefixZ/Z"},
+					{key: "prefixD/D"},
+					{key: "prefixD/D"},
+					{key: "prefixD/D", action: "deletemarker"},
+					{key: "prefixC/C"},
+
+					{key: "aprefix/0"},
+					{key: "aprefix/1"},
+					{key: "aprefix/2"},
+				})
+
+				checkListing(t, bucketB, []testCase{
+					{"empty prefix", "", false, []objectVersion{
+						{"aprefix/", "prefix"},
+						{"prefixC/", "prefix"},
+						{"prefixD/", "prefix"},
+						{"prefixO/", "prefix"},
+						{"prefixZ/", "prefix"},
+					}},
+					{"prefixD/D", "prefixD/D", false, []objectVersion{
+						{"prefixD/D", versions["prefixD/D"][0]},
+						{"prefixD/D", versions["prefixD/D"][1]},
+						{"prefixD/D", versions["prefixD/D"][2]},
+					}},
+					{"aprefix/", "aprefix/", false, []objectVersion{
+						{"aprefix/0", versions["aprefix/0"][0]},
+						{"aprefix/1", versions["aprefix/1"][0]},
+						{"aprefix/2", versions["aprefix/2"][0]},
+					}},
+				})
+			})
 		})
 
 		t.Run("checks MethodNotAllowed error on retrieve (head/download) the object using its delete marker", func(t *testing.T) {
