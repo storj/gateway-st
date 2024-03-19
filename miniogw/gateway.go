@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -728,6 +729,10 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 	// TODO(ver): check how AWS S3 behaves in such case
 	if len(marker) == 0 && len(versionMarker) != 0 {
 		return minio.ListObjectVersionsInfo{}, minio.InvalidArgument{Bucket: bucket}
+	}
+
+	if delimiter != "" && delimiter != "/" {
+		return minio.ListObjectVersionsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
 	project, err := projectFromContext(ctx, bucket, "")
