@@ -207,7 +207,7 @@ binaries: ## Build binaries
 	CGO_ENABLED=0 storj-release \
 		--build-name gateway \
 		--build-tags kqueue \
-		--ldflags ${LDFLAGS} \
+		--ldflags "${LDFLAGS}" \
 		--go-version "${GO_VERSION}" \
 		--branch "${BRANCH_NAME}" \
 		--skip-osarches "freebsd/amd64"
@@ -216,7 +216,7 @@ binaries: ## Build binaries
 	CGO_ENABLED=1 storj-release \
 		--build-name gateway \
 		--build-tags kqueue \
-		--ldflags ${LDFLAGS} \
+		--ldflags "${LDFLAGS}" \
 		--go-version "${GO_VERSION}" \
 		--branch "${BRANCH_NAME}" \
 		--osarches "freebsd/amd64"
