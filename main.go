@@ -25,6 +25,7 @@ import (
 	"storj.io/common/cfgstruct"
 	"storj.io/common/fpath"
 	"storj.io/common/process"
+	"storj.io/common/process/eventkitbq"
 	"storj.io/common/version"
 	"storj.io/gateway/internal/wizard"
 	"storj.io/gateway/miniogw"
@@ -151,7 +152,7 @@ func cmdRun(cmd *cobra.Command, args []string) (err error) {
 
 	ctx, _ := process.Ctx(cmd)
 
-	if err := process.InitMetrics(ctx, zap.L(), nil, ""); err != nil {
+	if err := process.InitMetrics(ctx, zap.L(), nil, "", eventkitbq.BQDestination); err != nil {
 		zap.S().Warn("Failed to initialize telemetry batcher: ", err)
 	}
 
