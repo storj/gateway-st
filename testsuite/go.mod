@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.27.0
-	storj.io/common v0.0.0-20240312163747-de28b7045716
+	storj.io/common v0.0.0-20240325183111-3a1a80390ccd
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20240305214730-e70e32900cff
-	storj.io/storj v1.100.4
-	storj.io/uplink v1.12.3-0.20240319101516-597c3fbb1421
+	storj.io/storj v1.91.0-alpha.0.20240325173439-070a4d1fc4e7
+	storj.io/uplink v1.12.3-0.20240325204957-7e1a1e616922
 )
 
 require (
@@ -88,7 +88,7 @@ require (
 	github.com/jtolio/crawlspace/tools v0.0.0-20231116162947-3ec5cc6b36c5 // indirect
 	github.com/jtolio/mito v0.0.0-20230523171229-d78ef06bb77b // indirect
 	github.com/jtolio/noiseconn v0.0.0-20230301220541-88105e6c8ac6 // indirect
-	github.com/klauspost/compress v1.17.0 // indirect
+	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
 	github.com/klauspost/readahead v1.3.1 // indirect
@@ -207,7 +207,7 @@ require (
 	gopkg.in/segmentio/analytics-go.v3 v3.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	storj.io/drpc v0.0.33 // indirect
+	storj.io/drpc v0.0.34 // indirect
 	storj.io/eventkit v0.0.0-20240306141230-6cb545e5f892 // indirect
 	storj.io/infectious v0.0.2 // indirect
 	storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd // indirect

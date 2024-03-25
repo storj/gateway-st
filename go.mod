@@ -12,9 +12,9 @@ require (
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.17.0
-	storj.io/common v0.0.0-20240312163747-de28b7045716
+	storj.io/common v0.0.0-20240325183111-3a1a80390ccd
 	storj.io/minio v0.0.0-20240305214730-e70e32900cff
-	storj.io/uplink v1.12.3-0.20240319101516-597c3fbb1421
+	storj.io/uplink v1.12.3-0.20240325204957-7e1a1e616922
 )
 
 require (
@@ -84,7 +84,7 @@ require (
 	github.com/jtolio/crawlspace v0.0.0-20231116162947-3ec5cc6b36c5 // indirect
 	github.com/jtolio/crawlspace/tools v0.0.0-20231116162947-3ec5cc6b36c5 // indirect
 	github.com/jtolio/noiseconn v0.0.0-20230111204749-d7ec1a08b0b8 // indirect
-	github.com/klauspost/compress v1.17.0 // indirect
+	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
