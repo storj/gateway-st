@@ -13,7 +13,7 @@ require (
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20240305214730-e70e32900cff
 	storj.io/storj v1.91.0-alpha.0.20240325173439-070a4d1fc4e7
-	storj.io/uplink v1.12.3-0.20240405162132-4ad5621e6841
+	storj.io/uplink v1.12.3-0.20240410114230-190796a0f006
 )
 
 require (
