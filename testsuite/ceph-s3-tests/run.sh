@@ -14,7 +14,10 @@ mkdir -p "$BUILD_DIR"
 rm -rf "$BUILD_DIR/s3-tests/"
 
 pushd "$BUILD_DIR"
-    git clone --depth 1 https://github.com/ceph/s3-tests &&  cd s3-tests
+    # note: tests are pegged at a specific revision to avoid upstream breaking the builds (e.g. config file changes)
+    git clone https://github.com/ceph/s3-tests && \
+        cd s3-tests && \
+        git reset --hard 54c1488a4365afdbe7748eb31809bbb05fa25fb3
 
     cp "$SCRIPTDIR/storj.conf" ./
 
