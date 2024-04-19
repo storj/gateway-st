@@ -16,6 +16,7 @@ source "$SCRIPTDIR"/require.sh
 export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:=$GATEWAY_0_ACCESS_KEY}
 export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:=$GATEWAY_0_SECRET_KEY}
 [ -n "${AWS_ENDPOINT:=http://$GATEWAY_0_ADDR}" ]
+export AWS_ENDPOINT=${AWS_ENDPOINT}
 
 # AWS_CA_BUNDLE is configured in require.sh, but for rclone causes problems
 # when using a self-signed cert for testing due to the way it uses the AWS SDK
