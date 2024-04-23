@@ -8,6 +8,9 @@ SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:=$GATEWAY_0_ACCESS_KEY}
 export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:=$GATEWAY_0_SECRET_KEY}
 
+GATEWAY_HOST=$(echo "${GATEWAY_0_ADDR}" | cut -d : -f 1)
+GATEWAY_PORT=$(echo "${GATEWAY_0_ADDR}" | cut -d : -f 2)
+
 BUILD_DIR="$SCRIPTDIR/../../.build"
 mkdir -p "$BUILD_DIR"
 
@@ -23,6 +26,8 @@ pushd "$BUILD_DIR"
 
     sed -i "s/<access_key>/$AWS_ACCESS_KEY_ID/g" storj.conf
     sed -i "s/<secret_key>/$AWS_SECRET_ACCESS_KEY/g" storj.conf
+    sed -i "s/<gateway_host>/$GATEWAY_HOST/g" storj.conf
+    sed -i "s/<gateway_port>/$GATEWAY_PORT/g" storj.conf
 
     # args in quota are not working for some reason so disable check for now
     #shellcheck disable=SC2046
