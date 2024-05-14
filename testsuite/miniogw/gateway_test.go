@@ -3985,7 +3985,9 @@ func TestSlowDown(t *testing.T) {
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
 
-		require.ErrorIs(t, layer.MakeBucketWithLocation(ctxWithProject, testrand.BucketName(), minio.BucketOptions{}), miniogw.ErrSlowDown)
+		bucket := testrand.BucketName()
+
+		require.ErrorIs(t, layer.MakeBucketWithLocation(ctxWithProject, bucket, minio.BucketOptions{}), minio.PrefixAccessDenied{Bucket: bucket, Object: ""})
 	})
 }
 

@@ -12,9 +12,9 @@ require (
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.17.0
-	storj.io/common v0.0.0-20240325183111-3a1a80390ccd
-	storj.io/minio v0.0.0-20240305214730-e70e32900cff
-	storj.io/uplink v1.12.3-0.20240416194140-7f00110f228d
+	storj.io/common v0.0.0-20240514094109-2737de81d21e
+	storj.io/minio v0.0.0-20240514081105-9f9fc2799014
+	storj.io/uplink v1.13.0
 )
 
 require (
@@ -34,7 +34,7 @@ require (
 	github.com/bcicen/jstream v1.0.1 // indirect
 	github.com/beevik/ntp v0.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/blang/semver v3.5.1+incompatible // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/calebcase/tmpfile v1.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cheggaaa/pb v1.0.29 // indirect
