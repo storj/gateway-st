@@ -4948,8 +4948,39 @@ func TestSlowDown(t *testing.T) {
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
 
 		bucket := testrand.BucketName()
-
 		require.ErrorIs(t, layer.MakeBucketWithLocation(ctxWithProject, bucket, minio.BucketOptions{}), minio.PrefixAccessDenied{Bucket: bucket, Object: ""})
+	})
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount:   1,
+		StorageNodeCount: 0,
+		UplinkCount:      1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.RateLimiter.Rate = 1
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
+		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 1000,
+			MaxKeysExhaustiveLimit:       100000,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		bucket := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctxWithProject, bucket, minio.BucketOptions{}))
+		require.ErrorIs(t, layer.MakeBucketWithLocation(ctxWithProject, bucket, minio.BucketOptions{}), miniogw.ErrSlowDown)
 	})
 }
 
