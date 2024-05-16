@@ -156,7 +156,7 @@ pipeline {
 
                         checkout scm
                         // install storj-up dependency
-                        sh 'go install storj.io/storj-up@latest'
+                        sh 'go install storj.io/storj-up@main'
                     }
                 }
 
