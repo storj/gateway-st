@@ -12,8 +12,8 @@ require (
 	storj.io/common v0.0.0-20240610190553-b81b7c826f57
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20240517005305-6bf61e2db47a
-	storj.io/storj v1.91.0-alpha.0.20240529222445-8d5ead827f2a
-	storj.io/uplink v1.13.0
+	storj.io/storj v1.106.1
+	storj.io/uplink v1.13.1-0.20240605011603-26d3158333db
 )
 
 require (
@@ -177,7 +177,7 @@ require (
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
-	github.com/spacemonkeygo/monkit/v3 v3.0.22 // indirect
+	github.com/spacemonkeygo/monkit/v3 v3.0.23 // indirect
 	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/spacemonkeygo/tlshowdy v0.0.0-20160207005338-8fa2cec1d7cd // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect

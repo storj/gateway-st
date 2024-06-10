@@ -1545,8 +1545,8 @@ github.com/sourcegraph/syntaxhighlight v0.0.0-20170531221838-bd320f5d308e/go.mod
 github.com/spacemonkeygo/monkit/v3 v3.0.0-20191108235033-eacca33b3037/go.mod h1:JcK1pCbReQsOsMKF/POFSZCq7drXFybgGmbc27tuwes=
 github.com/spacemonkeygo/monkit/v3 v3.0.4/go.mod h1:JcK1pCbReQsOsMKF/POFSZCq7drXFybgGmbc27tuwes=
 github.com/spacemonkeygo/monkit/v3 v3.0.18/go.mod h1:kj1ViJhlyADa7DiA4xVnTuPA46lFKbM7mxQTrXCuJP4=
-github.com/spacemonkeygo/monkit/v3 v3.0.22 h1:4/g8IVItBDKLdVnqrdHZrCVPpIrwDBzl1jrV0IHQHDU=
-github.com/spacemonkeygo/monkit/v3 v3.0.22/go.mod h1:XkZYGzknZwkD0AKUnZaSXhRiVTLCkq7CWVa3IsE72gA=
+github.com/spacemonkeygo/monkit/v3 v3.0.23 h1:F1qMI6VOY3osKQ0llXsmlYyTpyiq6L7tyjy6fVbxjqM=
+github.com/spacemonkeygo/monkit/v3 v3.0.23/go.mod h1:XkZYGzknZwkD0AKUnZaSXhRiVTLCkq7CWVa3IsE72gA=
 github.com/spacemonkeygo/monotime v0.0.0-20180824235756-e3f48a95f98a/go.mod h1:ul4bvvnCOPZgq8w0nTkSmWVg/hauVpFS97Am1YM1XXo=
 github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 h1:RC6RW7j+1+HkWaX/Yh71Ee5ZHaHYt7ZP4sQgUrm6cDU=
 github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572/go.mod h1:w0SWMsp6j9O/dk4/ZpIhL+3CkG8ofA2vuv7k+ltqUMc=
@@ -2628,7 +2628,7 @@ storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd/go.mod h1:nwyyJiAFAPRu81qBfAE5cBGkVXROYSNJu9pGXLtStHE=
 storj.io/picobuf v0.0.3 h1:xAUPB5ZUGfxkqd3bnw3zp01kkWb9wlhg4vtZWUs2S9A=
 storj.io/picobuf v0.0.3/go.mod h1:4V4xelV1RSCck5GgmkL/Txw9l6IfX3XcBzegmL5Kudo=
-storj.io/storj v1.91.0-alpha.0.20240529222445-8d5ead827f2a h1:ZvqgwTjT2jDxvK8DPoiF5tVQxKi+2IQnlBDoMfBzuy4=
-storj.io/storj v1.91.0-alpha.0.20240529222445-8d5ead827f2a/go.mod h1:jl7/3zyG1hZ9nrY13nT/lCwgKo5R3CTBvJYfgZ/HPag=
-storj.io/uplink v1.13.0 h1:MAwzMaO4F86n2sMdNm7/m7LVyf8KD0FP+72h1H+HuRE=
-storj.io/uplink v1.13.0/go.mod h1:MT8+V7qddgn1ra09piq3Idy4IUva2S90S7me7U8n6cE=
+storj.io/storj v1.106.1 h1:UZYf8nSckGGhsMPSHOcFp+FrNNsAZVaPMGMYF8tAZp8=
+storj.io/storj v1.106.1/go.mod h1:NWx+T8i8MMkr9Uo0sk1A6YHv2NUNLimSEILEndNlUeM=
+storj.io/uplink v1.13.1-0.20240605011603-26d3158333db h1:hwMjHjIXkEYPDc43MKmCU9AyMGRE5wF/FZtY58xKlNg=
+storj.io/uplink v1.13.1-0.20240605011603-26d3158333db/go.mod h1:MT8+V7qddgn1ra09piq3Idy4IUva2S90S7me7U8n6cE=
