@@ -949,11 +949,24 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
-	_, err = sync2.Copy(ctx, upload, data)
+	size, err := sync2.Copy(ctx, upload, data)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+	}
+
+	lengthRange := opts.PostPolicy.Conditions.ContentLengthRange
+	if lengthRange.Valid {
+		if size < lengthRange.Min {
+			abortErr := upload.Abort()
+			return minio.ObjectInfo{}, errs.Combine(minio.ObjectTooSmall{}, abortErr)
+		}
+
+		if size > lengthRange.Max {
+			abortErr := upload.Abort()
+			return minio.ObjectInfo{}, errs.Combine(minio.ObjectTooLarge{}, abortErr)
+		}
 	}
 
 	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
