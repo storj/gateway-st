@@ -163,21 +163,24 @@ func (layer *gatewayLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, 
 	}, nil
 }
 
-func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) (err error) {
+func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, name string, opts minio.BucketOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.BucketNameInvalid{Bucket: bucket}
+	if err := ValidateBucket(ctx, name); err != nil {
+		return minio.BucketNameInvalid{Bucket: name}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx, name, "")
 	if err != nil {
 		return err
 	}
 
-	_, err = project.CreateBucket(ctx, bucket)
+	_, err = bucket.CreateBucketWithObjectLock(ctx, project, bucket.CreateBucketWithObjectLockParams{
+		Name:              name,
+		ObjectLockEnabled: opts.LockEnabled,
+	})
 
-	return ConvertError(err, bucket, "")
+	return ConvertError(err, name, "")
 }
 
 func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string) (bucketInfo minio.BucketInfo, err error) {

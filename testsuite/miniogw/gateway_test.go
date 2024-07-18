@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"storj.io/common/macaroon"
 	"storj.io/common/memory"
 	"storj.io/common/pb"
 	"storj.io/common/storj"
@@ -36,7 +37,10 @@ import (
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
+	"storj.io/storj/satellite/buckets"
+	"storj.io/storj/satellite/console"
 	"storj.io/uplink"
+	"storj.io/uplink/private/bucket"
 )
 
 const (
@@ -72,6 +76,28 @@ func TestMakeBucketWithLocation(t *testing.T) {
 		// Check the error when trying to create an existing bucket
 		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
 		assert.Equal(t, minio.BucketAlreadyExists{Bucket: testBucket}, err)
+	})
+}
+
+func TestMakeBucketWithObjectLock(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
+		require.NoError(t, err)
+
+		_, err = bucket.GetBucketObjectLockConfiguration(ctx, project, testBucket)
+		require.ErrorIs(t, err, bucket.ErrBucketObjectLockConfigurationNotFound)
+
+		// Create a bucket with object lock enabled
+		err = layer.MakeBucketWithLocation(ctx, testBucket+"2", minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		enabled, err := bucket.GetBucketObjectLockConfiguration(ctx, project, testBucket+"2")
+		require.NoError(t, err)
+		require.True(t, enabled)
 	})
 }
 
@@ -3992,27 +4018,50 @@ func TestSlowDown(t *testing.T) {
 }
 
 func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
-	runTestWithPathCipher(t, storj.EncNull, false, test)
+	runTestWithPathCipher(t, storj.EncNull, false, false, test)
+}
+
+func runTestWithObjectLock(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
+	runTestWithPathCipher(t, storj.EncNull, true, true, test)
 }
 
 func runTestWithVersioning(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
-	runTestWithPathCipher(t, storj.EncNull, true, test)
+	runTestWithPathCipher(t, storj.EncNull, true, false, test)
 }
 
-func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versioning bool, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
+func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versioning bool, objectLock bool, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
 				config.Metainfo.UseBucketLevelObjectVersioning = versioning
+				config.Metainfo.UseBucketLevelObjectLock = objectLock && versioning
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = pathCipher
 			},
 		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
+		upl := planet.Uplinks[0]
+		sat := planet.Satellites[0]
+		if objectLock && versioning {
+			projectID := upl.Projects[0].ID
+			userCtx, err := sat.UserContext(ctx, upl.Projects[0].Owner.ID)
+			require.NoError(t, err)
+
+			_, key, err := sat.API.Console.Service.CreateAPIKey(userCtx, projectID, "test key", macaroon.APIKeyVersionObjectLock)
+			require.NoError(t, err)
+
+			access, err := uplink.RequestAccessWithPassphrase(ctx, sat.URL(), key.Serialize(), "")
+			require.NoError(t, err)
+
+			upl.Access[sat.ID()] = access
+
+			err = sat.API.DB.Console().Projects().UpdateDefaultVersioning(ctx, projectID, console.DefaultVersioning(buckets.VersioningEnabled))
+			require.NoError(t, err)
+		}
+		project, err := upl.OpenProject(ctx, sat)
 		require.NoError(t, err)
 		defer ctx.Check(project.Close)
 
