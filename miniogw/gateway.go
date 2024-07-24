@@ -22,12 +22,14 @@ import (
 	"github.com/zeebo/errs"
 
 	"storj.io/common/memory"
+	"storj.io/common/storj"
 	"storj.io/common/sync2"
 	"storj.io/common/version"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/hash"
 	"storj.io/minio/pkg/madmin"
@@ -1516,6 +1518,13 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 		object = &versioned.VersionedObject{}
 	}
 
+	if object.Retention != nil && object.Retention.Mode != storj.NoRetention {
+		if object.Custom == nil {
+			object.Custom = uplink.CustomMetadata{}
+		}
+		object.Custom[lock.AmzObjectLockMode] = string(lock.RetCompliance)
+		object.Custom[lock.AmzObjectLockRetainUntilDate] = object.Retention.RetainUntil.Format(time.RFC3339)
+	}
 	minioObject := minioObjectInfo(bucket, etag, &object.Object)
 	minioObject.VersionID = encodeVersionID(object.Version)
 	minioObject.DeleteMarker = object.IsDeleteMarker
