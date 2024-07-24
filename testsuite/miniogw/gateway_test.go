@@ -172,7 +172,7 @@ func addPendingMultipartUpload(ctx context.Context, t *testing.T, project *uplin
 func TestDeleteBucket(t *testing.T) {
 	t.Parallel()
 
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		{
 			// Check the error when deleting bucket with empty name
 			err := layer.DeleteBucket(ctx, "", false)
@@ -249,6 +249,20 @@ func TestDeleteBucket(t *testing.T) {
 			addPendingMultipartUpload(ctx, t, project, bucket)
 
 			assert.ErrorIs(t, layer.DeleteBucket(ctx, bucket.Name, false), minio.BucketNotEmpty{Bucket: bucket.Name})
+		}
+		{
+			// Delete previously created bucket with same name
+			require.NoError(t, layer.DeleteBucket(ctx, testBucket, true))
+
+			// Create a bucket with object lock enabled
+			err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+				LockEnabled: true,
+			})
+			require.NoError(t, err)
+
+			// Check the error when force deleting bucket with object lock enabled
+			err = layer.DeleteBucket(ctx, testBucket, true)
+			assert.Equal(t, minio.PrefixAccessDenied{Bucket: testBucket}, err)
 		}
 	})
 }
