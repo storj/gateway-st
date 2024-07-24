@@ -104,6 +104,14 @@ var (
 		Message:    "Please reduce your request rate.",
 	}
 
+	// ErrBucketObjectLockNotEnabled is a custom error for when a user is trying to perform OL operation for a bucket
+	// with no OL enabled.
+	ErrBucketObjectLockNotEnabled = miniogo.ErrorResponse{
+		Code:       "InvalidRequest",
+		StatusCode: http.StatusBadRequest,
+		Message:    "Bucket is missing ObjectLockConfiguration",
+	}
+
 	// ErrNoUplinkProject is a custom error that indicates there was no
 	// `*uplink.Project` in the context for the gateway to pick up. This error
 	// may signal that passing credentials down to the object layer is working
@@ -1364,6 +1372,76 @@ func (layer *gatewayLayer) SetBucketVersioning(ctx context.Context, bucketName s
 	return nil
 }
 
+// GetObjectRetention retrieves object lock configuration of an object.
+func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, object, version string) (_ *lock.ObjectRetention, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return nil, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, object)
+	if err != nil {
+		return nil, err
+	}
+
+	versionID, err := decodeVersionID(version)
+	if err != nil {
+		return nil, err
+	}
+
+	retention, err := versioned.GetObjectRetention(ctx, project, bucketName, object, versionID)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	if retention.Mode != storj.ComplianceMode {
+		return nil, lock.ErrUnknownWORMModeDirective
+	}
+
+	r := &lock.ObjectRetention{
+		Mode: lock.RetCompliance,
+		RetainUntilDate: lock.RetentionDate{
+			Time: retention.RetainUntil,
+		},
+	}
+
+	return r, nil
+}
+
+// SetObjectRetention sets object lock configuration for an object.
+func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, r *lock.ObjectRetention) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, object)
+	if err != nil {
+		return err
+	}
+
+	// TODO: remove this check when we implement governance mode
+	if r.Mode == lock.RetGovernance {
+		return lock.ErrUnknownWORMModeDirective
+	}
+
+	retention := metaclient.Retention{
+		Mode:        parseRetentionMode(r.Mode),
+		RetainUntil: r.RetainUntilDate.Time,
+	}
+
+	versionID, err := decodeVersionID(version)
+	if err != nil {
+		return err
+	}
+
+	err = versioned.SetObjectRetention(ctx, project, bucketName, object, versionID, retention)
+
+	return ConvertError(err, bucketName, object)
+}
+
 // PutObjectMetadata updates user-defined metadata on the given object.
 //
 // This is only called by PutObjectRetentionHandler in minio, currently.
@@ -1436,6 +1514,8 @@ func ConvertError(err error, bucket, object string) error {
 		// There's not much we can do at this point but report that we won't
 		// continue with this request.
 		return minio.OperationTimedOut{}
+	case strings.HasPrefix(errs.Unwrap(err).Error(), "Object Lock is not enabled for this bucket"):
+		return ErrBucketObjectLockNotEnabled
 	default:
 		return err
 	}
@@ -1486,6 +1566,14 @@ func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, 
 		}
 	}
 	return err
+}
+
+func parseRetentionMode(mode lock.RetMode) storj.RetentionMode {
+	if strings.EqualFold(string(mode), string(lock.RetCompliance)) {
+		return storj.ComplianceMode
+	}
+
+	return storj.NoRetention
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {

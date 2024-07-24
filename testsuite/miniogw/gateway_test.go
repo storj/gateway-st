@@ -415,6 +415,39 @@ func TestPutObjectZeroBytes(t *testing.T) {
 	})
 }
 
+func TestGetAndSetObjectRetention(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		retention, err := layer.GetObjectRetention(ctx, testBucket, testFile, "")
+		require.Error(t, err)
+		require.Nil(t, retention)
+
+		retRequest := &lock.ObjectRetention{
+			Mode: lock.RetCompliance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: time.Now().Add(time.Hour),
+			},
+		}
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, "", retRequest)
+		require.NoError(t, err)
+
+		retention, err = layer.GetObjectRetention(ctx, testBucket, testFile, "")
+		require.NoError(t, err)
+		require.NotNil(t, retention)
+		require.WithinDuration(t, retRequest.RetainUntilDate.Time, retention.RetainUntilDate.Time, time.Minute)
+		require.Equal(t, lock.RetCompliance, retention.Mode)
+	})
+}
+
 func TestGetObjectInfo(t *testing.T) {
 	t.Parallel()
 

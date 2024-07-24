@@ -17,6 +17,7 @@ import (
 	"storj.io/common/errs2"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/policy"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/uplink"
@@ -280,5 +281,15 @@ func (l *singleTenancyLayer) GetBucketVersioning(ctx context.Context, bucket str
 
 func (l *singleTenancyLayer) SetBucketVersioning(ctx context.Context, bucket string, v *versioning.Versioning) (err error) {
 	err = l.layer.SetBucketVersioning(WithUplinkProject(ctx, l.project), bucket, v)
+	return l.log(err)
+}
+
+func (l *singleTenancyLayer) GetObjectRetention(ctx context.Context, bucket, object, versionID string) (_ *lock.ObjectRetention, err error) {
+	retention, err := l.layer.GetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID)
+	return retention, l.log(err)
+}
+
+func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, retention *lock.ObjectRetention) (err error) {
+	err = l.layer.SetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID, retention)
 	return l.log(err)
 }
