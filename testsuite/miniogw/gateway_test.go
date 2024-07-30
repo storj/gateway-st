@@ -1015,6 +1015,40 @@ func TestDeleteObject(t *testing.T) {
 	})
 }
 
+func TestDeleteObjectWithObjectLock(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// make bucket with object lock enabled
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		// Create the object using the Uplink API
+		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		info, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		// lock the object
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, &lock.ObjectRetention{
+			Mode: lock.RetCompliance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: time.Now().Add(1 * time.Hour),
+			},
+		})
+		require.NoError(t, err)
+
+		// try deleting locked object version
+		_, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{
+			VersionID: info.VersionID,
+		})
+		assert.Equal(t, minio.PrefixAccessDenied{Bucket: testBucket, Object: testFile}, err)
+	})
+}
+
 func TestDeleteObjects(t *testing.T) {
 	t.Parallel()
 
