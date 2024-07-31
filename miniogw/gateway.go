@@ -1079,7 +1079,17 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
-	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{})
+	var retention metaclient.Retention
+	if destOpts.Retention != nil && destOpts.Retention.Mode == lock.RetCompliance {
+		retention = metaclient.Retention{
+			Mode:        storj.ComplianceMode,
+			RetainUntil: destOpts.Retention.RetainUntilDate.Time,
+		}
+	}
+
+	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{
+		Retention: retention,
+	})
 	if err != nil {
 		// TODO how we can improve it, its ugly
 		if errors.Is(err, uplink.ErrBucketNotFound) {

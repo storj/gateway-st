@@ -880,6 +880,79 @@ func TestCopyObject(t *testing.T) {
 	})
 }
 
+func TestCopyObjectWithObjectLock(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		// create buckets with object lock enabled
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		metadata := map[string]string{
+			"content-type": "text/plain",
+			"key1":         "value1",
+			"key2":         "value2",
+			"s3:etag":      "123",
+		}
+		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
+		require.NoError(t, err)
+
+		// Get the source object info using the Minio API
+		srcInfo, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		// Create the destination bucket using the Uplink API
+		_, err = project.CreateBucket(ctx, destBucket)
+		require.NoError(t, err)
+
+		retentionPeriod := time.Now().Add(time.Hour)
+		amzObjectLockMode := strings.ToLower(lock.AmzObjectLockMode)
+		amzObjectLockRetainUntilDate := strings.ToLower(lock.AmzObjectLockRetainUntilDate)
+
+		// Copy the object to destBucket without object lock
+		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{
+			Retention: &lock.ObjectRetention{
+				Mode: lock.RetCompliance,
+				RetainUntilDate: lock.RetentionDate{
+					Time: retentionPeriod,
+				},
+			},
+		})
+		require.Error(t, err)
+
+		_, err = project.DeleteBucketWithObjects(ctx, destBucket)
+		require.NoError(t, err)
+
+		// create destBucket with object lock enabled
+		err = layer.MakeBucketWithLocation(ctx, destBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		// Copy destBucket with object lock enabled
+		// copied object should have the same retention info
+		info, err := layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{
+			Retention: &lock.ObjectRetention{
+				Mode: lock.RetCompliance,
+				RetainUntilDate: lock.RetentionDate{
+					Time: retentionPeriod,
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, string(lock.RetCompliance), info.UserDefined[amzObjectLockMode])
+		assert.Equal(t, retentionPeriod.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+
+		// copied object should have the same retention info
+		info, err = layer.GetObjectInfo(ctx, destBucket, destFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, string(lock.RetCompliance), info.UserDefined[amzObjectLockMode])
+		assert.Equal(t, retentionPeriod.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+	})
+}
+
 func TestCopyObjectMetadata(t *testing.T) {
 	t.Parallel()
 
