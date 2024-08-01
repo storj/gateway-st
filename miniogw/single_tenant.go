@@ -17,7 +17,7 @@ import (
 	"storj.io/common/errs2"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/pkg/auth"
-	"storj.io/minio/pkg/bucket/object/lock"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/policy"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/uplink"
@@ -135,6 +135,11 @@ func (l *singleTenancyLayer) ListBuckets(ctx context.Context) (buckets []minio.B
 
 func (l *singleTenancyLayer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error {
 	return l.log(l.layer.DeleteBucket(WithUplinkProject(ctx, l.project), bucket, forceDelete))
+}
+
+func (l *singleTenancyLayer) GetObjectLockConfig(ctx context.Context, bucket string) (objectLockConfig *objectlock.Config, err error) {
+	objectLockConfig, err = l.layer.GetObjectLockConfig(WithUplinkProject(ctx, l.project), bucket)
+	return objectLockConfig, l.log(err)
 }
 
 func (l *singleTenancyLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
@@ -284,12 +289,12 @@ func (l *singleTenancyLayer) SetBucketVersioning(ctx context.Context, bucket str
 	return l.log(err)
 }
 
-func (l *singleTenancyLayer) GetObjectRetention(ctx context.Context, bucket, object, versionID string) (_ *lock.ObjectRetention, err error) {
+func (l *singleTenancyLayer) GetObjectRetention(ctx context.Context, bucket, object, versionID string) (_ *objectlock.ObjectRetention, err error) {
 	retention, err := l.layer.GetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID)
 	return retention, l.log(err)
 }
 
-func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, retention *lock.ObjectRetention) (err error) {
+func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, retention *objectlock.ObjectRetention) (err error) {
 	err = l.layer.SetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID, retention)
 	return l.log(err)
 }

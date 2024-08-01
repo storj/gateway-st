@@ -29,7 +29,7 @@ import (
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/minio/pkg/auth"
-	"storj.io/minio/pkg/bucket/object/lock"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/hash"
 	"storj.io/minio/pkg/madmin"
@@ -109,7 +109,7 @@ var (
 	ErrBucketObjectLockNotEnabled = miniogo.ErrorResponse{
 		Code:       "InvalidRequest",
 		StatusCode: http.StatusBadRequest,
-		Message:    "Bucket is missing ObjectLockConfiguration",
+		Message:    "Bucket is missing Object Lock Configuration",
 	}
 
 	// ErrNoUplinkProject is a custom error that indicates there was no
@@ -271,6 +271,29 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 	}
 
 	return ConvertError(err, bucket, "")
+}
+
+func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucketName string) (objectLockConfig *objectlock.Config, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return &objectlock.Config{}, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return &objectlock.Config{}, err
+	}
+
+	enabled, err := bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+	if err != nil {
+		return &objectlock.Config{}, ConvertError(err, bucketName, "")
+	}
+
+	if enabled {
+		return objectlock.NewObjectLockConfig(), nil
+	}
+	return &objectlock.Config{}, nil
 }
 
 func (layer *gatewayLayer) listObjectsFast(
@@ -1080,7 +1103,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	var retention metaclient.Retention
-	if destOpts.Retention != nil && destOpts.Retention.Mode == lock.RetCompliance {
+	if destOpts.Retention != nil && destOpts.Retention.Mode == objectlock.RetCompliance {
 		retention = metaclient.Retention{
 			Mode:        storj.ComplianceMode,
 			RetainUntil: destOpts.Retention.RetainUntilDate.Time,
@@ -1383,7 +1406,7 @@ func (layer *gatewayLayer) SetBucketVersioning(ctx context.Context, bucketName s
 }
 
 // GetObjectRetention retrieves object lock configuration of an object.
-func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, object, version string) (_ *lock.ObjectRetention, err error) {
+func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectRetention, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucketName); err != nil {
@@ -1406,12 +1429,12 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 	}
 
 	if retention.Mode != storj.ComplianceMode {
-		return nil, lock.ErrUnknownWORMModeDirective
+		return nil, objectlock.ErrUnknownWORMModeDirective
 	}
 
-	r := &lock.ObjectRetention{
-		Mode: lock.RetCompliance,
-		RetainUntilDate: lock.RetentionDate{
+	r := &objectlock.ObjectRetention{
+		Mode: objectlock.RetCompliance,
+		RetainUntilDate: objectlock.RetentionDate{
 			Time: retention.RetainUntil,
 		},
 	}
@@ -1420,7 +1443,7 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 }
 
 // SetObjectRetention sets object lock configuration for an object.
-func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, r *lock.ObjectRetention) (err error) {
+func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, r *objectlock.ObjectRetention) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucketName); err != nil {
@@ -1433,8 +1456,8 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 	}
 
 	// TODO: remove this check when we implement governance mode
-	if r.Mode == lock.RetGovernance {
-		return lock.ErrUnknownWORMModeDirective
+	if r.Mode == objectlock.RetGovernance {
+		return objectlock.ErrUnknownWORMModeDirective
 	}
 
 	retention := metaclient.Retention{
@@ -1578,8 +1601,8 @@ func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, 
 	return err
 }
 
-func parseRetentionMode(mode lock.RetMode) storj.RetentionMode {
-	if strings.EqualFold(string(mode), string(lock.RetCompliance)) {
+func parseRetentionMode(mode objectlock.RetMode) storj.RetentionMode {
+	if strings.EqualFold(string(mode), string(objectlock.RetCompliance)) {
 		return storj.ComplianceMode
 	}
 
@@ -1621,8 +1644,8 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 		if object.Custom == nil {
 			object.Custom = uplink.CustomMetadata{}
 		}
-		object.Custom[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
-		object.Custom[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = object.Retention.RetainUntil.Format(time.RFC3339)
+		object.Custom[strings.ToLower(objectlock.AmzObjectLockMode)] = string(objectlock.RetCompliance)
+		object.Custom[strings.ToLower(objectlock.AmzObjectLockRetainUntilDate)] = object.Retention.RetainUntil.Format(time.RFC3339)
 	}
 	minioObject := minioObjectInfo(bucket, etag, &object.Object)
 	minioObject.VersionID = encodeVersionID(object.Version)
