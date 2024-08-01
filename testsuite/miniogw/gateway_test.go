@@ -33,6 +33,7 @@ import (
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/minio/pkg/auth"
+	"storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
@@ -417,7 +418,7 @@ func TestPutObjectZeroBytes(t *testing.T) {
 func TestGetObjectInfo(t *testing.T) {
 	t.Parallel()
 
-	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting an object from a bucket with empty name
 		_, err := layer.GetObjectInfo(ctx, "", "", minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
@@ -465,26 +466,31 @@ func TestGetObjectInfo(t *testing.T) {
 		assert.Equal(t, obj.Custom["s3:etag"], info.ETag)
 		assert.Equal(t, "text/plain", info.ContentType)
 		assert.Equal(t, metadata, info.UserDefined)
+	})
+}
 
-		// delete previous bucket without object lock
-		err = layer.DeleteBucket(ctx, testBucket, true)
-		require.NoError(t, err)
+func TestGetObjectInfoWithObjectLock(t *testing.T) {
+	t.Parallel()
 
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// make bucket with object lock enabled
-		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
 			LockEnabled: true,
 		})
 		require.NoError(t, err)
 
-		// create object with retention info
-		retainUntil := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
-		metadata[xhttp.AmzObjectLockRetainUntilDate] = retainUntil
-		metadata[xhttp.AmzObjectLockMode] = string(storj.ComplianceMode)
+		metadata := map[string]string{
+			"content-type":                     "text/plain",
+			"key1":                             "value1",
+			"key2":                             "value2",
+			xhttp.AmzObjectLockRetainUntilDate: time.Now().Add(1 * time.Hour).Format(time.RFC3339),
+			xhttp.AmzObjectLockMode:            string(lock.RetCompliance),
+		}
 		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
 
 		// Get the object info using the Minio API
-		info, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		info, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, metadata, info.UserDefined)
 	})
@@ -493,7 +499,7 @@ func TestGetObjectInfo(t *testing.T) {
 func TestGetObjectNInfo(t *testing.T) {
 	t.Parallel()
 
-	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when getting an object from a bucket with empty name
 		_, err := layer.GetObjectNInfo(ctx, "", "", nil, nil, 0, minio.ObjectOptions{})
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
@@ -564,21 +570,27 @@ func TestGetObjectNInfo(t *testing.T) {
 				assert.Equal(t, tt.substr, string(data), errTag)
 			}
 		}
+	})
+}
 
-		// delete previous bucket without object lock
-		err = layer.DeleteBucket(ctx, testBucket, true)
-		require.NoError(t, err)
+func TestGetObjectNInfoWithObjectLock(t *testing.T) {
+	t.Parallel()
 
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// make bucket with object lock enabled
-		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
 			LockEnabled: true,
 		})
 		require.NoError(t, err)
 
 		// create object with retention info
-		retainUntil := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
-		metadata[xhttp.AmzObjectLockRetainUntilDate] = retainUntil
-		metadata[xhttp.AmzObjectLockMode] = string(storj.ComplianceMode)
+		metadata := map[string]string{
+			"content-type":                     "text/plain",
+			"key1":                             "value1",
+			"key2":                             "value2",
+			xhttp.AmzObjectLockRetainUntilDate: time.Now().Add(1 * time.Hour).Format(time.RFC3339),
+			xhttp.AmzObjectLockMode:            string(lock.RetCompliance),
+		}
 		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
 
