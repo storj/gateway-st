@@ -2867,6 +2867,37 @@ func TestNewMultipartUpload(t *testing.T) {
 	})
 }
 
+func TestNewMultipartUploadWithOL(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		retention := &lock.ObjectRetention{
+			Mode: lock.RetCompliance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: time.Now().Add(time.Hour),
+			},
+		}
+		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{
+			Retention: retention,
+		})
+		require.NoError(t, err)
+
+		_, err = project.CommitUpload(ctx, testBucket, testFile, uploadID, nil)
+		require.NoError(t, err)
+
+		objRetention, err := layer.GetObjectRetention(ctx, testBucket, testFile, "")
+		require.NoError(t, err)
+		require.NotNil(t, objRetention)
+		require.WithinDuration(t, retention.RetainUntilDate.Time, objRetention.RetainUntilDate.Time, time.Minute)
+		require.Equal(t, retention.Mode, objRetention.Mode)
+	})
+}
+
 func TestCopyObjectPart(t *testing.T) {
 	t.Parallel()
 

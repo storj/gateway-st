@@ -19,6 +19,7 @@ import (
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/uplink"
+	"storj.io/uplink/private/metaclient"
 	"storj.io/uplink/private/multipart"
 	versioned "storj.io/uplink/private/object"
 )
@@ -127,14 +128,23 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	if err != nil {
 		return "", ErrInvalidTTL
 	}
+
+	var retention metaclient.Retention
+	if opts.Retention != nil {
+		retention.Mode = parseRetentionMode(opts.Retention.Mode)
+		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
+	}
+
 	info, err := multipart.BeginUpload(ctx, project, bucket, object, &multipart.UploadOptions{
 		// TODO: Truncate works around https://github.com/storj/storj-private/issues/84 until fixed on the satellite.
 		Expires:        e.Truncate(time.Microsecond),
 		CustomMetadata: uplink.CustomMetadata(opts.UserDefined).Clone(),
+		Retention:      retention,
 	})
 	if err != nil {
 		return "", convertMultipartError(err, bucket, object, "")
 	}
+
 	return info.UploadID, nil
 }
 
