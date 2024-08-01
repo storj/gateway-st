@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.27.0
-	storj.io/common v0.0.0-20240719132653-00e26d9c6fe9
+	storj.io/common v0.0.0-20240805091259-35178e229784
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20240620235917-ab8893f67859
-	storj.io/storj v1.91.0-alpha.0.20240722135159-d4e20ff7d9ac
-	storj.io/uplink v1.13.1-0.20240718141325-863945b53ebd
+	storj.io/storj v1.91.0-alpha.0.20240806103649-dba0a43a3962
+	storj.io/uplink v1.13.1-0.20240806115944-7fd31b329e3e
 )
 
 require (
@@ -93,7 +93,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.5 // indirect
-	github.com/googleapis/go-sql-spanner v1.5.1-0.20240714064423-ac42e60f5ab1 // indirect
+	github.com/googleapis/go-sql-spanner v1.6.0 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/schema v1.2.0 // indirect
