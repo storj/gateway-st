@@ -35,6 +35,7 @@ import (
 	"storj.io/minio/pkg/madmin"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
+	"storj.io/uplink/private/metaclient"
 	versioned "storj.io/uplink/private/object"
 )
 
@@ -947,7 +948,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	if err != nil {
 		return minio.ObjectInfo{}, ErrInvalidTTL
 	}
-	upload, err := versioned.UploadObject(ctx, project, bucket, object, &uplink.UploadOptions{
+	upload, err := versioned.UploadObject(ctx, project, bucket, object, &metaclient.UploadOptions{
 		Expires: e,
 	})
 	if err != nil {
