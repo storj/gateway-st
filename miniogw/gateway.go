@@ -1071,7 +1071,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
-	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, nil)
+	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{})
 	if err != nil {
 		// TODO how we can improve it, its ugly
 		if errors.Is(err, uplink.ErrBucketNotFound) {

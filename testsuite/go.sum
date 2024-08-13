@@ -2639,7 +2639,7 @@ storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd/go.mod h1:nwyyJiAFAPRu81qBfAE5cBGkVXROYSNJu9pGXLtStHE=
 storj.io/picobuf v0.0.3 h1:xAUPB5ZUGfxkqd3bnw3zp01kkWb9wlhg4vtZWUs2S9A=
 storj.io/picobuf v0.0.3/go.mod h1:4V4xelV1RSCck5GgmkL/Txw9l6IfX3XcBzegmL5Kudo=
-storj.io/storj v1.91.0-alpha.0.20240812185722-bf63d85ec5c6 h1:4GtpIq8ejjp99T3e2vd5l7iI+FbXNsFUglx0prg9/VE=
-storj.io/storj v1.91.0-alpha.0.20240812185722-bf63d85ec5c6/go.mod h1:xeKRRP/uWxpbuuIG3Ftqj2l5ZtEUPJ1CrvKL9biGk1A=
-storj.io/uplink v1.13.1-0.20240812140457-26efd9c765f3 h1:9rMWYuSgZQdFsNufZeN/QHvOEKXR220qsppalkSwGdM=
-storj.io/uplink v1.13.1-0.20240812140457-26efd9c765f3/go.mod h1:x0MQr4UfFsQBwgVWZAtEsLpuwAn6dg7G0Mpne1r516E=
+storj.io/storj v1.91.0-alpha.0.20240813103324-76441219aa95 h1:v8pXcB4sbxy7bG6sMwZpg3UollxxKMSGZ8ZHqbRBNqg=
+storj.io/storj v1.91.0-alpha.0.20240813103324-76441219aa95/go.mod h1:EwkDx2P17bza7VD7soeKgw6cPoxVIsedgrgZBwjD90Y=
+storj.io/uplink v1.13.1-0.20240813112806-9c782c9201df h1:GpwVLvbmp33JvYG0BVcS4zdi/mOsD6ZStSOZk2lIxqY=
+storj.io/uplink v1.13.1-0.20240813112806-9c782c9201df/go.mod h1:x0MQr4UfFsQBwgVWZAtEsLpuwAn6dg7G0Mpne1r516E=
