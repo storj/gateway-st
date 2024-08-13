@@ -1611,8 +1611,8 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 		if object.Custom == nil {
 			object.Custom = uplink.CustomMetadata{}
 		}
-		object.Custom[lock.AmzObjectLockMode] = string(lock.RetCompliance)
-		object.Custom[lock.AmzObjectLockRetainUntilDate] = object.Retention.RetainUntil.Format(time.RFC3339)
+		object.Custom[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
+		object.Custom[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = object.Retention.RetainUntil.Format(time.RFC3339)
 	}
 	minioObject := minioObjectInfo(bucket, etag, &object.Object)
 	minioObject.VersionID = encodeVersionID(object.Version)

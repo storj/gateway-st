@@ -531,17 +531,31 @@ func TestGetObjectInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 
 		metadata := map[string]string{
-			"content-type":                     "text/plain",
-			"key1":                             "value1",
-			"key2":                             "value2",
-			xhttp.AmzObjectLockRetainUntilDate: time.Now().Add(1 * time.Hour).Format(time.RFC3339),
-			xhttp.AmzObjectLockMode:            string(lock.RetCompliance),
+			"content-type": "text/plain",
+			"key1":         "value1",
+			"key2":         "value2",
 		}
 		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
 
-		// Get the object info using the Minio API
 		info, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, metadata, info.UserDefined)
+
+		retentionPeriod := time.Now().Add(time.Hour)
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, &lock.ObjectRetention{
+			Mode: lock.RetCompliance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: retentionPeriod,
+			},
+		})
+		require.NoError(t, err)
+
+		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
+		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339)
+
+		// Get the object info using the Minio API
+		info, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, metadata, info.UserDefined)
 	})
@@ -634,16 +648,29 @@ func TestGetObjectNInfoWithObjectLock(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// create object with retention info
 		metadata := map[string]string{
-			"content-type":                     "text/plain",
-			"key1":                             "value1",
-			"key2":                             "value2",
-			xhttp.AmzObjectLockRetainUntilDate: time.Now().Add(1 * time.Hour).Format(time.RFC3339),
-			xhttp.AmzObjectLockMode:            string(lock.RetCompliance),
+			"content-type": "text/plain",
+			"key1":         "value1",
+			"key2":         "value2",
 		}
 		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
+
+		info, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, metadata, info.UserDefined)
+
+		retentionPeriod := time.Now().Add(time.Hour)
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, &lock.ObjectRetention{
+			Mode: lock.RetCompliance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: retentionPeriod,
+			},
+		})
+		require.NoError(t, err)
+
+		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
+		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339)
 
 		// Get the object info using the Minio API
 		reader, err := layer.GetObjectNInfo(ctx, testBucket, testFile, &minio.HTTPRangeSpec{Start: 0, End: 0}, nil, 0, minio.ObjectOptions{})
