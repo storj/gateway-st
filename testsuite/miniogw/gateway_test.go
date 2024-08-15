@@ -419,16 +419,18 @@ func TestGetAndSetObjectRetention(t *testing.T) {
 	t.Parallel()
 
 	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
-			LockEnabled: true,
+		invalidBucket := testBucket + "-invalid"
+		err := layer.MakeBucketWithLocation(ctx, invalidBucket, minio.BucketOptions{
+			LockEnabled: false,
 		})
 		require.NoError(t, err)
 
-		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
+		_, err = createFile(ctx, project, invalidBucket, testFile, []byte("test"), nil)
 		require.NoError(t, err)
 
-		retention, err := layer.GetObjectRetention(ctx, testBucket, testFile, "")
+		retention, err := layer.GetObjectRetention(ctx, invalidBucket, testFile, "")
 		require.Error(t, err)
+		require.ErrorIs(t, miniogw.ErrBucketObjectLockNotEnabled, err)
 		require.Nil(t, retention)
 
 		retRequest := &lock.ObjectRetention{
@@ -437,6 +439,22 @@ func TestGetAndSetObjectRetention(t *testing.T) {
 				Time: time.Now().Add(time.Hour),
 			},
 		}
+		err = layer.SetObjectRetention(ctx, invalidBucket, testFile, "", retRequest)
+		require.Error(t, err)
+		require.ErrorIs(t, miniogw.ErrBucketObjectLockNotEnabled, err)
+
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		retention, err = layer.GetObjectRetention(ctx, testBucket, testFile, "")
+		require.Error(t, err)
+		require.Nil(t, retention)
+
 		err = layer.SetObjectRetention(ctx, testBucket, testFile, "", retRequest)
 		require.NoError(t, err)
 

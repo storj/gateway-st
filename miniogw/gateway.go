@@ -1382,17 +1382,17 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 
 	project, err := projectFromContext(ctx, bucketName, object)
 	if err != nil {
-		return nil, err
+		return nil, ConvertError(err, bucketName, object)
 	}
 
 	versionID, err := decodeVersionID(version)
 	if err != nil {
-		return nil, err
+		return nil, ConvertError(err, bucketName, object)
 	}
 
 	retention, err := versioned.GetObjectRetention(ctx, project, bucketName, object, versionID)
 	if err != nil {
-		return nil, ConvertError(err, bucketName, "")
+		return nil, ConvertError(err, bucketName, object)
 	}
 
 	if retention.Mode != storj.ComplianceMode {
@@ -1419,7 +1419,7 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 
 	project, err := projectFromContext(ctx, bucketName, object)
 	if err != nil {
-		return err
+		return ConvertError(err, bucketName, object)
 	}
 
 	// TODO: remove this check when we implement governance mode
@@ -1434,7 +1434,7 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 
 	versionID, err := decodeVersionID(version)
 	if err != nil {
-		return err
+		return ConvertError(err, bucketName, object)
 	}
 
 	err = versioned.SetObjectRetention(ctx, project, bucketName, object, versionID, retention)
