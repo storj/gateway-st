@@ -1483,22 +1483,22 @@ func (layer *gatewayLayer) PutObjectMetadata(ctx context.Context, bucket, object
 
 // ConvertError translates Storj-specific err associated with object to
 // MinIO/S3-specific error. It returns nil if err is nil.
-func ConvertError(err error, bucket, object string) error {
+func ConvertError(err error, bucketName, object string) error {
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, uplink.ErrBucketNameInvalid):
-		return minio.BucketNameInvalid{Bucket: bucket}
+		return minio.BucketNameInvalid{Bucket: bucketName}
 	case errors.Is(err, uplink.ErrBucketAlreadyExists):
-		return minio.BucketAlreadyExists{Bucket: bucket}
+		return minio.BucketAlreadyExists{Bucket: bucketName}
 	case errors.Is(err, uplink.ErrBucketNotFound):
-		return minio.BucketNotFound{Bucket: bucket}
+		return minio.BucketNotFound{Bucket: bucketName}
 	case errors.Is(err, uplink.ErrBucketNotEmpty):
-		return minio.BucketNotEmpty{Bucket: bucket}
+		return minio.BucketNotEmpty{Bucket: bucketName}
 	case errors.Is(err, uplink.ErrObjectKeyInvalid):
-		return minio.ObjectNameInvalid{Bucket: bucket, Object: object}
+		return minio.ObjectNameInvalid{Bucket: bucketName, Object: object}
 	case errors.Is(err, uplink.ErrObjectNotFound):
-		return minio.ObjectNotFound{Bucket: bucket, Object: object}
+		return minio.ObjectNotFound{Bucket: bucketName, Object: object}
 	case errors.Is(err, uplink.ErrBandwidthLimitExceeded):
 		return ErrBandwidthLimitExceeded
 	case errors.Is(err, uplink.ErrStorageLimitExceeded):
@@ -1506,13 +1506,15 @@ func ConvertError(err error, bucket, object string) error {
 	case errors.Is(err, uplink.ErrSegmentsLimitExceeded):
 		return ErrSegmentsLimitExceeded
 	case errors.Is(err, uplink.ErrPermissionDenied):
-		return minio.PrefixAccessDenied{Bucket: bucket, Object: object}
+		return minio.PrefixAccessDenied{Bucket: bucketName, Object: object}
 	case errors.Is(err, uplink.ErrTooManyRequests):
 		return ErrSlowDown
 	case errors.Is(err, versioned.ErrMethodNotAllowed):
-		return minio.MethodNotAllowed{Bucket: bucket, Object: object}
+		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, io.ErrUnexpectedEOF):
-		return minio.IncompleteBody{Bucket: bucket, Object: object}
+		return minio.IncompleteBody{Bucket: bucketName, Object: object}
+	case errors.Is(err, bucket.ErrBucketNoLock):
+		return ErrBucketObjectLockNotEnabled
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
 		// extremely busy. An event like this might happen during, e.g.
@@ -1524,8 +1526,6 @@ func ConvertError(err error, bucket, object string) error {
 		// There's not much we can do at this point but report that we won't
 		// continue with this request.
 		return minio.OperationTimedOut{}
-	case strings.HasPrefix(errs.Unwrap(err).Error(), "Object Lock is not enabled for this bucket"):
-		return ErrBucketObjectLockNotEnabled
 	default:
 		return err
 	}

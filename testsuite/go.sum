@@ -1035,8 +1035,8 @@ github.com/googleapis/gax-go/v2 v2.7.0/go.mod h1:TEop28CZZQ2y+c0VxMUmu1lV+fQx57Q
 github.com/googleapis/gax-go/v2 v2.7.1/go.mod h1:4orTrqY6hXxxaUL4LHIPl6lGo8vAE38/qKbhSAKP6QI=
 github.com/googleapis/gax-go/v2 v2.12.5 h1:8gw9KZK8TiVKB6q3zHY3SBzLnrGp6HQjyfYBYGmXdxA=
 github.com/googleapis/gax-go/v2 v2.12.5/go.mod h1:BUDKcWo+RaKq5SC9vVYL0wLADa3VcfswbOMMRmB9H3E=
-github.com/googleapis/go-sql-spanner v1.6.0 h1:AtTZkUNCQamrhj/RPpG/A3qTErtiT+eBjZydWy6tV90=
-github.com/googleapis/go-sql-spanner v1.6.0/go.mod h1:8oVX0dqU+K4tPNlqOiL3EjUNyJ91IwTNkm+G4r99Wcc=
+github.com/googleapis/go-sql-spanner v1.6.1-0.20240816093805-21f8b75ae3fc h1:lhMtvu2EpZLjnIQk5gPCsm9A10H4YI3nVnBN4MWrjCY=
+github.com/googleapis/go-sql-spanner v1.6.1-0.20240816093805-21f8b75ae3fc/go.mod h1:8oVX0dqU+K4tPNlqOiL3EjUNyJ91IwTNkm+G4r99Wcc=
 github.com/googleapis/go-type-adapters v1.0.0/go.mod h1:zHW75FOG2aur7gAO2B+MLby+cLsWGBF62rFAi7WjWO4=
 github.com/googleapis/google-cloud-go-testing v0.0.0-20200911160855-bcd43fbb19e8/go.mod h1:dvDLG8qkwmyD9a/MJJN3XJcT3xFxOKAvTZGvuZmac9g=
 github.com/gopherjs/gopherjs v0.0.0-20181017120253-0766667cb4d1 h1:EGx4pi6eqNxGaHF6qqu48+N2wcFQ5qg5FXgOdqsJ5d8=
@@ -2639,7 +2639,7 @@ storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd/go.mod h1:nwyyJiAFAPRu81qBfAE5cBGkVXROYSNJu9pGXLtStHE=
 storj.io/picobuf v0.0.3 h1:xAUPB5ZUGfxkqd3bnw3zp01kkWb9wlhg4vtZWUs2S9A=
 storj.io/picobuf v0.0.3/go.mod h1:4V4xelV1RSCck5GgmkL/Txw9l6IfX3XcBzegmL5Kudo=
-storj.io/storj v1.91.0-alpha.0.20240814200049-7c2f1f3b0911 h1:YtvUqK94xP7FLIt3OeHizLeOzFuKwecm47GOJR6XjDA=
-storj.io/storj v1.91.0-alpha.0.20240814200049-7c2f1f3b0911/go.mod h1:TWETY3eqLG902xdVn06o+fLS/FX+6u+rQfHFGQl1Uyg=
-storj.io/uplink v1.13.1-0.20240814074513-955969125afb h1:vpieFaKlhqYcwKC/oVvW3KszNBZdr3LaVy4bVx0cfyc=
-storj.io/uplink v1.13.1-0.20240814074513-955969125afb/go.mod h1:x0MQr4UfFsQBwgVWZAtEsLpuwAn6dg7G0Mpne1r516E=
+storj.io/storj v1.91.0-alpha.0.20240821124013-91e55d342c71 h1:mKqD/igWKILxfOwq9T3vT5sbvH/8hEXtsOLq/BOyPk8=
+storj.io/storj v1.91.0-alpha.0.20240821124013-91e55d342c71/go.mod h1:BaWmf1Kv7lcNhpIcwZjmR05wGCYhAE5/oQUp9aM/4Qg=
+storj.io/uplink v1.13.2-0.20240821111301-f296d41bedbb h1:Pmlt0cSYGCQ4aJrd16l65MyacipoSzwTOfniKye0rXg=
+storj.io/uplink v1.13.2-0.20240821111301-f296d41bedbb/go.mod h1:x0MQr4UfFsQBwgVWZAtEsLpuwAn6dg7G0Mpne1r516E=

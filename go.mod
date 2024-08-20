@@ -14,7 +14,7 @@ require (
 	golang.org/x/term v0.22.0
 	storj.io/common v0.0.0-20240814074342-da4076de77ae
 	storj.io/minio v0.0.0-20240815093602-6c1d80faec15
-	storj.io/uplink v1.13.1-0.20240814074513-955969125afb
+	storj.io/uplink v1.13.2-0.20240821111301-f296d41bedbb
 )
 
 require (

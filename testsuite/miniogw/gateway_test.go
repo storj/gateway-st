@@ -88,7 +88,7 @@ func TestMakeBucketWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = bucket.GetBucketObjectLockConfiguration(ctx, project, testBucket)
-		require.ErrorIs(t, err, bucket.ErrBucketObjectLockConfigurationNotFound)
+		require.ErrorIs(t, err, bucket.ErrBucketNoLock)
 
 		// Create a bucket with object lock enabled
 		err = layer.MakeBucketWithLocation(ctx, testBucket+"2", minio.BucketOptions{
@@ -430,7 +430,7 @@ func TestGetAndSetObjectRetention(t *testing.T) {
 
 		retention, err := layer.GetObjectRetention(ctx, invalidBucket, testFile, "")
 		require.Error(t, err)
-		require.ErrorIs(t, miniogw.ErrBucketObjectLockNotEnabled, err)
+		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 		require.Nil(t, retention)
 
 		retRequest := &lock.ObjectRetention{
