@@ -979,8 +979,16 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	if err != nil {
 		return minio.ObjectInfo{}, ErrInvalidTTL
 	}
+
+	var retention metaclient.Retention
+	if opts.Retention != nil {
+		retention.Mode = parseRetentionMode(opts.Retention.Mode)
+		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
+	}
+
 	upload, err := versioned.UploadObject(ctx, project, bucket, object, &metaclient.UploadOptions{
-		Expires: e,
+		Expires:   e,
+		Retention: retention,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
