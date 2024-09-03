@@ -1775,9 +1775,25 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 		if object.Custom == nil {
 			object.Custom = uplink.CustomMetadata{}
 		}
-		object.Custom[strings.ToLower(objectlock.AmzObjectLockMode)] = string(objectlock.RetCompliance)
+		lockMode := objectlock.RetCompliance
+		if object.Retention.Mode == storj.GovernanceMode {
+			lockMode = objectlock.RetGovernance
+		}
+		object.Custom[strings.ToLower(objectlock.AmzObjectLockMode)] = string(lockMode)
 		object.Custom[strings.ToLower(objectlock.AmzObjectLockRetainUntilDate)] = object.Retention.RetainUntil.Format(time.RFC3339)
 	}
+
+	if object.LegalHold != nil {
+		if object.Custom == nil {
+			object.Custom = uplink.CustomMetadata{}
+		}
+		legalHoldStatus := objectlock.LegalHoldOff
+		if *object.LegalHold {
+			legalHoldStatus = objectlock.LegalHoldOn
+		}
+		object.Custom[strings.ToLower(objectlock.AmzObjectLockLegalHold)] = string(legalHoldStatus)
+	}
+
 	minioObject := minioObjectInfo(bucket, etag, &object.Object)
 	minioObject.VersionID = encodeVersionID(object.Version)
 	minioObject.DeleteMarker = object.IsDeleteMarker

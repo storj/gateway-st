@@ -582,6 +582,7 @@ func TestGetObjectInfoWithObjectLock(t *testing.T) {
 			"content-type": "text/plain",
 			"key1":         "value1",
 			"key2":         "value2",
+			strings.ToLower(lock.AmzObjectLockLegalHold): "OFF",
 		}
 		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
@@ -601,6 +602,19 @@ func TestGetObjectInfoWithObjectLock(t *testing.T) {
 
 		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
 		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339)
+
+		// Get the object info using the Minio API
+		info, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, metadata, info.UserDefined)
+
+		lhRequest := &lock.ObjectLegalHold{
+			Status: lock.LegalHoldOn,
+		}
+		err = layer.SetObjectLegalHold(ctx, testBucket, testFile, "", lhRequest)
+		require.NoError(t, err)
+
+		metadata[strings.ToLower(lock.AmzObjectLockLegalHold)] = string(lock.LegalHoldOn)
 
 		// Get the object info using the Minio API
 		info, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
@@ -700,6 +714,7 @@ func TestGetObjectNInfoWithObjectLock(t *testing.T) {
 			"content-type": "text/plain",
 			"key1":         "value1",
 			"key2":         "value2",
+			strings.ToLower(lock.AmzObjectLockLegalHold): "OFF",
 		}
 		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
@@ -725,6 +740,19 @@ func TestGetObjectNInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, reader.Close())
 		assert.Equal(t, metadata, reader.ObjInfo.UserDefined)
+
+		lhRequest := &lock.ObjectLegalHold{
+			Status: lock.LegalHoldOn,
+		}
+		err = layer.SetObjectLegalHold(ctx, testBucket, testFile, "", lhRequest)
+		require.NoError(t, err)
+
+		metadata[strings.ToLower(lock.AmzObjectLockLegalHold)] = string(lock.LegalHoldOn)
+
+		// Get the object info using the Minio API
+		info, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, metadata, info.UserDefined)
 	})
 }
 
@@ -871,6 +899,7 @@ func TestCopyObject(t *testing.T) {
 			"key1":         "value1",
 			"key2":         "value2",
 			"s3:etag":      "123",
+			strings.ToLower(lock.AmzObjectLockLegalHold): "OFF",
 		}
 		obj, err := createFile(ctx, project, testBucketInfo.Name, testFile, []byte("test"), metadata)
 		require.NoError(t, err)
