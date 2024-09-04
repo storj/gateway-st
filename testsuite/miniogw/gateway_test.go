@@ -412,6 +412,56 @@ func TestPutObjectZeroBytes(t *testing.T) {
 	})
 }
 
+func TestGetAndSetObjectLegalHold(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		invalidBucket := testBucket + "-invalid"
+		err := layer.MakeBucketWithLocation(ctx, invalidBucket, minio.BucketOptions{
+			LockEnabled: false,
+		})
+		require.NoError(t, err)
+
+		_, err = createFile(ctx, project, invalidBucket, testFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		lh, err := layer.GetObjectLegalHold(ctx, invalidBucket, testFile, "")
+		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
+		require.Nil(t, lh)
+
+		lhRequest := &lock.ObjectLegalHold{
+			Status: lock.LegalHoldOn,
+		}
+		err = layer.SetObjectLegalHold(ctx, invalidBucket, testFile, "", lhRequest)
+		require.ErrorIs(t, miniogw.ErrBucketObjectLockNotEnabled, err)
+
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		err = layer.SetObjectLegalHold(ctx, testBucket, testFile, "", lhRequest)
+		require.NoError(t, err)
+
+		lh, err = layer.GetObjectLegalHold(ctx, testBucket, testFile, "")
+		require.NoError(t, err)
+		require.NotNil(t, lh)
+		require.Equal(t, lock.LegalHoldOn, lh.Status)
+
+		lhRequest.Status = lock.LegalHoldOff
+		err = layer.SetObjectLegalHold(ctx, testBucket, testFile, "", lhRequest)
+		require.NoError(t, err)
+
+		lh, err = layer.GetObjectLegalHold(ctx, testBucket, testFile, "")
+		require.NoError(t, err)
+		require.NotNil(t, lh)
+		require.Equal(t, lock.LegalHoldOff, lh.Status)
+	})
+}
+
 func TestGetAndSetObjectRetention(t *testing.T) {
 	t.Parallel()
 

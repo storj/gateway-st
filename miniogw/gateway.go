@@ -37,6 +37,7 @@ import (
 	"storj.io/uplink/private/bucket"
 	"storj.io/uplink/private/metaclient"
 	versioned "storj.io/uplink/private/object"
+	privateProject "storj.io/uplink/private/project"
 )
 
 var (
@@ -1424,6 +1425,64 @@ func (layer *gatewayLayer) SetBucketVersioning(ctx context.Context, bucketName s
 	return nil
 }
 
+// GetObjectLegalHold retrieves object lock legal hold configuration of an object.
+func (layer *gatewayLayer) GetObjectLegalHold(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectLegalHold, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err = ValidateBucket(ctx, bucketName); err != nil {
+		return nil, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, object)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, object)
+	}
+
+	versionID, err := decodeVersionID(version)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, object)
+	}
+
+	enabled, err := versioned.GetObjectLegalHold(ctx, project, bucketName, object, versionID)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, object)
+	}
+
+	lh := &objectlock.ObjectLegalHold{
+		Status: toMinioLegalHoldStatus(enabled),
+	}
+
+	return lh, nil
+}
+
+// SetObjectLegalHold sets object lock legal hold configuration for an object.
+func (layer *gatewayLayer) SetObjectLegalHold(ctx context.Context, bucketName, object, version string, lh *objectlock.ObjectLegalHold) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err = ValidateBucket(ctx, bucketName); err != nil {
+		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, object)
+	if err != nil {
+		return ConvertError(err, bucketName, object)
+	}
+
+	versionID, err := decodeVersionID(version)
+	if err != nil {
+		return ConvertError(err, bucketName, object)
+	}
+
+	enabled, err := parseLegalHoldStatus(lh.Status)
+	if err != nil {
+		return ConvertError(err, bucketName, object)
+	}
+
+	err = versioned.SetObjectLegalHold(ctx, project, bucketName, object, versionID, enabled)
+
+	return ConvertError(err, bucketName, object)
+}
+
 // GetObjectRetention retrieves object lock configuration of an object.
 func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectRetention, err error) {
 	defer mon.Task()(&ctx)(&err)
@@ -1576,6 +1635,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return ErrBucketObjectLockNotEnabled
 	case errors.Is(err, versioned.ErrRetentionNotFound):
 		return ErrRetentionNotFound
+	case errors.Is(err, privateProject.ErrLockNotEnabled):
+		return minio.NotImplemented{Message: "Object Lock feature is not enabled"}
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
 		// extremely busy. An event like this might happen during, e.g.
@@ -1651,6 +1712,22 @@ func parseRetentionMode(mode objectlock.RetMode) storj.RetentionMode {
 	}
 
 	return storj.NoRetention
+}
+
+func parseLegalHoldStatus(status objectlock.LegalHoldStatus) (bool, error) {
+	if status != objectlock.LegalHoldOff && status != objectlock.LegalHoldOn {
+		return false, objectlock.ErrMalformedXML
+	}
+
+	return status == objectlock.LegalHoldOn, nil
+}
+
+func toMinioLegalHoldStatus(enabled bool) objectlock.LegalHoldStatus {
+	if enabled {
+		return objectlock.LegalHoldOn
+	} else {
+		return objectlock.LegalHoldOff
+	}
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {
