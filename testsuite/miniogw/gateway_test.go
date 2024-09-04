@@ -453,6 +453,7 @@ func TestGetAndSetObjectRetention(t *testing.T) {
 
 		retention, err = layer.GetObjectRetention(ctx, testBucket, testFile, "")
 		require.Error(t, err)
+		require.ErrorIs(t, err, miniogw.ErrRetentionNotFound)
 		require.Nil(t, retention)
 
 		err = layer.SetObjectRetention(ctx, testBucket, testFile, "", retRequest)
