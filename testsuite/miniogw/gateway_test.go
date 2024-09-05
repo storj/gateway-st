@@ -3311,56 +3311,6 @@ func TestPutObjectPartSegmentSize(t *testing.T) {
 	})
 }
 
-func TestGetMultipartInfo(t *testing.T) {
-	t.Parallel()
-
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		// Check the error when using an empty bucket name
-		multipartInfo, err := layer.GetMultipartInfo(ctx, "", "object", "uploadid", minio.ObjectOptions{})
-		require.Error(t, err)
-		assert.Equal(t, minio.BucketNameInvalid{}, err)
-		assert.Empty(t, multipartInfo)
-
-		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "", "uploadid", minio.ObjectOptions{})
-		require.Error(t, err)
-		assert.Equal(t, minio.ObjectNameInvalid{}, err)
-		assert.Empty(t, multipartInfo)
-
-		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "object", "", minio.ObjectOptions{})
-		require.Error(t, err)
-		assert.Equal(t, minio.InvalidUploadID{}, err)
-		assert.Empty(t, multipartInfo)
-
-		// Check the error when getting MultipartInfo from non-existing bucket
-		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "object", "uploadid", minio.ObjectOptions{})
-		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
-		assert.Empty(t, multipartInfo)
-
-		// Create the bucket using the Uplink API
-		_, err = project.CreateBucket(ctx, testBucket)
-		require.NoError(t, err)
-
-		now := time.Now()
-		// TODO when we can have two multipart uploads for the same object key, make tests for this case
-		upload, err := layer.NewMultipartUpload(ctx, testBucket, "multipart-upload", minio.ObjectOptions{})
-		require.NoError(t, err)
-		require.NotEmpty(t, upload)
-
-		// Check the error when getting MultipartInfo from non-existing object
-		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "object", upload, minio.ObjectOptions{})
-		assert.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: "object"}, err)
-		assert.Empty(t, multipartInfo)
-
-		multipartInfo, err = layer.GetMultipartInfo(ctx, testBucket, "multipart-upload", upload, minio.ObjectOptions{})
-		require.NoError(t, err)
-
-		require.Equal(t, testBucket, multipartInfo.Bucket)
-		require.Equal(t, "multipart-upload", multipartInfo.Object)
-		require.Equal(t, upload, multipartInfo.UploadID)
-		require.WithinDuration(t, now, multipartInfo.Initiated, time.Minute)
-	})
-}
-
 func TestListObjectParts(t *testing.T) {
 	t.Parallel()
 
@@ -4056,9 +4006,6 @@ func TestBucketNameInvalid(t *testing.T) {
 			_, err = layer.NewMultipartUpload(ctx, bucket, "test", minio.ObjectOptions{})
 			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
 
-			_, err = layer.GetMultipartInfo(ctx, bucket, "test", "", minio.ObjectOptions{})
-			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
-
 			_, err = layer.ListObjectParts(ctx, bucket, "test", "", 0, 1000, minio.ObjectOptions{})
 			require.ErrorIs(t, err, minio.BucketNameInvalid{Bucket: bucket}, bucket)
 
@@ -4184,10 +4131,6 @@ func testMultipartObjectTTL(
 		require.ErrorIs(t, err, expectedErr)
 		return
 	}
-	require.NoError(t, err)
-
-	// Call GetMultipartInfo to check the pending upload is discoverable correctly.
-	_, err = layer.GetMultipartInfo(ctx, bucket, object, uploadID, minio.ObjectOptions{})
 	require.NoError(t, err)
 
 	_, err = layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, nil, minio.ObjectOptions{})

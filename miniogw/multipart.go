@@ -204,48 +204,6 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 	}, nil
 }
 
-func (layer *gatewayLayer) GetMultipartInfo(ctx context.Context, bucket, object, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
-	defer mon.Task()(&ctx)(&err)
-
-	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.MultipartInfo{}, minio.BucketNameInvalid{Bucket: bucket}
-	}
-
-	if object == "" {
-		return minio.MultipartInfo{}, minio.ObjectNameInvalid{}
-	}
-
-	if uploadID == "" {
-		return minio.MultipartInfo{}, minio.InvalidUploadID{}
-	}
-
-	project, err := projectFromContext(ctx, bucket, object)
-	if err != nil {
-		return minio.MultipartInfo{}, err
-	}
-
-	info.Bucket = bucket
-	info.Object = object
-	info.UploadID = uploadID
-
-	list := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
-		Prefix: object,
-		System: true,
-		Custom: layer.compatibilityConfig.IncludeCustomMetadataListing,
-	})
-
-	for list.Next() {
-		obj := list.Item()
-		if obj.UploadID == uploadID {
-			return minioMultipartInfo(bucket, obj), nil
-		}
-	}
-	if list.Err() != nil {
-		return minio.MultipartInfo{}, ConvertError(list.Err(), bucket, object)
-	}
-	return minio.MultipartInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
-}
-
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
