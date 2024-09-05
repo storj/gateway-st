@@ -48,7 +48,9 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		Cursor:    strings.TrimPrefix(keyMarker, prefix),
 		Recursive: recursive,
 		System:    true,
-		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
+		// AWS S3 ListMultipartUploads doesn't include metadata in the response.
+		// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListMultipartUploads.html
+		Custom: false,
 	})
 
 	var (

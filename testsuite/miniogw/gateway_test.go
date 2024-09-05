@@ -2903,7 +2903,7 @@ func TestListMultipartUploads(t *testing.T) {
 			assert.Equal(t, tt.prefixes, result.CommonPrefixes, errTag)
 			require.Equal(t, len(tt.uploads), len(result.Uploads), errTag)
 			for i, uploadInfo := range result.Uploads {
-				metadata, found := keys[uploadInfo.Object]
+				_, found := keys[uploadInfo.Object]
 				if assert.True(t, found) {
 					if tt.prefix != "" && strings.HasSuffix(tt.prefix, "/") {
 						assert.Equal(t, tt.prefix+tt.uploads[i], uploadInfo.Object, errTag)
@@ -2911,7 +2911,6 @@ func TestListMultipartUploads(t *testing.T) {
 						assert.Equal(t, tt.uploads[i], uploadInfo.Object, errTag)
 					}
 					assert.Equal(t, testBucket, uploadInfo.Bucket, errTag)
-					assert.Equal(t, metadata, uploadInfo.UserDefined, errTag)
 				}
 			}
 		}
