@@ -987,6 +987,8 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 		retentionPeriod := time.Now().Add(time.Hour)
 		amzObjectLockMode := strings.ToLower(lock.AmzObjectLockMode)
 		amzObjectLockRetainUntilDate := strings.ToLower(lock.AmzObjectLockRetainUntilDate)
+		amzObjectLockLegalHold := strings.ToLower(lock.AmzObjectLockLegalHold)
+		legalHoldStatus := lock.LegalHoldOn
 
 		// Copy the object to destBucket without object lock
 		_, err = layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{
@@ -996,6 +998,7 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 					Time: retentionPeriod,
 				},
 			},
+			LegalHold: &legalHoldStatus,
 		})
 		require.Error(t, err)
 		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
@@ -1009,25 +1012,75 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Copy destBucket with object lock enabled
-		// copied object should have the same retention info
-		info, err := layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{
-			Retention: &lock.ObjectRetention{
-				Mode: lock.RetCompliance,
-				RetainUntilDate: lock.RetentionDate{
-					Time: retentionPeriod,
-				},
+		retention := lock.ObjectRetention{
+			Mode: lock.RetCompliance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: retentionPeriod,
 			},
-		})
-		require.NoError(t, err)
-		assert.Equal(t, string(lock.RetCompliance), info.UserDefined[amzObjectLockMode])
-		assert.Equal(t, retentionPeriod.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+		}
+		govRetention := lock.ObjectRetention{
+			Mode: lock.RetGovernance,
+			RetainUntilDate: lock.RetentionDate{
+				Time: retentionPeriod,
+			},
+		}
+		for _, testCase := range []struct {
+			name              string
+			expectedRetention *lock.ObjectRetention
+			legalHold         lock.LegalHoldStatus
+		}{
+			{
+				name:      "no retention, no legal hold",
+				legalHold: lock.LegalHoldOff,
+			},
+			{
+				name:              "retention - compliance, no legal hold",
+				expectedRetention: &retention,
+				legalHold:         lock.LegalHoldOff,
+			},
+			{
+				name:              "retention - governance, no legal hold",
+				expectedRetention: &govRetention,
+				legalHold:         lock.LegalHoldOff,
+			},
+			{
+				name:      "no retention, legal hold",
+				legalHold: lock.LegalHoldOn,
+			},
+			{
+				name:              "retention - compliance, legal hold",
+				expectedRetention: &retention,
+				legalHold:         lock.LegalHoldOn,
+			},
+			{
+				name:              "retention - governance, legal hold",
+				expectedRetention: &govRetention,
+				legalHold:         lock.LegalHoldOn,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				// Copy destBucket with object lock enabled
+				info, err := layer.CopyObject(ctx, testBucket, testFile, destBucket, destFile, srcInfo, minio.ObjectOptions{}, minio.ObjectOptions{
+					Retention: testCase.expectedRetention,
+					LegalHold: &testCase.legalHold,
+				})
+				require.NoError(t, err)
+				if testCase.expectedRetention != nil {
+					assert.Equal(t, string(testCase.expectedRetention.Mode), info.UserDefined[amzObjectLockMode])
+					assert.Equal(t, testCase.expectedRetention.RetainUntilDate.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+				}
+				assert.Equal(t, string(testCase.legalHold), info.UserDefined[amzObjectLockLegalHold])
 
-		// copied object should have the same retention info
-		info, err = layer.GetObjectInfo(ctx, destBucket, destFile, minio.ObjectOptions{})
-		require.NoError(t, err)
-		assert.Equal(t, string(lock.RetCompliance), info.UserDefined[amzObjectLockMode])
-		assert.Equal(t, retentionPeriod.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+				// copied object should have the same retention info
+				info, err = layer.GetObjectInfo(ctx, destBucket, destFile, minio.ObjectOptions{})
+				require.NoError(t, err)
+				if testCase.expectedRetention != nil {
+					assert.Equal(t, string(testCase.expectedRetention.Mode), info.UserDefined[amzObjectLockMode])
+					assert.Equal(t, testCase.expectedRetention.RetainUntilDate.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+				}
+				assert.Equal(t, string(testCase.legalHold), info.UserDefined[amzObjectLockLegalHold])
+			})
+		}
 	})
 }
 

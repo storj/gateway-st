@@ -1132,15 +1132,25 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	var retention metaclient.Retention
-	if destOpts.Retention != nil && destOpts.Retention.Mode == objectlock.RetCompliance {
+	if destOpts.Retention != nil {
+		var mode storj.RetentionMode
+		switch destOpts.Retention.Mode {
+		case objectlock.RetCompliance:
+			mode = storj.ComplianceMode
+		case objectlock.RetGovernance:
+			mode = storj.GovernanceMode
+		default:
+			return minio.ObjectInfo{}, objectlock.ErrUnknownWORMModeDirective
+		}
 		retention = metaclient.Retention{
-			Mode:        storj.ComplianceMode,
+			Mode:        mode,
 			RetainUntil: destOpts.Retention.RetainUntilDate.Time,
 		}
 	}
 
 	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{
 		Retention: retention,
+		LegalHold: destOpts.LegalHold != nil && *destOpts.LegalHold == objectlock.LegalHoldOn,
 	})
 	if err != nil {
 		// TODO how we can improve it, its ugly
