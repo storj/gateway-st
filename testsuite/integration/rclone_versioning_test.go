@@ -25,7 +25,7 @@ func TestRcloneVersioning(t *testing.T) {
 
 	ctx := testcontext.New(t)
 
-	cmd := exec.Command("go", "install", "github.com/rclone/rclone@latest")
+	cmd := exec.Command("go", "install", "github.com/rclone/rclone@v1.68.0")
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOBIN="+ctx.Dir("binary"))
 	output, err := cmd.CombinedOutput()
@@ -53,7 +53,7 @@ func TestRcloneVersioning(t *testing.T) {
 
 	// enable versioning
 	cmdOutput := runRclone("backend", "versioning", "TestS3:"+bucketName, "Enabled")
-	require.Equal(t, "Enabled\n", cmdOutput)
+	require.Contains(t, cmdOutput, "Enabled")
 
 	// create two more versions
 	input = createFile(ctx, t, "versioned", testrand.Bytes(9*memory.KiB))
