@@ -39,7 +39,6 @@ import (
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
 	"storj.io/uplink"
-	"storj.io/uplink/private/bucket"
 )
 
 const (
@@ -85,8 +84,8 @@ func TestMakeBucketWithObjectLock(t *testing.T) {
 		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
 		require.NoError(t, err)
 
-		_, err = bucket.GetBucketObjectLockConfiguration(ctx, project, testBucket)
-		require.ErrorIs(t, err, bucket.ErrBucketNoLock)
+		_, err = layer.GetObjectLockConfig(ctx, testBucket)
+		require.ErrorIs(t, err, minio.BucketObjectLockConfigNotFound{Bucket: testBucket})
 
 		// Create a bucket with object lock enabled
 		err = layer.MakeBucketWithLocation(ctx, testBucket+"2", minio.BucketOptions{
@@ -94,9 +93,9 @@ func TestMakeBucketWithObjectLock(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		enabled, err := bucket.GetBucketObjectLockConfiguration(ctx, project, testBucket+"2")
+		lockConfig, err := layer.GetObjectLockConfig(ctx, testBucket+"2")
 		require.NoError(t, err)
-		require.True(t, enabled)
+		require.Equal(t, "Enabled", lockConfig.ObjectLockEnabled)
 	})
 }
 
