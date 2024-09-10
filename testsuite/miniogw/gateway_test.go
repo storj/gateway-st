@@ -38,8 +38,6 @@ import (
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
-	"storj.io/storj/satellite/buckets"
-	"storj.io/storj/satellite/console"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
 )
@@ -4295,32 +4293,17 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versionin
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
 				config.Metainfo.UseBucketLevelObjectVersioning = versioning
-				config.Metainfo.UseBucketLevelObjectLock = objectLock && versioning
+				config.Metainfo.ObjectLockEnabled = objectLock && versioning
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = pathCipher
+				if objectLock {
+					config.APIKeyVersion = macaroon.APIKeyVersionObjectLock
+				}
 			},
 		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		upl := planet.Uplinks[0]
-		sat := planet.Satellites[0]
-		if objectLock && versioning {
-			projectID := upl.Projects[0].ID
-			userCtx, err := sat.UserContext(ctx, upl.Projects[0].Owner.ID)
-			require.NoError(t, err)
-
-			_, key, err := sat.API.Console.Service.CreateAPIKey(userCtx, projectID, "test key", macaroon.APIKeyVersionObjectLock)
-			require.NoError(t, err)
-
-			access, err := uplink.RequestAccessWithPassphrase(ctx, sat.URL(), key.Serialize(), "")
-			require.NoError(t, err)
-
-			upl.Access[sat.ID()] = access
-
-			err = sat.API.DB.Console().Projects().UpdateDefaultVersioning(ctx, projectID, console.DefaultVersioning(buckets.VersioningEnabled))
-			require.NoError(t, err)
-		}
-		project, err := upl.OpenProject(ctx, sat)
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
 		require.NoError(t, err)
 		defer ctx.Check(project.Close)
 
