@@ -919,6 +919,7 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 			},
 		})
 		require.Error(t, err)
+		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 
 		_, err = project.DeleteBucketWithObjects(ctx, destBucket)
 		require.NoError(t, err)
@@ -2941,10 +2942,12 @@ func TestPutObjectWithOL(t *testing.T) {
 	t.Parallel()
 
 	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		invalidBucket := "invalid-bucket"
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, invalidBucket, minio.BucketOptions{}))
+
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
 			LockEnabled: true,
-		})
-		require.NoError(t, err)
+		}))
 
 		retention := &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
@@ -2955,6 +2958,10 @@ func TestPutObjectWithOL(t *testing.T) {
 
 		userDefined := map[string]string{}
 		opts := minio.ObjectOptions{UserDefined: userDefined, Retention: retention}
+
+		_, err := layer.PutObject(ctx, invalidBucket, testFile, nil, opts)
+		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
+
 		_, err = layer.PutObject(ctx, testBucket, testFile, nil, opts)
 		require.NoError(t, err)
 

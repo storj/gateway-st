@@ -115,8 +115,8 @@ var (
 	// ErrRetentionNotFound is a custom error returned when attempting to get retention config for an object
 	// that doesn't have any.
 	ErrRetentionNotFound = miniogo.ErrorResponse{
-		Code:       "InvalidRequest",
-		StatusCode: http.StatusBadRequest,
+		Code:       "NoSuchObjectLockConfiguration",
+		StatusCode: http.StatusNotFound,
 		Message:    "Object is missing retention configuration",
 	}
 
@@ -1555,9 +1555,9 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
-	case errors.Is(err, bucket.ErrBucketNoLock):
+	case noLockEnabledErr(err):
 		return ErrBucketObjectLockNotEnabled
-	case metaclient.ErrRetentionNotFound.Has(err):
+	case errors.Is(err, versioned.ErrRetentionNotFound):
 		return ErrRetentionNotFound
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
@@ -1573,6 +1573,12 @@ func ConvertError(err error, bucketName, object string) error {
 	default:
 		return err
 	}
+}
+
+func noLockEnabledErr(err error) bool {
+	return errors.Is(err, bucket.ErrBucketNoLock) ||
+		errors.Is(err, versioned.ErrNoObjectLockConfiguration) ||
+		errors.Is(err, versioned.ErrBucketNoVersioningObjectLock)
 }
 
 func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
