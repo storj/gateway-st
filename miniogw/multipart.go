@@ -133,7 +133,12 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 
 	var retention metaclient.Retention
 	if opts.Retention != nil {
-		retention.Mode = parseRetentionMode(opts.Retention.Mode)
+		retMode, err := parseRetentionMode(opts.Retention.Mode)
+		if err != nil {
+			return "", err
+		}
+
+		retention.Mode = retMode
 		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
 	}
 

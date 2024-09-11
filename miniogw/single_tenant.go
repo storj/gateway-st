@@ -294,7 +294,7 @@ func (l *singleTenancyLayer) GetObjectRetention(ctx context.Context, bucket, obj
 	return retention, l.log(err)
 }
 
-func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, retention *objectlock.ObjectRetention) (err error) {
-	err = l.layer.SetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID, retention)
+func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, opts minio.ObjectOptions) (err error) {
+	err = l.layer.SetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID, opts)
 	return l.log(err)
 }

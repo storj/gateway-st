@@ -480,13 +480,13 @@ func TestGetAndSetObjectRetention(t *testing.T) {
 		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 		require.Nil(t, retention)
 
-		retRequest := &lock.ObjectRetention{
+		opts := minio.ObjectOptions{Retention: &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
 			RetainUntilDate: lock.RetentionDate{
 				Time: time.Now().Add(time.Hour),
 			},
-		}
-		err = layer.SetObjectRetention(ctx, invalidBucket, testFile, "", retRequest)
+		}}
+		err = layer.SetObjectRetention(ctx, invalidBucket, testFile, "", opts)
 		require.Error(t, err)
 		require.ErrorIs(t, miniogw.ErrBucketObjectLockNotEnabled, err)
 
@@ -503,14 +503,30 @@ func TestGetAndSetObjectRetention(t *testing.T) {
 		require.ErrorIs(t, err, miniogw.ErrRetentionNotFound)
 		require.Nil(t, retention)
 
-		err = layer.SetObjectRetention(ctx, testBucket, testFile, "", retRequest)
-		require.NoError(t, err)
+		require.NoError(t, layer.SetObjectRetention(ctx, testBucket, testFile, "", opts))
 
 		retention, err = layer.GetObjectRetention(ctx, testBucket, testFile, "")
 		require.NoError(t, err)
 		require.NotNil(t, retention)
-		require.WithinDuration(t, retRequest.RetainUntilDate.Time, retention.RetainUntilDate.Time, time.Minute)
+		require.WithinDuration(t, opts.Retention.RetainUntilDate.Time, retention.RetainUntilDate.Time, time.Minute)
 		require.Equal(t, lock.RetCompliance, retention.Mode)
+
+		opts.Retention.Mode = lock.RetGovernance
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, "", opts)
+		require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+
+		newFile := testFile + "-new"
+		_, err = createFile(ctx, project, testBucket, newFile, []byte("test"), nil)
+		require.NoError(t, err)
+
+		err = layer.SetObjectRetention(ctx, testBucket, newFile, "", opts)
+		require.NoError(t, err)
+
+		retention, err = layer.GetObjectRetention(ctx, testBucket, newFile, "")
+		require.NoError(t, err)
+		require.NotNil(t, retention)
+		require.WithinDuration(t, opts.Retention.RetainUntilDate.Time, retention.RetainUntilDate.Time, time.Minute)
+		require.Equal(t, lock.RetGovernance, retention.Mode)
 	})
 }
 
@@ -591,13 +607,13 @@ func TestGetObjectInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, metadata, info.UserDefined)
 
-		retentionPeriod := time.Now().Add(time.Hour)
-		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, &lock.ObjectRetention{
+		retentionPeriod := time.Now().Add(time.Hour).UTC()
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, minio.ObjectOptions{Retention: &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
 			RetainUntilDate: lock.RetentionDate{
 				Time: retentionPeriod,
 			},
-		})
+		}})
 		require.NoError(t, err)
 
 		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
@@ -723,13 +739,13 @@ func TestGetObjectNInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, metadata, info.UserDefined)
 
-		retentionPeriod := time.Now().Add(time.Hour)
-		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, &lock.ObjectRetention{
+		retentionPeriod := time.Now().Add(time.Hour).UTC()
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, minio.ObjectOptions{Retention: &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
 			RetainUntilDate: lock.RetentionDate{
 				Time: retentionPeriod,
 			},
-		})
+		}})
 		require.NoError(t, err)
 
 		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
@@ -1282,19 +1298,19 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 
 		// lock the object
-		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, &lock.ObjectRetention{
+		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, minio.ObjectOptions{Retention: &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
 			RetainUntilDate: lock.RetentionDate{
 				Time: time.Now().Add(1 * time.Hour),
 			},
-		})
+		}})
 		require.NoError(t, err)
 
 		// try deleting locked object version
 		_, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{
 			VersionID: info.VersionID,
 		})
-		assert.Equal(t, minio.PrefixAccessDenied{Bucket: testBucket, Object: testFile}, err)
+		require.ErrorIs(t, err, miniogw.ErrObjectProtected)
 	})
 }
 

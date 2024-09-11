@@ -130,6 +130,14 @@ var (
 		Message:    "Object is missing retention configuration",
 	}
 
+	// ErrObjectProtected is a custom error returned when attempting to make any action with an object protected by
+	// object lock configuration.
+	ErrObjectProtected = miniogo.ErrorResponse{
+		Code:       "AccessDenied",
+		StatusCode: http.StatusForbidden,
+		Message:    "Access Denied because object protected by object lock",
+	}
+
 	// ErrNoUplinkProject is a custom error that indicates there was no
 	// `*uplink.Project` in the context for the gateway to pick up. This error
 	// may signal that passing credentials down to the object layer is working
@@ -1003,7 +1011,12 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 
 	var retention metaclient.Retention
 	if opts.Retention != nil {
-		retention.Mode = parseRetentionMode(opts.Retention.Mode)
+		retMode, err := parseRetentionMode(opts.Retention.Mode)
+		if err != nil {
+			return minio.ObjectInfo{}, err
+		}
+
+		retention.Mode = retMode
 		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
 	}
 
@@ -1197,7 +1210,8 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	object, err := versioned.DeleteObject(ctx, project, bucket, objectPath, version)
+	delOpts := &metaclient.DeleteObjectOptions{BypassGovernanceRetention: opts.BypassGovernanceRetention}
+	object, err := versioned.DeleteObject(ctx, project, bucket, objectPath, version, delOpts)
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
@@ -1506,7 +1520,7 @@ func (layer *gatewayLayer) SetObjectLegalHold(ctx context.Context, bucketName, o
 func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectRetention, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if err := ValidateBucket(ctx, bucketName); err != nil {
+	if err = ValidateBucket(ctx, bucketName); err != nil {
 		return nil, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
@@ -1542,12 +1556,8 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 		return nil, ConvertError(err, bucketName, object)
 	}
 
-	if retention.Mode != storj.ComplianceMode {
-		return nil, objectlock.ErrUnknownWORMModeDirective
-	}
-
 	r := &objectlock.ObjectRetention{
-		Mode: objectlock.RetCompliance,
+		Mode: toMinioRetentionMode(retention.Mode),
 		RetainUntilDate: objectlock.RetentionDate{
 			Time: retention.RetainUntil,
 		},
@@ -1557,11 +1567,15 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 }
 
 // SetObjectRetention sets object lock configuration for an object.
-func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, r *objectlock.ObjectRetention) (err error) {
+func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, opts minio.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	if err := ValidateBucket(ctx, bucketName); err != nil {
+	if err = ValidateBucket(ctx, bucketName); err != nil {
 		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	if opts.Retention == nil {
+		return objectlock.ErrMalformedXML
 	}
 
 	project, err := projectFromContext(ctx, bucketName, object)
@@ -1569,14 +1583,14 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 		return ConvertError(err, bucketName, object)
 	}
 
-	// TODO: remove this check when we implement governance mode
-	if r.Mode == objectlock.RetGovernance {
-		return objectlock.ErrUnknownWORMModeDirective
+	retMode, err := parseRetentionMode(opts.Retention.Mode)
+	if err != nil {
+		return err
 	}
 
 	retention := metaclient.Retention{
-		Mode:        parseRetentionMode(r.Mode),
-		RetainUntil: r.RetainUntilDate.Time,
+		Mode:        retMode,
+		RetainUntil: opts.Retention.RetainUntilDate.Time,
 	}
 
 	versionID, err := decodeVersionID(version)
@@ -1584,7 +1598,27 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 		return ConvertError(err, bucketName, object)
 	}
 
-	err = versioned.SetObjectRetention(ctx, project, bucketName, object, versionID, retention)
+	err = versioned.SetObjectRetention(ctx, project, bucketName, object, versionID, retention, &metaclient.SetObjectRetentionOptions{
+		BypassGovernanceRetention: opts.BypassGovernanceRetention,
+	})
+
+	// TODO: Remove this.
+	//
+	// This check of the error's message is done to appease our build system.
+	// Once this package's libuplink dependency version is bumped, libuplink will be
+	// unable to properly convert some errors originating from the outdated version
+	// of the satellite that our integration tests use.
+	//
+	// When that happens, those errors will be generic, not wrapped by a specialized
+	// libuplink error class. If we don't manually handle them, they will be interpreted
+	// as internal server errors (HTTP status 500) by MinIO. This would be an issue
+	// because the HTTP status code that should be returned here is 400 Bad Request.
+	//
+	// Once the satellite version used for integration testing has been updated,
+	// this block should be removed.
+	if err != nil && strings.Contains(err.Error(), "invalid retention mode 2, expected 1 (compliance)") {
+		return objectlock.ErrUnknownWORMModeDirective
+	}
 
 	return ConvertError(err, bucketName, object)
 }
@@ -1656,6 +1690,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return ErrBucketInvalidStateObjectLock
 	case errors.Is(err, versioned.ErrRetentionNotFound):
 		return ErrRetentionNotFound
+	case errors.Is(err, versioned.ErrObjectProtected):
+		return ErrObjectProtected
 	case errors.Is(err, privateProject.ErrLockNotEnabled):
 		return minio.NotImplemented{Message: "Object Lock feature is not enabled"}
 	case errors.Is(err, syscall.ECONNRESET):
@@ -1726,12 +1762,26 @@ func checkBucketError(ctx context.Context, project *uplink.Project, bucketName, 
 	return err
 }
 
-func parseRetentionMode(mode objectlock.RetMode) storj.RetentionMode {
-	if strings.EqualFold(string(mode), string(objectlock.RetCompliance)) {
-		return storj.ComplianceMode
+func parseRetentionMode(mode objectlock.RetMode) (storj.RetentionMode, error) {
+	switch {
+	case strings.EqualFold(string(mode), string(objectlock.RetCompliance)):
+		return storj.ComplianceMode, nil
+	case strings.EqualFold(string(mode), string(objectlock.RetGovernance)):
+		return storj.GovernanceMode, nil
+	default:
+		return storj.NoRetention, objectlock.ErrUnknownWORMModeDirective
 	}
+}
 
-	return storj.NoRetention
+func toMinioRetentionMode(mode storj.RetentionMode) objectlock.RetMode {
+	switch mode {
+	case storj.ComplianceMode:
+		return objectlock.RetCompliance
+	case storj.GovernanceMode:
+		return objectlock.RetGovernance
+	default:
+		return objectlock.RetMode(fmt.Sprintf("Unknown (%d)", mode))
+	}
 }
 
 func parseLegalHoldStatus(status objectlock.LegalHoldStatus) (bool, error) {
