@@ -39,6 +39,8 @@ import (
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
 	"storj.io/uplink"
+	"storj.io/uplink/private/metaclient"
+	versioned "storj.io/uplink/private/object"
 )
 
 const (
@@ -371,6 +373,150 @@ func TestPutObject(t *testing.T) {
 		assert.Equal(t, info.ETag, obj.Custom["s3:etag"])
 		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
 		assert.EqualValues(t, info.UserDefined, obj.Custom)
+	})
+}
+
+func TestPutObjectWithObjectLock(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		hashReader, err := hash.NewReader(bytes.NewReader([]byte("test")),
+			int64(len("test")),
+			"098f6bcd4621d373cade4e832627b4f6",
+			"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+			int64(len("test")),
+		)
+		require.NoError(t, err)
+		data := minio.NewPutObjReader(hashReader)
+
+		metadata := map[string]string{
+			"content-type":         "media/foo",
+			"key1":                 "value1",
+			"key2":                 "value2",
+			xhttp.AmzObjectTagging: "key3=value3&key4=value4",
+		}
+
+		expectedMetaInfo := pb.SerializableMeta{
+			ContentType: metadata["content-type"],
+			UserDefined: map[string]string{
+				"key1":    metadata["key1"],
+				"key2":    metadata["key2"],
+				"s3:tags": "key3=value3&key4=value4",
+			},
+		}
+
+		// Check the error when putting an object to a bucket with empty name
+		_, err = layer.PutObject(ctx, "", "", nil, minio.ObjectOptions{})
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		// Check the error when putting an object to a non-existing bucket
+		_, err = layer.PutObject(ctx, testBucket, testFile, nil, minio.ObjectOptions{UserDefined: metadata})
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
+		// Create the bucket using the Uplink API
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		})
+		require.NoError(t, err)
+
+		// Check the error when putting an object with empty name
+		_, err = layer.PutObject(ctx, testBucket, "", nil, minio.ObjectOptions{})
+		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, err)
+
+		retention := metaclient.Retention{
+			Mode:        storj.ComplianceMode,
+			RetainUntil: time.Now().Add(time.Hour).Truncate(time.Hour).UTC(),
+		}
+		govRetention := metaclient.Retention{
+			Mode:        storj.GovernanceMode,
+			RetainUntil: time.Now().Add(time.Hour).Truncate(time.Hour).UTC(),
+		}
+
+		expectedErr := miniogw.ErrObjectProtected
+
+		for _, testCase := range []struct {
+			name                    string
+			expectedRetention       *metaclient.Retention
+			legalHold               bool
+			expectedDeleteObjectErr error
+		}{
+			{
+				name: "no retention, no legal hold",
+			},
+			{
+				name:                    "retention - compliance, no legal hold",
+				expectedRetention:       &retention,
+				expectedDeleteObjectErr: expectedErr,
+			},
+			{
+				name:                    "retention - governance, no legal hold",
+				expectedRetention:       &govRetention,
+				expectedDeleteObjectErr: expectedErr,
+			},
+			{
+				name:                    "no retention, legal hold",
+				legalHold:               true,
+				expectedDeleteObjectErr: expectedErr,
+			},
+			{
+				name:                    "retention - compliance, legal hold",
+				expectedRetention:       &retention,
+				legalHold:               true,
+				expectedDeleteObjectErr: expectedErr,
+			},
+			{
+				name:                    "retention - governance, legal hold",
+				expectedRetention:       &govRetention,
+				legalHold:               true,
+				expectedDeleteObjectErr: expectedErr,
+			},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				legalHold := lock.LegalHoldOff
+				if testCase.legalHold {
+					legalHold = lock.LegalHoldOn
+				}
+				var ret *lock.ObjectRetention
+				if testCase.expectedRetention != nil {
+					retMode := lock.RetCompliance
+					if testCase.expectedRetention.Mode == storj.GovernanceMode {
+						retMode = lock.RetGovernance
+					}
+					ret = &lock.ObjectRetention{
+						Mode: retMode,
+						RetainUntilDate: lock.RetentionDate{
+							Time: testCase.expectedRetention.RetainUntil,
+						},
+					}
+				}
+				// Put the object using the Minio API
+				info, err := layer.PutObject(ctx, testBucket, testFile, data, minio.ObjectOptions{
+					Retention:   ret,
+					LegalHold:   &legalHold,
+					UserDefined: metadata,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, expectedMetaInfo.ContentType, info.ContentType)
+
+				expectedMetaInfo.UserDefined["s3:etag"] = info.ETag
+				expectedMetaInfo.UserDefined["content-type"] = info.ContentType
+				assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
+
+				version, err := hex.DecodeString(info.VersionID)
+				require.NoError(t, err)
+
+				// Check that the object is uploaded using the Uplink API
+				obj, err := versioned.StatObject(ctx, project, testBucket, testFile, version)
+				require.NoError(t, err)
+				assert.Equal(t, testCase.expectedRetention, obj.Retention)
+				assert.Equal(t, &testCase.legalHold, obj.LegalHold)
+
+				_, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{
+					VersionID: info.VersionID,
+				})
+				require.ErrorIs(t, err, testCase.expectedDeleteObjectErr)
+			})
+		}
 	})
 }
 

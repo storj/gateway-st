@@ -1019,10 +1019,18 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		retention.Mode = retMode
 		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
 	}
+	legalHold := false
+	if opts.LegalHold != nil {
+		legalHold, err = parseLegalHoldStatus(*opts.LegalHold)
+		if err != nil {
+			return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		}
+	}
 
 	upload, err := versioned.UploadObject(ctx, project, bucket, object, &metaclient.UploadOptions{
 		Expires:   e,
 		Retention: retention,
+		LegalHold: legalHold,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
