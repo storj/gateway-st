@@ -1444,6 +1444,23 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 
 	retention, err := versioned.GetObjectRetention(ctx, project, bucketName, object, versionID)
 	if err != nil {
+		// TODO: Remove this.
+		//
+		// This check of the error's message is done to appease our build system.
+		// Once this package's libuplink dependency version is bumped, libuplink will be
+		// unable to properly convert some errors originating from the outdated version
+		// of the satellite that our integration tests use.
+		//
+		// When that happens, those errors will be generic, not wrapped by a specialized
+		// libuplink error class. If we don't manually handle them, they will be interpreted
+		// as internal server errors (HTTP status 500) by MinIO. This would be an issue
+		// because the HTTP status code that should be returned here is 400 Bad Request.
+		//
+		// Once the satellite version used for integration testing has been updated,
+		// this block should be removed.
+		if strings.Contains(err.Error(), "Object Lock is not enabled for this bucket") {
+			return nil, ErrBucketObjectLockNotEnabled
+		}
 		return nil, ConvertError(err, bucketName, object)
 	}
 
