@@ -113,6 +113,15 @@ var (
 		Message:    "Bucket is missing Object Lock Configuration",
 	}
 
+	// ErrBucketInvalidStateObjectLock is a custom error for when a user attempts to upload an object with retention
+	// configuration but the bucket is not object lock enabled. It's also for the case of suspending versioning
+	// on a bucket when object lock is enabled.
+	ErrBucketInvalidStateObjectLock = miniogo.ErrorResponse{
+		Code:       "InvalidBucketState",
+		StatusCode: http.StatusConflict,
+		Message:    "Object lock requires bucket versioning to be enabled",
+	}
+
 	// ErrRetentionNotFound is a custom error returned when attempting to get retention config for an object
 	// that doesn't have any.
 	ErrRetentionNotFound = miniogo.ErrorResponse{
@@ -1633,6 +1642,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
 	case noLockEnabledErr(err):
 		return ErrBucketObjectLockNotEnabled
+	case errors.Is(err, versioned.ErrBucketInvalidStateObjectLock):
+		return ErrBucketInvalidStateObjectLock
 	case errors.Is(err, versioned.ErrRetentionNotFound):
 		return ErrRetentionNotFound
 	case errors.Is(err, privateProject.ErrLockNotEnabled):
@@ -1655,8 +1666,7 @@ func ConvertError(err error, bucketName, object string) error {
 
 func noLockEnabledErr(err error) bool {
 	return errors.Is(err, bucket.ErrBucketNoLock) ||
-		errors.Is(err, versioned.ErrNoObjectLockConfiguration) ||
-		errors.Is(err, versioned.ErrBucketNoVersioningObjectLock)
+		errors.Is(err, versioned.ErrNoObjectLockConfiguration)
 }
 
 func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
