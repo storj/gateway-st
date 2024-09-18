@@ -1642,7 +1642,7 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
 	case noLockEnabledErr(err):
 		return ErrBucketObjectLockNotEnabled
-	case errors.Is(err, versioned.ErrBucketInvalidStateObjectLock):
+	case errors.Is(err, bucket.ErrBucketInvalidStateObjectLock):
 		return ErrBucketInvalidStateObjectLock
 	case errors.Is(err, versioned.ErrRetentionNotFound):
 		return ErrRetentionNotFound

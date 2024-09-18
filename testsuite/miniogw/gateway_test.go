@@ -4493,4 +4493,14 @@ func TestGetSetBucketVersioning(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, versioning.Suspended, v.Status)
 	})
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		}))
+
+		require.ErrorIs(t, layer.SetBucketVersioning(ctx, testBucket, &versioning.Versioning{
+			Status: versioning.Suspended,
+		}), miniogw.ErrBucketInvalidStateObjectLock)
+	})
 }
