@@ -259,9 +259,8 @@ s3tests_boto3/functional/test_s3.py::test_put_excess_key_tags
 s3tests_boto3/functional/test_s3.py::test_put_excess_val_tags
 s3tests_boto3/functional/test_s3.py::test_versioning_bucket_atomic_upload_return_version_id
 s3tests_boto3/functional/test_s3.py::test_versioning_bucket_multipart_upload_return_version_id
-# disabled until we fix the error code when calling Get/PutObjectRetention on an unversioned and no object lock bucket.
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_retention_invalid_bucket
-# s3tests_boto3/functional/test_s3.py::test_object_lock_get_obj_retention_invalid_bucket
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_retention_invalid_bucket
+s3tests_boto3/functional/test_s3.py::test_object_lock_get_obj_retention_invalid_bucket
 # disabled until we implement https://github.com/storj/edge/issues/483 and https://github.com/storj/edge/issues/484
 # s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold_invalid_bucket
 # s3tests_boto3/functional/test_s3.py::test_object_lock_get_legal_hold_invalid_bucket

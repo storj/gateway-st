@@ -386,7 +386,7 @@ integration-services-start:
         storj-up network unset minimal,db default && \
         storj-up env setenv satellite-api STORJ_CONSOLE_SIGNUP_ACTIVATION_CODE_ENABLED=false && \
         storj-up env setenv satellite-api STORJ_METAINFO_USE_BUCKET_LEVEL_OBJECT_VERSIONING=true && \
-        storj-up env setenv satellite-api STORJ_METAINFO_USE_BUCKET_LEVEL_OBJECT_LOCK=true && \
+        storj-up env setenv satellite-api STORJ_METAINFO_OBJECT_LOCK_ENABLED=true && \
         docker compose up -d && \
         storj-up health
 
