@@ -114,7 +114,7 @@ var (
 	}
 
 	// ErrBucketInvalidStateObjectLock is a custom error for when a user attempts to upload an object with retention
-	// configuration but the bucket is not object lock enabled. It's also for the case of suspending versioning
+	// configuration but the bucket does not have versioning enabled. It's also for the case of suspending versioning
 	// on a bucket when object lock is enabled.
 	ErrBucketInvalidStateObjectLock = miniogo.ErrorResponse{
 		Code:       "InvalidBucketState",
@@ -1582,23 +1582,20 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	if opts.Retention == nil {
-		return objectlock.ErrMalformedXML
-	}
-
 	project, err := projectFromContext(ctx, bucketName, object)
 	if err != nil {
 		return ConvertError(err, bucketName, object)
 	}
 
-	retMode, err := parseRetentionMode(opts.Retention.Mode)
-	if err != nil {
-		return err
-	}
+	var retention metaclient.Retention
+	if opts.Retention != nil {
+		retMode, err := parseRetentionMode(opts.Retention.Mode)
+		if err != nil {
+			return err
+		}
 
-	retention := metaclient.Retention{
-		Mode:        retMode,
-		RetainUntil: opts.Retention.RetainUntilDate.Time,
+		retention.Mode = retMode
+		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
 	}
 
 	versionID, err := decodeVersionID(version)

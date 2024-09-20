@@ -38,6 +38,8 @@ import (
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
+	"storj.io/storj/satellite/metabase"
+	"storj.io/storj/satellite/metabase/metabasetest"
 	"storj.io/uplink"
 	"storj.io/uplink/private/metaclient"
 	versioned "storj.io/uplink/private/object"
@@ -608,71 +610,326 @@ func TestGetAndSetObjectLegalHold(t *testing.T) {
 	})
 }
 
-func TestGetAndSetObjectRetention(t *testing.T) {
+func runRetentionModeTests(t *testing.T, name string, fn func(*testing.T, storj.RetentionMode)) {
+	for _, tt := range []struct {
+		name string
+		mode storj.RetentionMode
+	}{
+		{name: "Compliance", mode: storj.ComplianceMode},
+		{name: "Governance", mode: storj.GovernanceMode},
+	} {
+		t.Run(fmt.Sprintf("%s (%s)", name, tt.name), func(t *testing.T) {
+			fn(t, tt.mode)
+		})
+	}
+}
+
+func uplinkToMinioRetention(t *testing.T, retention metaclient.Retention) *lock.ObjectRetention {
+	minioRetention := lock.ObjectRetention{
+		RetainUntilDate: lock.RetentionDate{
+			Time: retention.RetainUntil,
+		},
+	}
+	switch retention.Mode {
+	case storj.ComplianceMode:
+		minioRetention.Mode = lock.RetCompliance
+	case storj.GovernanceMode:
+		minioRetention.Mode = lock.RetGovernance
+	default:
+		require.Fail(t, "invalid retention mode %d", retention.Mode)
+	}
+	return &minioRetention
+}
+
+func TestSetObjectRetention(t *testing.T) {
+	t.Parallel()
+
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.MaxSegmentSize = segmentSize
+				config.Metainfo.UseBucketLevelObjectVersioning = true
+				config.Metainfo.ObjectLockEnabled = true
+			},
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+				config.APIKeyVersion = macaroon.APIKeyVersionObjectLock
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
+		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 maxKeysLimit,
+			MaxKeysExhaustiveLimit:       100000,
+			MaxUploadsLimit:              maxUploadsLimit,
+			DeleteObjectsConcurrency:     100,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		bucketName := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctxWithProject, bucketName, minio.BucketOptions{
+			LockEnabled: true,
+		}))
+
+		future := time.Now().Add(time.Hour)
+
+		runRetentionModeTests(t, "Set", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			_, err := createFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), nil)
+			require.NoError(t, err)
+
+			newRetention := uplinkToMinioRetention(t, metaclient.Retention{
+				Mode:        mode,
+				RetainUntil: future,
+			})
+
+			require.NoError(t, layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", minio.ObjectOptions{
+				Retention: newRetention,
+			}))
+		})
+
+		runRetentionModeTests(t, "Shorten", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			retention := metaclient.Retention{
+				Mode:        mode,
+				RetainUntil: future,
+			}
+
+			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			require.NoError(t, err)
+
+			newRetention := uplinkToMinioRetention(t, retention)
+			newRetention.RetainUntilDate.Time = newRetention.RetainUntilDate.Time.Add(-time.Minute)
+
+			opts := minio.ObjectOptions{Retention: newRetention}
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+			require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+
+			opts.BypassGovernanceRetention = true
+			if mode == storj.GovernanceMode {
+				require.NoError(t, layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts))
+			} else {
+				err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+				require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+			}
+		})
+
+		runRetentionModeTests(t, "Extend", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			retention := metaclient.Retention{
+				Mode:        mode,
+				RetainUntil: future,
+			}
+
+			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			require.NoError(t, err)
+
+			newRetention := uplinkToMinioRetention(t, retention)
+			newRetention.RetainUntilDate.Time = newRetention.RetainUntilDate.Time.Add(time.Minute)
+
+			opts := minio.ObjectOptions{Retention: newRetention}
+			require.NoError(t, layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts))
+		})
+
+		t.Run("Change mode", func(t *testing.T) {
+			objectKey := testrand.Path()
+			retention := metaclient.Retention{
+				Mode:        storj.GovernanceMode,
+				RetainUntil: future,
+			}
+
+			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			require.NoError(t, err)
+
+			opts := minio.ObjectOptions{Retention: &lock.ObjectRetention{
+				Mode: lock.RetCompliance,
+				RetainUntilDate: lock.RetentionDate{
+					Time: retention.RetainUntil,
+				},
+			}}
+
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+			require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+
+			opts.BypassGovernanceRetention = true
+			require.NoError(t, layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts))
+
+			opts.BypassGovernanceRetention = false
+			opts.Retention.Mode = lock.RetGovernance
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+			require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+
+			opts.BypassGovernanceRetention = true
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+			require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+		})
+
+		runRetentionModeTests(t, "Remove active", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			retention := metaclient.Retention{
+				Mode:        mode,
+				RetainUntil: time.Now().Add(time.Hour),
+			}
+
+			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			require.NoError(t, err)
+
+			opts := minio.ObjectOptions{}
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+			require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+
+			opts.BypassGovernanceRetention = true
+			if mode == storj.GovernanceMode {
+				require.NoError(t, layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts))
+			} else {
+				err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", opts)
+				require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+			}
+		})
+
+		runRetentionModeTests(t, "Remove expired", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			objStream := metabase.ObjectStream{
+				ProjectID:  planet.Uplinks[0].Projects[0].ID,
+				BucketName: metabase.BucketName(bucketName),
+				ObjectKey:  metabase.ObjectKey(objectKey),
+				Version:    1,
+				StreamID:   testrand.UUID(),
+			}
+
+			metabasetest.CreateTestObject{
+				BeginObjectExactVersion: &metabase.BeginObjectExactVersion{
+					ObjectStream: objStream,
+					Encryption:   metabasetest.DefaultEncryption,
+					Retention: metabase.Retention{
+						Mode:        mode,
+						RetainUntil: time.Now().Add(-time.Hour),
+					},
+				},
+			}.Run(ctx, t, planet.Satellites[0].Metabase.DB, objStream, 0)
+
+			require.NoError(t, layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", minio.ObjectOptions{}))
+		})
+
+		t.Run("Invalid mode", func(t *testing.T) {
+			objectKey := testrand.Path()
+			_, err := createFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), nil)
+			require.NoError(t, err)
+
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", minio.ObjectOptions{
+				Retention: &lock.ObjectRetention{
+					Mode: lock.RetMode("INVALID"),
+					RetainUntilDate: lock.RetentionDate{
+						Time: future,
+					},
+				},
+			})
+			require.ErrorIs(t, err, lock.ErrUnknownWORMModeDirective)
+		})
+
+		objectOpts := minio.ObjectOptions{
+			Retention: &lock.ObjectRetention{
+				Mode: lock.RetCompliance,
+				RetainUntilDate: lock.RetentionDate{
+					Time: future,
+				},
+			},
+		}
+
+		t.Run("Missing object", func(t *testing.T) {
+			objectKey := testrand.Path()
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", objectOpts)
+			require.Error(t, err)
+			require.Equal(t, minio.ObjectNotFound{Bucket: bucketName, Object: objectKey}, err)
+		})
+
+		t.Run("Object Lock disabled for bucket", func(t *testing.T) {
+			bucketName := testrand.BucketName()
+			require.NoError(t, layer.MakeBucketWithLocation(ctxWithProject, bucketName, minio.BucketOptions{
+				LockEnabled: false,
+			}))
+
+			objectKey := testrand.Path()
+			_, err := createFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), nil)
+			require.NoError(t, err)
+
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", objectOpts)
+			require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
+		})
+	})
+}
+
+func TestGetObjectRetention(t *testing.T) {
 	t.Parallel()
 
 	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		invalidBucket := testBucket + "-invalid"
-		err := layer.MakeBucketWithLocation(ctx, invalidBucket, minio.BucketOptions{
-			LockEnabled: false,
-		})
-		require.NoError(t, err)
-
-		_, err = createFile(ctx, project, invalidBucket, testFile, []byte("test"), nil)
-		require.NoError(t, err)
-
-		retention, err := layer.GetObjectRetention(ctx, invalidBucket, testFile, "")
-		require.Error(t, err)
-		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
-		require.Nil(t, retention)
-
-		opts := minio.ObjectOptions{Retention: &lock.ObjectRetention{
-			Mode: lock.RetCompliance,
-			RetainUntilDate: lock.RetentionDate{
-				Time: time.Now().Add(time.Hour),
-			},
-		}}
-		err = layer.SetObjectRetention(ctx, invalidBucket, testFile, "", opts)
-		require.Error(t, err)
-		require.ErrorIs(t, miniogw.ErrBucketObjectLockNotEnabled, err)
-
-		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		bucketName := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, bucketName, minio.BucketOptions{
 			LockEnabled: true,
+		}))
+
+		future := time.Now().Add(time.Hour).Truncate(time.Microsecond).UTC()
+
+		runRetentionModeTests(t, "Success", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			expectedRetention := metaclient.Retention{
+				Mode:        mode,
+				RetainUntil: future,
+			}
+
+			_, err := createFileWithRetention(ctx, project, bucketName, objectKey, []byte("test"), expectedRetention)
+			require.NoError(t, err)
+
+			retention, err := layer.GetObjectRetention(ctx, bucketName, objectKey, "")
+			require.NoError(t, err)
+			require.NotNil(t, retention)
+			require.Equal(t, uplinkToMinioRetention(t, expectedRetention), retention)
 		})
-		require.NoError(t, err)
 
-		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
-		require.NoError(t, err)
+		t.Run("No retention", func(t *testing.T) {
+			objectKey := testrand.Path()
+			_, err := createFile(ctx, project, bucketName, objectKey, []byte("test"), nil)
+			require.NoError(t, err)
 
-		retention, err = layer.GetObjectRetention(ctx, testBucket, testFile, "")
-		require.Error(t, err)
-		require.ErrorIs(t, err, miniogw.ErrRetentionNotFound)
-		require.Nil(t, retention)
+			retention, err := layer.GetObjectRetention(ctx, bucketName, objectKey, "")
+			require.ErrorIs(t, err, miniogw.ErrRetentionNotFound)
+			require.Nil(t, retention)
+		})
 
-		require.NoError(t, layer.SetObjectRetention(ctx, testBucket, testFile, "", opts))
+		t.Run("Missing object", func(t *testing.T) {
+			objectKey := testrand.Path()
+			retention, err := layer.GetObjectRetention(ctx, bucketName, objectKey, "")
+			require.Error(t, err)
+			require.Equal(t, minio.ObjectNotFound{Bucket: bucketName, Object: objectKey}, err)
+			require.Nil(t, retention)
+		})
 
-		retention, err = layer.GetObjectRetention(ctx, testBucket, testFile, "")
-		require.NoError(t, err)
-		require.NotNil(t, retention)
-		require.WithinDuration(t, opts.Retention.RetainUntilDate.Time, retention.RetainUntilDate.Time, time.Minute)
-		require.Equal(t, lock.RetCompliance, retention.Mode)
+		t.Run("Object Lock disabled for bucket", func(t *testing.T) {
+			bucketName := testrand.BucketName()
+			require.NoError(t, layer.MakeBucketWithLocation(ctx, bucketName, minio.BucketOptions{
+				LockEnabled: false,
+			}))
 
-		opts.Retention.Mode = lock.RetGovernance
-		err = layer.SetObjectRetention(ctx, testBucket, testFile, "", opts)
-		require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+			objectKey := testrand.Path()
+			_, err := createFile(ctx, project, bucketName, objectKey, []byte("test"), nil)
+			require.NoError(t, err)
 
-		newFile := testFile + "-new"
-		_, err = createFile(ctx, project, testBucket, newFile, []byte("test"), nil)
-		require.NoError(t, err)
-
-		err = layer.SetObjectRetention(ctx, testBucket, newFile, "", opts)
-		require.NoError(t, err)
-
-		retention, err = layer.GetObjectRetention(ctx, testBucket, newFile, "")
-		require.NoError(t, err)
-		require.NotNil(t, retention)
-		require.WithinDuration(t, opts.Retention.RetainUntilDate.Time, retention.RetainUntilDate.Time, time.Minute)
-		require.Equal(t, lock.RetGovernance, retention.Mode)
+			retention, err := layer.GetObjectRetention(ctx, bucketName, objectKey, "")
+			require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
+			require.Nil(t, retention)
+		})
 	})
 }
 
@@ -4639,6 +4896,27 @@ func createFile(ctx context.Context, project *uplink.Project, bucket, key string
 	}
 
 	err = upload.SetCustomMetadata(ctx, metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	err = upload.Commit()
+	if err != nil {
+		return nil, err
+	}
+
+	return upload.Info(), nil
+}
+
+func createFileWithRetention(ctx context.Context, project *uplink.Project, bucket, key string, data []byte, retention metaclient.Retention) (*versioned.VersionedObject, error) {
+	upload, err := versioned.UploadObject(ctx, project, bucket, key, &metaclient.UploadOptions{
+		Retention: retention,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = sync2.Copy(ctx, upload, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
