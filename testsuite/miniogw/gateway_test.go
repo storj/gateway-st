@@ -1686,34 +1686,105 @@ func TestDeleteObject(t *testing.T) {
 func TestDeleteObjectWithObjectLock(t *testing.T) {
 	t.Parallel()
 
-	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		// make bucket with object lock enabled
-		err := layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
-			LockEnabled: true,
-		})
-		require.NoError(t, err)
-
-		// Create the object using the Uplink API
-		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
-		require.NoError(t, err)
-
-		info, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
-		require.NoError(t, err)
-
-		// lock the object
-		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, minio.ObjectOptions{Retention: &lock.ObjectRetention{
-			Mode: lock.RetCompliance,
-			RetainUntilDate: lock.RetentionDate{
-				Time: time.Now().Add(1 * time.Hour),
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.MaxSegmentSize = segmentSize
+				config.Metainfo.UseBucketLevelObjectVersioning = true
+				config.Metainfo.ObjectLockEnabled = true
 			},
-		}})
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+				config.APIKeyVersion = macaroon.APIKeyVersionObjectLock
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		project, err := planet.Uplinks[0].OpenProject(ctx, planet.Satellites[0])
+		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 maxKeysLimit,
+			MaxKeysExhaustiveLimit:       100000,
+			MaxUploadsLimit:              maxUploadsLimit,
+			DeleteObjectsConcurrency:     100,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
-		// try deleting locked object version
-		_, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{
-			VersionID: info.VersionID,
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		bucketName := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctxWithProject, bucketName, minio.BucketOptions{
+			LockEnabled: true,
+		}))
+
+		runRetentionModeTests(t, "Active retention period", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+
+			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), metaclient.Retention{
+				Mode:        mode,
+				RetainUntil: time.Now().Add(time.Hour),
+			})
+			require.NoError(t, err)
+
+			info, err := layer.GetObjectInfo(ctxWithProject, bucketName, objectKey, minio.ObjectOptions{})
+			require.NoError(t, err)
+
+			opts := minio.ObjectOptions{VersionID: info.VersionID}
+			deleted, err := layer.DeleteObject(ctxWithProject, bucketName, objectKey, opts)
+			require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+			require.Zero(t, deleted)
+
+			opts.BypassGovernanceRetention = true
+			deleted, err = layer.DeleteObject(ctxWithProject, bucketName, objectKey, opts)
+			if mode == storj.GovernanceMode {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+				require.Zero(t, deleted)
+			}
 		})
-		require.ErrorIs(t, err, miniogw.ErrObjectProtected)
+
+		runRetentionModeTests(t, "Expired retention period", func(t *testing.T, mode storj.RetentionMode) {
+			objectKey := testrand.Path()
+			objStream := metabase.ObjectStream{
+				ProjectID:  planet.Uplinks[0].Projects[0].ID,
+				BucketName: metabase.BucketName(bucketName),
+				ObjectKey:  metabase.ObjectKey(objectKey),
+				Version:    1,
+				StreamID:   testrand.UUID(),
+			}
+
+			metabasetest.CreateTestObject{
+				BeginObjectExactVersion: &metabase.BeginObjectExactVersion{
+					ObjectStream: objStream,
+					Encryption:   metabasetest.DefaultEncryption,
+					Retention: metabase.Retention{
+						Mode:        mode,
+						RetainUntil: time.Now().Add(-time.Hour),
+					},
+				},
+				CommitObject: &metabase.CommitObject{
+					ObjectStream: objStream,
+					Versioned:    true,
+				},
+			}.Run(ctx, t, planet.Satellites[0].Metabase.DB, objStream, 0)
+
+			info, err := layer.GetObjectInfo(ctxWithProject, bucketName, objectKey, minio.ObjectOptions{})
+			require.NoError(t, err)
+
+			_, err = layer.DeleteObject(ctxWithProject, bucketName, objectKey, minio.ObjectOptions{
+				VersionID: info.VersionID,
+			})
+			require.NoError(t, err)
+		})
 	})
 }
 
