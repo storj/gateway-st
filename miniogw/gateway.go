@@ -1693,6 +1693,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return ErrBucketObjectLockNotEnabled
 	case errors.Is(err, bucket.ErrBucketInvalidStateObjectLock):
 		return ErrBucketInvalidStateObjectLock
+	case errors.Is(err, versioned.ErrObjectLockInvalidState):
+		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, versioned.ErrRetentionNotFound):
 		return ErrRetentionNotFound
 	case errors.Is(err, versioned.ErrObjectProtected):

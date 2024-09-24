@@ -868,6 +868,48 @@ func TestSetObjectRetention(t *testing.T) {
 			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", objectOpts)
 			require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 		})
+
+		t.Run("Invalid object state with delete marker", func(t *testing.T) {
+			objectKey := testrand.Path()
+			_, err := createFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), nil)
+			require.NoError(t, err)
+
+			_, err = project.DeleteObject(ctxWithProject, bucketName, objectKey)
+			require.NoError(t, err)
+
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", minio.ObjectOptions{
+				Retention: &lock.ObjectRetention{
+					Mode: lock.RetCompliance,
+					RetainUntilDate: lock.RetentionDate{
+						Time: future,
+					},
+				},
+			})
+			require.ErrorIs(t, err, minio.MethodNotAllowed{Bucket: bucketName, Object: objectKey})
+		})
+
+		t.Run("Invalid object state with expiring object", func(t *testing.T) {
+			objectKey := testrand.Path()
+
+			upload, err := project.UploadObject(ctx, bucketName, objectKey, &uplink.UploadOptions{
+				Expires: time.Now().Add(time.Hour),
+			})
+			require.NoError(t, err)
+
+			_, err = sync2.Copy(ctx, upload, bytes.NewBuffer([]byte("test")))
+			require.NoError(t, err)
+			require.NoError(t, upload.Commit())
+
+			err = layer.SetObjectRetention(ctxWithProject, bucketName, objectKey, "", minio.ObjectOptions{
+				Retention: &lock.ObjectRetention{
+					Mode: lock.RetCompliance,
+					RetainUntilDate: lock.RetentionDate{
+						Time: future,
+					},
+				},
+			})
+			require.ErrorIs(t, err, minio.MethodNotAllowed{Bucket: bucketName, Object: objectKey})
+		})
 	})
 }
 
