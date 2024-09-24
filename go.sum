@@ -1136,5 +1136,5 @@ storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd/go.mod h1:nwyyJiAFAPRu81qBfAE5cBGkVXROYSNJu9pGXLtStHE=
 storj.io/picobuf v0.0.3 h1:xAUPB5ZUGfxkqd3bnw3zp01kkWb9wlhg4vtZWUs2S9A=
 storj.io/picobuf v0.0.3/go.mod h1:4V4xelV1RSCck5GgmkL/Txw9l6IfX3XcBzegmL5Kudo=
-storj.io/uplink v1.13.2-0.20240921040448-672c6a64dc31 h1:vKrJ4Zzz6m4C8S7/pZ7u3SkIUDax1Qeflr5CFg66utw=
-storj.io/uplink v1.13.2-0.20240921040448-672c6a64dc31/go.mod h1:65OQu7iwH9LMMWVt80gC/lAnfwP7ySzCESHGTjgkewo=
+storj.io/uplink v1.13.2-0.20240924113812-e3a97f237473 h1:BveNSAF84pQ9jemSxiusfPIPsg86fHiBP8qvGfXu+R8=
+storj.io/uplink v1.13.2-0.20240924113812-e3a97f237473/go.mod h1:65OQu7iwH9LMMWVt80gC/lAnfwP7ySzCESHGTjgkewo=
