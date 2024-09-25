@@ -141,12 +141,20 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		retention.Mode = retMode
 		retention.RetainUntil = opts.Retention.RetainUntilDate.Time
 	}
+	legalHold := false
+	if opts.LegalHold != nil {
+		legalHold, err = parseLegalHoldStatus(*opts.LegalHold)
+		if err != nil {
+			return "", convertMultipartError(err, bucket, object, uploadID)
+		}
+	}
 
 	info, err := multipart.BeginUpload(ctx, project, bucket, object, &multipart.UploadOptions{
 		// TODO: Truncate works around https://github.com/storj/storj-private/issues/84 until fixed on the satellite.
 		Expires:        e.Truncate(time.Microsecond),
 		CustomMetadata: uplink.CustomMetadata(opts.UserDefined).Clone(),
 		Retention:      retention,
+		LegalHold:      legalHold,
 	})
 	if err != nil {
 		return "", convertMultipartError(err, bucket, object, "")

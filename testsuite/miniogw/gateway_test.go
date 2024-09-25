@@ -3652,8 +3652,12 @@ func TestNewMultipartUploadWithOL(t *testing.T) {
 				Time: time.Now().Add(time.Hour),
 			},
 		}
+
+		legalHoldOn := lock.LegalHoldOn
+
 		uploadID, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{
 			Retention: retention,
+			LegalHold: &legalHoldOn,
 		})
 		require.NoError(t, err)
 
@@ -3665,6 +3669,11 @@ func TestNewMultipartUploadWithOL(t *testing.T) {
 		require.NotNil(t, objRetention)
 		require.WithinDuration(t, retention.RetainUntilDate.Time, objRetention.RetainUntilDate.Time, time.Minute)
 		require.Equal(t, retention.Mode, objRetention.Mode)
+
+		objLegalHold, err := layer.GetObjectLegalHold(ctx, testBucket, testFile, "")
+		require.NoError(t, err)
+		require.NotNil(t, objLegalHold)
+		require.Equal(t, legalHoldOn, objLegalHold.Status)
 	})
 }
 
