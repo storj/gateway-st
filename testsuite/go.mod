@@ -13,9 +13,9 @@ require (
 	go.uber.org/zap v1.27.0
 	storj.io/common v0.0.0-20240913104706-8fd6fa0286a3
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20240920020153-88f04c7a2e8c
-	storj.io/storj v1.91.0-alpha.0.20240920213110-68356ced51f0
-	storj.io/uplink v1.13.2-0.20240924113812-e3a97f237473
+	storj.io/minio v0.0.0-20240925084632-18a5433825d6
+	storj.io/storj v1.91.0-alpha.0.20240925172720-87774f6dd4fc
+	storj.io/uplink v1.13.2-0.20240925113347-39440b097385
 )
 
 require (
