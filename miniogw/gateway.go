@@ -327,10 +327,12 @@ func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucketName s
 		return &objectlock.Config{}, ConvertError(err, bucketName, "")
 	}
 
-	if config.Enabled {
-		return objectlock.NewObjectLockConfig(), nil
+	if !config.Enabled {
+		return &objectlock.Config{}, minio.BucketObjectLockConfigNotFound{Bucket: bucketName}
 	}
-	return &objectlock.Config{}, nil
+	minioConfig := toMinioObjectLockConfiguration(config)
+
+	return &minioConfig, nil
 }
 
 func (layer *gatewayLayer) SetObjectLockConfig(ctx context.Context, bucketName string, config *objectlock.Config) (err error) {
@@ -1858,6 +1860,33 @@ func toMinioLegalHoldStatus(enabled bool) objectlock.LegalHoldStatus {
 	} else {
 		return objectlock.LegalHoldOff
 	}
+}
+
+func toMinioObjectLockConfiguration(configuration *metaclient.BucketObjectLockConfiguration) objectlock.Config {
+	config := objectlock.Config{
+		ObjectLockEnabled: "Enabled",
+	}
+
+	if configuration.DefaultRetention == nil || configuration.DefaultRetention.Mode == storj.NoRetention {
+		return config
+	}
+
+	defaultRetention := objectlock.DefaultRetention{
+		Mode: toMinioRetentionMode(configuration.DefaultRetention.Mode),
+	}
+	if configuration.DefaultRetention.Days > 0 {
+		defaultRetention.Days = &configuration.DefaultRetention.Days
+	}
+	if configuration.DefaultRetention.Years > 0 {
+		defaultRetention.Years = &configuration.DefaultRetention.Years
+	}
+	config.Rule = &struct {
+		DefaultRetention objectlock.DefaultRetention `xml:"DefaultRetention"`
+	}{
+		DefaultRetention: defaultRetention,
+	}
+
+	return config
 }
 
 func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {

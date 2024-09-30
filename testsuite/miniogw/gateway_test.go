@@ -101,6 +101,7 @@ func TestMakeBucketWithObjectLock(t *testing.T) {
 		lockConfig, err := layer.GetObjectLockConfig(ctx, testBucket+"2")
 		require.NoError(t, err)
 		require.Equal(t, "Enabled", lockConfig.ObjectLockEnabled)
+		require.Nil(t, lockConfig.Rule)
 	})
 }
 
@@ -316,11 +317,9 @@ func TestSetObjectLockConfig(t *testing.T) {
 			config := lock.NewObjectLockConfig()
 			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
 
-			uplinkConfig, err := bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			getConfig, err := layer.GetObjectLockConfig(ctx, bucketName)
 			require.NoError(t, err)
-			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
-				Enabled: true,
-			}, uplinkConfig)
+			require.Equal(t, config, getConfig)
 
 			// Ensure that there are no issues expressing the default retention duration in days
 			// or specifying the default retention mode as Compliance.
@@ -333,15 +332,9 @@ func TestSetObjectLockConfig(t *testing.T) {
 			}
 			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
 
-			uplinkConfig, err = bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			getConfig, err = layer.GetObjectLockConfig(ctx, bucketName)
 			require.NoError(t, err)
-			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
-				Enabled: true,
-				DefaultRetention: &metaclient.DefaultRetention{
-					Mode: storj.ComplianceMode,
-					Days: days,
-				},
-			}, uplinkConfig)
+			require.Equal(t, config, getConfig)
 
 			// Ensure that there are no issues expressing the default retention duration in years
 			// or specifying the default retention mode as Governance.
@@ -352,25 +345,17 @@ func TestSetObjectLockConfig(t *testing.T) {
 			}
 			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
 
-			uplinkConfig, err = bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			getConfig, err = layer.GetObjectLockConfig(ctx, bucketName)
 			require.NoError(t, err)
-			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
-				Enabled: true,
-				DefaultRetention: &metaclient.DefaultRetention{
-					Mode:  storj.GovernanceMode,
-					Years: years,
-				},
-			}, uplinkConfig)
+			require.Equal(t, config, getConfig)
 
 			// Ensure that the default retention rule can be removed.
 			config.Rule = nil
 			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
 
-			uplinkConfig, err = bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			getConfig, err = layer.GetObjectLockConfig(ctx, bucketName)
 			require.NoError(t, err)
-			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
-				Enabled: true,
-			}, uplinkConfig)
+			require.Equal(t, config, getConfig)
 		})
 
 		t.Run("Invalid configuration", func(t *testing.T) {
