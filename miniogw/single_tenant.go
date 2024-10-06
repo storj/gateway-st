@@ -142,6 +142,10 @@ func (l *singleTenancyLayer) GetObjectLockConfig(ctx context.Context, bucket str
 	return objectLockConfig, l.log(err)
 }
 
+func (l *singleTenancyLayer) SetObjectLockConfig(ctx context.Context, bucket string, objectLockConfig *objectlock.Config) (err error) {
+	return l.log(l.layer.SetObjectLockConfig(WithUplinkProject(ctx, l.project), bucket, objectLockConfig))
+}
+
 func (l *singleTenancyLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
 	result, err = l.layer.ListObjects(WithUplinkProject(ctx, l.project), bucket, prefix, marker, delimiter, maxKeys)
 	return result, l.log(err)

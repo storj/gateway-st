@@ -41,6 +41,7 @@ import (
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
 	"storj.io/uplink"
+	"storj.io/uplink/private/bucket"
 	"storj.io/uplink/private/metaclient"
 	versioned "storj.io/uplink/private/object"
 )
@@ -295,6 +296,161 @@ func TestListBuckets(t *testing.T) {
 			assert.Equal(t, bucketNames[i], bucketInfo.Name)
 			assert.Equal(t, buckets[i].Created, bucketInfo.Created)
 		}
+	})
+}
+
+func TestSetObjectLockConfig(t *testing.T) {
+	t.Parallel()
+
+	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		type Rule = struct {
+			DefaultRetention lock.DefaultRetention `xml:"DefaultRetention"`
+		}
+
+		t.Run("Success", func(t *testing.T) {
+			bucketName := testrand.BucketName()
+			require.NoError(t, layer.MakeBucketWithLocation(ctx, bucketName, minio.BucketOptions{}))
+			require.NoError(t, bucket.SetBucketVersioning(ctx, project, bucketName, true))
+
+			// Ensure that Object Lock can be enabled.
+			config := lock.NewObjectLockConfig()
+			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
+
+			uplinkConfig, err := bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			require.NoError(t, err)
+			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
+				Enabled: true,
+			}, uplinkConfig)
+
+			// Ensure that there are no issues expressing the default retention duration in days
+			// or specifying the default retention mode as Compliance.
+			days := int32(5)
+			config.Rule = &Rule{
+				DefaultRetention: lock.DefaultRetention{
+					Mode: lock.RetCompliance,
+					Days: &days,
+				},
+			}
+			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
+
+			uplinkConfig, err = bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			require.NoError(t, err)
+			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
+				Enabled: true,
+				DefaultRetention: &metaclient.DefaultRetention{
+					Mode: storj.ComplianceMode,
+					Days: days,
+				},
+			}, uplinkConfig)
+
+			// Ensure that there are no issues expressing the default retention duration in years
+			// or specifying the default retention mode as Governance.
+			years := int32(3)
+			config.Rule.DefaultRetention = lock.DefaultRetention{
+				Mode:  lock.RetGovernance,
+				Years: &years,
+			}
+			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
+
+			uplinkConfig, err = bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			require.NoError(t, err)
+			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
+				Enabled: true,
+				DefaultRetention: &metaclient.DefaultRetention{
+					Mode:  storj.GovernanceMode,
+					Years: years,
+				},
+			}, uplinkConfig)
+
+			// Ensure that the default retention rule can be removed.
+			config.Rule = nil
+			require.NoError(t, layer.SetObjectLockConfig(ctx, bucketName, config))
+
+			uplinkConfig, err = bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+			require.NoError(t, err)
+			require.Equal(t, &metaclient.BucketObjectLockConfiguration{
+				Enabled: true,
+			}, uplinkConfig)
+		})
+
+		t.Run("Invalid configuration", func(t *testing.T) {
+			bucketName := testrand.BucketName()
+			require.NoError(t, layer.MakeBucketWithLocation(ctx, bucketName, minio.BucketOptions{}))
+			require.NoError(t, bucket.SetBucketVersioning(ctx, project, bucketName, true))
+
+			i32Ptr := func(n int32) *int32 { return &n }
+
+			t.Run("Object Lock not enabled", func(t *testing.T) {
+				err := layer.SetObjectLockConfig(ctx, bucketName, &lock.Config{})
+				require.ErrorIs(t, err, lock.ErrMalformedXML)
+			})
+
+			t.Run("Invalid mode", func(t *testing.T) {
+				err := layer.SetObjectLockConfig(ctx, bucketName, &lock.Config{
+					ObjectLockEnabled: "Enabled",
+					Rule: &Rule{
+						DefaultRetention: lock.DefaultRetention{
+							Mode: "INVALID",
+						},
+					},
+				})
+				require.ErrorIs(t, err, lock.ErrMalformedXML)
+			})
+
+			var zero int32
+			for _, tt := range []struct {
+				name  string
+				days  *int32
+				years *int32
+			}{
+				{
+					name:  "Days and years specified",
+					days:  i32Ptr(3),
+					years: i32Ptr(5),
+				}, {
+					name: "Days below minimum",
+					days: &zero,
+				}, {
+					name: "Days above maximum",
+					days: i32Ptr(36501),
+				}, {
+					name:  "Years below minimum",
+					years: &zero,
+				}, {
+					name:  "Years above maximum",
+					years: i32Ptr(11),
+				},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					err := layer.SetObjectLockConfig(ctx, bucketName, &lock.Config{
+						ObjectLockEnabled: "Enabled",
+						Rule: &Rule{
+							DefaultRetention: lock.DefaultRetention{
+								Mode:  lock.RetCompliance,
+								Days:  tt.days,
+								Years: tt.years,
+							},
+						},
+					})
+					require.ErrorIs(t, err, miniogw.ErrBucketInvalidObjectLockConfig)
+				})
+			}
+		})
+
+		t.Run("Versioning not enabled", func(t *testing.T) {
+			bucketName := testrand.BucketName()
+			require.NoError(t, layer.MakeBucketWithLocation(ctx, bucketName, minio.BucketOptions{}))
+
+			err := layer.SetObjectLockConfig(ctx, bucketName, lock.NewObjectLockConfig())
+			require.ErrorIs(t, err, miniogw.ErrBucketInvalidStateObjectLock)
+
+			// Suspend versioning
+			require.NoError(t, bucket.SetBucketVersioning(ctx, project, bucketName, true))
+			require.NoError(t, bucket.SetBucketVersioning(ctx, project, bucketName, false))
+
+			err = layer.SetObjectLockConfig(ctx, bucketName, lock.NewObjectLockConfig())
+			require.ErrorIs(t, err, miniogw.ErrBucketInvalidStateObjectLock)
+		})
 	})
 }
 

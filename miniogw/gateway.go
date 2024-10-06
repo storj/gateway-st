@@ -113,6 +113,14 @@ var (
 		Message:    "Bucket is missing Object Lock Configuration",
 	}
 
+	// ErrBucketInvalidObjectLockConfig is a custom error for when a user attempts to set
+	// an invalid Object Lock configuration on a bucket.
+	ErrBucketInvalidObjectLockConfig = miniogo.ErrorResponse{
+		Code:       "InvalidArgument",
+		StatusCode: http.StatusBadRequest,
+		Message:    "Bucket Object Lock configuration is invalid",
+	}
+
 	// ErrBucketInvalidStateObjectLock is a custom error for when a user attempts to upload an object with retention
 	// configuration but the bucket does not have versioning enabled. It's also for the case of suspending versioning
 	// on a bucket when object lock is enabled.
@@ -323,6 +331,49 @@ func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucketName s
 		return objectlock.NewObjectLockConfig(), nil
 	}
 	return &objectlock.Config{}, nil
+}
+
+func (layer *gatewayLayer) SetObjectLockConfig(ctx context.Context, bucketName string, config *objectlock.Config) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return err
+	}
+
+	var uplinkCfg *metaclient.BucketObjectLockConfiguration
+	if config != nil {
+		if config.ObjectLockEnabled != "Enabled" {
+			return objectlock.ErrMalformedXML
+		}
+		uplinkCfg = &metaclient.BucketObjectLockConfiguration{
+			Enabled: true,
+		}
+		if config.Rule != nil {
+			mode, err := parseRetentionMode(config.Rule.DefaultRetention.Mode)
+			if err != nil {
+				return objectlock.ErrMalformedXML
+			}
+
+			uplinkCfg.DefaultRetention = &metaclient.DefaultRetention{
+				Mode: mode,
+			}
+			if config.Rule.DefaultRetention.Days != nil {
+				uplinkCfg.DefaultRetention.Days = *config.Rule.DefaultRetention.Days
+			}
+			if config.Rule.DefaultRetention.Years != nil {
+				uplinkCfg.DefaultRetention.Years = *config.Rule.DefaultRetention.Years
+			}
+		}
+	}
+
+	err = bucket.SetBucketObjectLockConfiguration(ctx, project, bucketName, uplinkCfg)
+
+	return ConvertError(err, bucketName, "")
 }
 
 func (layer *gatewayLayer) listObjectsFast(
@@ -1693,6 +1744,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return ErrBucketObjectLockNotEnabled
 	case errors.Is(err, bucket.ErrBucketInvalidStateObjectLock):
 		return ErrBucketInvalidStateObjectLock
+	case errors.Is(err, bucket.ErrBucketInvalidObjectLockConfig):
+		return ErrBucketInvalidObjectLockConfig
 	case errors.Is(err, versioned.ErrObjectLockInvalidObjectState):
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, versioned.ErrRetentionNotFound):
