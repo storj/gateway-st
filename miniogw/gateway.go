@@ -311,7 +311,7 @@ func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucketName s
 		return &objectlock.Config{}, err
 	}
 
-	enabled, err := bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
+	config, err := bucket.GetBucketObjectLockConfiguration(ctx, project, bucketName)
 	if err != nil {
 		if errors.Is(err, bucket.ErrBucketNoLock) {
 			return &objectlock.Config{}, minio.BucketObjectLockConfigNotFound{Bucket: bucketName}
@@ -319,7 +319,7 @@ func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucketName s
 		return &objectlock.Config{}, ConvertError(err, bucketName, "")
 	}
 
-	if enabled {
+	if config.Enabled {
 		return objectlock.NewObjectLockConfig(), nil
 	}
 	return &objectlock.Config{}, nil

@@ -12,9 +12,9 @@ require (
 	github.com/zeebo/errs v1.3.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.22.0
-	storj.io/common v0.0.0-20240913104706-8fd6fa0286a3
+	storj.io/common v0.0.0-20241014122736-47dfa836934a
 	storj.io/minio v0.0.0-20240926235222-007af8f083b1
-	storj.io/uplink v1.13.2-0.20240925113347-39440b097385
+	storj.io/uplink v1.13.2-0.20241017123317-040a5daabb8e
 )
 
 require (
@@ -67,6 +67,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect
 	github.com/google/flatbuffers v23.5.26+incompatible // indirect
+	github.com/google/gopacket v1.1.19 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
