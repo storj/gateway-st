@@ -234,6 +234,7 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, name stri
 
 	_, err = bucket.CreateBucketWithObjectLock(ctx, project, bucket.CreateBucketWithObjectLockParams{
 		Name:              name,
+		Placement:         opts.Location,
 		ObjectLockEnabled: opts.LockEnabled,
 	})
 

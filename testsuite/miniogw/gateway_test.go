@@ -40,6 +40,7 @@ import (
 	"storj.io/storj/satellite"
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
+	"storj.io/storj/satellite/nodeselection"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
 	"storj.io/uplink/private/metaclient"
@@ -57,6 +58,104 @@ const (
 	maxKeysLimit    = 1000
 	maxUploadsLimit = 1000
 )
+
+func TestCreateBucketWithCustomPlacement(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Placement = nodeselection.ConfigurablePlacementRule{
+					PlacementRules: "test_placement.yaml",
+				}
+				config.Console.Placement.SelfServeEnabled = true
+				config.Console.Placement.SelfServeNames = []string{"Poland"}
+			},
+		},
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		projectID := planet.Uplinks[0].Projects[0].ID
+		project, err := planet.Uplinks[0].OpenProject(tCtx, planet.Satellites[0])
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctx := miniogw.WithUplinkProject(tCtx, project)
+
+		s3Compatibility := miniogw.S3CompatibilityConfig{
+			IncludeCustomMetadataListing: true,
+			MaxKeysLimit:                 maxKeysLimit,
+			MaxKeysExhaustiveLimit:       100000,
+			MaxUploadsLimit:              maxUploadsLimit,
+			DeleteObjectsConcurrency:     100,
+		}
+
+		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		bucketsDB := planet.Satellites[0].API.DB.Buckets()
+
+		// change the default_placement of the project
+		err = planet.Satellites[0].API.DB.Console().Projects().UpdateDefaultPlacement(ctx, projectID, storj.EU)
+		require.NoError(t, err)
+
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			Location: "Poland",
+		})
+		// cannot create bucket with custom placement if there is project default.
+		require.True(t, metaclient.ErrConflictingPlacement.Has(err))
+
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
+		require.NoError(t, err)
+
+		// check if placement is set to project default
+		placement, err := bucketsDB.GetBucketPlacement(ctx, []byte(testBucket), projectID)
+		require.NoError(t, err)
+		require.Equal(t, storj.EU, placement)
+
+		// delete the bucket
+		err = layer.DeleteBucket(ctx, testBucket, true)
+		require.NoError(t, err)
+
+		// change the default_placement of the project
+		err = planet.Satellites[0].API.DB.Console().Projects().UpdateDefaultPlacement(ctx, projectID, storj.DefaultPlacement)
+		require.NoError(t, err)
+
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			Location: "Poland",
+		})
+		require.NoError(t, err)
+
+		placement, err = bucketsDB.GetBucketPlacement(ctx, []byte(testBucket), projectID)
+		require.NoError(t, err)
+		require.Equal(t, storj.PlacementConstraint(40), placement)
+
+		err = layer.DeleteBucket(ctx, testBucket, true)
+		require.NoError(t, err)
+
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			Location: "EU",
+		})
+		require.True(t, metaclient.ErrInvalidPlacement.Has(err))
+
+		// disable self-serve placement
+		planet.Satellites[0].API.Metainfo.Endpoint.TestSelfServePlacementEnabled(false)
+
+		// passing invalid placement should not fail if self-serve placement is disabled.
+		// This is for backward compatibility with integration tests that'll pass placements
+		// regardless of self-serve placement being enabled or not.
+		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+			Location: "EU", // invalid placement
+		})
+		require.NoError(t, err)
+
+		// placement should be set to default event though a placement was passed
+		// because self-serve placement is disabled.
+		placement, err = planet.Satellites[0].API.DB.Buckets().GetBucketPlacement(ctx, []byte(testBucket), projectID)
+		require.NoError(t, err)
+		require.Equal(t, storj.DefaultPlacement, placement)
+	})
+}
 
 func TestMakeBucketWithLocation(t *testing.T) {
 	t.Parallel()
