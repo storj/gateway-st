@@ -158,7 +158,7 @@ verify: lint cross-vet test ## Execute pre-commit verification
 
 ##@ Release/Private Jenkins/Build
 
-GO_VERSION ?= 1.22.5
+GO_VERSION ?= 1.23.3
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 
 ifeq (${BRANCH_NAME},main)
