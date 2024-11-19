@@ -13,8 +13,6 @@ s3tests/functional/test_headers.py::test_object_create_bad_date_none_aws2
 s3tests/functional/test_headers.py::test_bucket_create_bad_authorization_invalid_aws2
 s3tests/functional/test_headers.py::test_bucket_create_bad_date_none_aws2
 s3tests/functional/test_s3.py::test_bucket_create_naming_bad_punctuation
-s3tests/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_1
-s3tests/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_2
 s3tests/functional/test_utils.py::test_generate
 s3tests_boto3/functional/test_headers.py::test_object_create_bad_md5_invalid_short
 s3tests_boto3/functional/test_headers.py::test_object_create_bad_md5_bad
@@ -233,14 +231,16 @@ s3tests_boto3/functional/test_s3.py::test_versioning_multi_object_delete_with_ma
 s3tests_boto3/functional/test_s3.py::test_versioned_concurrent_object_create_and_remove
 s3tests_boto3/functional/test_s3.py::test_lifecycle_set_invalid_date
 s3tests_boto3/functional/test_s3.py::test_lifecycle_transition_set_invalid_date
-s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_invalid_md5
-s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_no_md5
-s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_no_key
-s3tests_boto3/functional/test_s3.py::test_encryption_key_no_sse_c
-s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_1
-s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_2
-s3tests_boto3/functional/test_s3.py::test_sse_kms_no_key
-s3tests_boto3/functional/test_s3.py::test_sse_kms_read_declare
+# s3tests/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_1
+# s3tests/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_2
+# s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_invalid_md5
+# s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_no_md5
+# s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_no_key
+# s3tests_boto3/functional/test_s3.py::test_encryption_key_no_sse_c
+# s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_1
+# s3tests_boto3/functional/test_s3.py::test_encryption_sse_c_multipart_invalid_chunks_2
+# s3tests_boto3/functional/test_s3.py::test_sse_kms_no_key
+# s3tests_boto3/functional/test_s3.py::test_sse_kms_read_declare
 s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_read_remove
 s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_versions_remove_all
 s3tests_boto3/functional/test_s3.py::test_versioning_obj_create_versions_remove_special_names
