@@ -177,13 +177,13 @@ LATEST_DEV_TAG := dev
 
 .PHONY: images
 images: ## Build Docker images
-	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-amd64 \
+	${DOCKER_BUILD} --platform linux/amd64 --pull=true -t storjlabs/gateway:${TAG}-amd64 \
 		-f Dockerfile .
-	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-arm32v6 \
+	${DOCKER_BUILD} --platform linux/arm/v6 --pull=true -t storjlabs/gateway:${TAG}-arm32v6 \
 		--build-arg=GOARCH=arm \
 		--build-arg=DOCKER_ARCH=arm32v6 \
 		-f Dockerfile .
-	${DOCKER_BUILD} --pull=true -t storjlabs/gateway:${TAG}-arm64v8 \
+	${DOCKER_BUILD} --platform linux/arm64 --pull=true -t storjlabs/gateway:${TAG}-arm64v8 \
 		--build-arg=GOARCH=arm64 \
 		--build-arg=DOCKER_ARCH=arm64v8 \
 		-f Dockerfile .
