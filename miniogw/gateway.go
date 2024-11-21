@@ -1681,35 +1681,6 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 	return ConvertError(err, bucketName, object)
 }
 
-// PutObjectMetadata updates user-defined metadata on the given object.
-//
-// This is only called by PutObjectRetentionHandler in minio, currently.
-//
-// minio will not call this unless STORJ_MINIO_LOCK_ENABLED has been configured and set to true.
-// STORJ_MINIO_LOCK_ENABLED will enable a shim form of object lock until we fully implement it.
-//
-// TODO(sean): replace this with calls to uplink when we have the functionality available.
-func (layer *gatewayLayer) PutObjectMetadata(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
-	project, err := projectFromContext(ctx, bucket, objectPath)
-	if err != nil {
-		return minio.ObjectInfo{}, err
-	}
-
-	object, err := project.StatObject(ctx, bucket, objectPath)
-	if err != nil {
-		// TODO this should be removed and implemented on satellite side
-		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
-	}
-
-	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, opts.UserDefined, nil)
-	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
-	}
-
-	return minioObjectInfo(bucket, "", object), nil
-}
-
 // ConvertError translates Storj-specific err associated with object to
 // MinIO/S3-specific error. It returns nil if err is nil.
 func ConvertError(err error, bucketName, object string) error {
