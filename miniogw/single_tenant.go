@@ -146,6 +146,16 @@ func (l *singleTenancyLayer) SetObjectLockConfig(ctx context.Context, bucket str
 	return l.log(l.layer.SetObjectLockConfig(WithUplinkProject(ctx, l.project), bucket, objectLockConfig))
 }
 
+func (l *singleTenancyLayer) GetObjectLegalHold(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectLegalHold, err error) {
+	lh, err := l.layer.GetObjectLegalHold(WithUplinkProject(ctx, l.project), bucketName, object, version)
+	return lh, l.log(err)
+}
+
+func (l *singleTenancyLayer) SetObjectLegalHold(ctx context.Context, bucket, object, version string, lh *objectlock.ObjectLegalHold) (err error) {
+	err = l.layer.SetObjectLegalHold(WithUplinkProject(ctx, l.project), bucket, object, version, lh)
+	return l.log(err)
+}
+
 func (l *singleTenancyLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
 	result, err = l.layer.ListObjects(WithUplinkProject(ctx, l.project), bucket, prefix, marker, delimiter, maxKeys)
 	return result, l.log(err)

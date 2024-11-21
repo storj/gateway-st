@@ -261,9 +261,8 @@ s3tests_boto3/functional/test_s3.py::test_versioning_bucket_atomic_upload_return
 s3tests_boto3/functional/test_s3.py::test_versioning_bucket_multipart_upload_return_version_id
 s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_retention_invalid_bucket
 s3tests_boto3/functional/test_s3.py::test_object_lock_get_obj_retention_invalid_bucket
-# disabled until we implement https://github.com/storj/edge/issues/483 and https://github.com/storj/edge/issues/484
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold_invalid_bucket
-# s3tests_boto3/functional/test_s3.py::test_object_lock_get_legal_hold_invalid_bucket
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold_invalid_bucket
+s3tests_boto3/functional/test_s3.py::test_object_lock_get_legal_hold_invalid_bucket
 s3tests_boto3/functional/test_s3.py::test_copy_object_ifmatch_good
 s3tests_boto3/functional/test_s3.py::test_copy_object_ifmatch_failed
 s3tests_boto3/functional/test_s3.py::test_copy_object_ifnonematch_good
@@ -670,11 +669,11 @@ s3tests_boto3/functional/test_s3.py::test_versioning_copy_obj_version
 # s3tests_boto3/functional/test_s3.py::test_object_lock_delete_object_with_retention
 # s3tests_boto3/functional/test_s3.py::test_object_lock_delete_object_with_retention_and_marker
 # s3tests_boto3/functional/test_s3.py::test_object_lock_multi_delete_object_with_retention
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold_invalid_status
-# s3tests_boto3/functional/test_s3.py::test_object_lock_get_legal_hold
-# s3tests_boto3/functional/test_s3.py::test_object_lock_delete_object_with_legal_hold_on
-# s3tests_boto3/functional/test_s3.py::test_object_lock_delete_object_with_legal_hold_off
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_legal_hold_invalid_status
+s3tests_boto3/functional/test_s3.py::test_object_lock_get_legal_hold
+s3tests_boto3/functional/test_s3.py::test_object_lock_delete_object_with_legal_hold_on
+s3tests_boto3/functional/test_s3.py::test_object_lock_delete_object_with_legal_hold_off
 # s3tests_boto3/functional/test_s3.py::test_object_lock_get_obj_metadata
 # s3tests_boto3/functional/test_s3.py::test_object_lock_uploading_obj
 # s3tests_boto3/functional/test_s3.py::test_object_lock_changing_mode_from_governance_with_bypass
