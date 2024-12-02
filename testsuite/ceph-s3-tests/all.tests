@@ -649,11 +649,9 @@ s3tests_boto3/functional/test_s3.py::test_versioning_copy_obj_version
 # s3tests_boto3/functional/test_s3.py::test_bucket_policy_get_obj_acl_existing_tag
 s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock
 s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_invalid_bucket
-
-# TODO: https://github.com/storj/edge/issues/528
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_with_days_and_years
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_invalid_mode
-# s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_invalid_status
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_with_days_and_years
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_invalid_mode
+s3tests_boto3/functional/test_s3.py::test_object_lock_put_obj_lock_invalid_status
 
 # https://github.com/ceph/s3-tests/issues/344 indicates that these tests may not be correct as some
 # were looking for "InvalidRetentionPeriod", but this doesn't seem to be a code AWS returns.
