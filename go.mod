@@ -14,9 +14,9 @@ require (
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.25.0
-	storj.io/common v0.0.0-20241119131735-4ff8230c41d4
+	storj.io/common v0.0.0-20241122160459-7ebb6c97b77d
 	storj.io/minio v0.0.0-20241126095350-0039fe402364
-	storj.io/uplink v1.13.2-0.20241106140533-61d511a04894
+	storj.io/uplink v1.13.2-0.20241203175336-8f5548a5ffc7
 )
 
 require (
