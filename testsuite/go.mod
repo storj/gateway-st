@@ -9,11 +9,11 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.27.0
-	storj.io/common v0.0.0-20241205132646-d4a752c453c4
+	storj.io/common v0.0.0-20241217150018-eb3fb91616f6
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20241126095350-0039fe402364
-	storj.io/storj v1.118.8
-	storj.io/uplink v1.13.2-0.20241203175336-8f5548a5ffc7
+	storj.io/storj v1.91.0-alpha.0.20241218155244-7d08b87981d4
+	storj.io/uplink v1.13.2-0.20241217102706-7b803eef38ce
 )
 
 require (
@@ -188,7 +188,7 @@ require (
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
-	github.com/spacemonkeygo/monkit/v3 v3.0.23 // indirect
+	github.com/spacemonkeygo/monkit/v3 v3.0.24 // indirect
 	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/spacemonkeygo/tlshowdy v0.0.0-20160207005338-8fa2cec1d7cd // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect

@@ -1592,8 +1592,8 @@ github.com/sourcegraph/syntaxhighlight v0.0.0-20170531221838-bd320f5d308e/go.mod
 github.com/spacemonkeygo/monkit/v3 v3.0.0-20191108235033-eacca33b3037/go.mod h1:JcK1pCbReQsOsMKF/POFSZCq7drXFybgGmbc27tuwes=
 github.com/spacemonkeygo/monkit/v3 v3.0.4/go.mod h1:JcK1pCbReQsOsMKF/POFSZCq7drXFybgGmbc27tuwes=
 github.com/spacemonkeygo/monkit/v3 v3.0.18/go.mod h1:kj1ViJhlyADa7DiA4xVnTuPA46lFKbM7mxQTrXCuJP4=
-github.com/spacemonkeygo/monkit/v3 v3.0.23 h1:F1qMI6VOY3osKQ0llXsmlYyTpyiq6L7tyjy6fVbxjqM=
-github.com/spacemonkeygo/monkit/v3 v3.0.23/go.mod h1:XkZYGzknZwkD0AKUnZaSXhRiVTLCkq7CWVa3IsE72gA=
+github.com/spacemonkeygo/monkit/v3 v3.0.24 h1:cKixJ+evHnfJhWNyIZjBy5hoW8LTWmrJXPo18tzLNrk=
+github.com/spacemonkeygo/monkit/v3 v3.0.24/go.mod h1:XkZYGzknZwkD0AKUnZaSXhRiVTLCkq7CWVa3IsE72gA=
 github.com/spacemonkeygo/monotime v0.0.0-20180824235756-e3f48a95f98a/go.mod h1:ul4bvvnCOPZgq8w0nTkSmWVg/hauVpFS97Am1YM1XXo=
 github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 h1:RC6RW7j+1+HkWaX/Yh71Ee5ZHaHYt7ZP4sQgUrm6cDU=
 github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572/go.mod h1:w0SWMsp6j9O/dk4/ZpIhL+3CkG8ofA2vuv7k+ltqUMc=
@@ -2668,8 +2668,8 @@ sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0/go.mod h1
 sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2zzQcaEFbx8wA8rck=
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
 storj.io/common v0.0.0-20220719163320-cd2ef8e1b9b0/go.mod h1:mCYV6Ud5+cdbuaxdPD5Zht/HYaIn0sffnnws9ErkrMQ=
-storj.io/common v0.0.0-20241205132646-d4a752c453c4 h1:4c/GWblLcQtr9Y7LoUOX0ChIG6uOGTaM5CzbAhJLTJo=
-storj.io/common v0.0.0-20241205132646-d4a752c453c4/go.mod h1:CpSUpwG0nOkKMfDI/mqdogMccFP+zFvbTq6LbUCtUPQ=
+storj.io/common v0.0.0-20241217150018-eb3fb91616f6 h1:aZnVuoJgm67qc0Nn6ambMC28RYuDtmIVDaY0zdZdeL8=
+storj.io/common v0.0.0-20241217150018-eb3fb91616f6/go.mod h1:CpSUpwG0nOkKMfDI/mqdogMccFP+zFvbTq6LbUCtUPQ=
 storj.io/drpc v0.0.32/go.mod h1:6rcOyR/QQkSTX/9L5ZGtlZaE2PtXTTZl8d+ulSeeYEg=
 storj.io/drpc v0.0.35-0.20240709171858-0075ac871661 h1:hLvEV2RMTscX3JHPd+LSQCeTt8i1Q0Yt7U2EdfyMnaQ=
 storj.io/drpc v0.0.35-0.20240709171858-0075ac871661/go.mod h1:Y9LZaa8esL1PW2IDMqJE7CFSNq7d5bQ3RI7mGPtmKMg=
@@ -2683,7 +2683,7 @@ storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd/go.mod h1:nwyyJiAFAPRu81qBfAE5cBGkVXROYSNJu9pGXLtStHE=
 storj.io/picobuf v0.0.3 h1:xAUPB5ZUGfxkqd3bnw3zp01kkWb9wlhg4vtZWUs2S9A=
 storj.io/picobuf v0.0.3/go.mod h1:4V4xelV1RSCck5GgmkL/Txw9l6IfX3XcBzegmL5Kudo=
-storj.io/storj v1.118.8 h1:3u5TXgL7xLG5BsTaQS1rE5Fl53ma5N2F9aerfd7bALg=
-storj.io/storj v1.118.8/go.mod h1:/5N7TJPppoVFvCNMVsFI9tq/FcNjZyMwxeeY3pY6RUM=
-storj.io/uplink v1.13.2-0.20241203175336-8f5548a5ffc7 h1:PHJDJeoekmBTs0QxTFJ6ngs+7cSKEhLlJFHiE1RSW/8=
-storj.io/uplink v1.13.2-0.20241203175336-8f5548a5ffc7/go.mod h1:V45DEq768HNYrpG1vcL58EBftAmaJ0UYYobRjz5jAu0=
+storj.io/storj v1.91.0-alpha.0.20241218155244-7d08b87981d4 h1:uQFJWluOUOT8QPpBb+1q4XONpqpfA6fn8XCk465LRSM=
+storj.io/storj v1.91.0-alpha.0.20241218155244-7d08b87981d4/go.mod h1:6WFvbTRyVZiW6Bg7D7uu8RCsOh10XtiZv3pZDjvZipg=
+storj.io/uplink v1.13.2-0.20241217102706-7b803eef38ce h1:dUdELyPL8nE11ElkvF6W1xRbKzeU51ADlyhNml3ogNk=
+storj.io/uplink v1.13.2-0.20241217102706-7b803eef38ce/go.mod h1:ifHzh4PAafMSy/adPC1Xc29F6V3U3W6FpCte9nHtngw=

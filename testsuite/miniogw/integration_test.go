@@ -501,6 +501,16 @@ func TestVersioning(t *testing.T) {
 			})
 			require.NoError(t, err)
 
+			for listed := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+				WithVersions: true,
+			}) {
+				if listed.VersionID == versionIDs[len(versionIDs)-1] {
+					require.True(t, listed.IsLatest)
+				} else {
+					require.False(t, listed.IsLatest)
+				}
+			}
+
 			removeObjects := func(versionIDs []string) <-chan minio.RemoveObjectResult {
 				objectsCh := make(chan minio.ObjectInfo)
 				ctx.Go(func() error {
@@ -539,18 +549,25 @@ func TestVersioning(t *testing.T) {
 			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
 			require.NoError(t, err)
 
+			var latestDeleteMarkerVersionID string
 			for result := range removeObjects([]string{""}) {
 				require.NoError(t, result.Err)
 				require.Equal(t, "objectA", result.ObjectName)
 				require.NotEmpty(t, result.ObjectVersionID)
 				require.True(t, result.DeleteMarker)
 				require.NotEmpty(t, result.DeleteMarkerVersionID)
+				latestDeleteMarkerVersionID = result.DeleteMarkerVersionID
 			}
 
 			listedIDs := []string{}
 			for listed := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
 				WithVersions: true,
 			}) {
+				if listed.VersionID == latestDeleteMarkerVersionID {
+					require.True(t, listed.IsLatest)
+				} else {
+					require.False(t, listed.IsLatest)
+				}
 				listedIDs = append(listedIDs, listed.VersionID)
 			}
 

@@ -1915,8 +1915,11 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 	}
 
 	minioObject := minioObjectInfo(bucket, etag, &object.Object)
+
 	minioObject.VersionID = encodeVersionID(object.Version)
 	minioObject.DeleteMarker = object.IsDeleteMarker
+	minioObject.IsLatest = object.IsLatest
+
 	return minioObject
 }
 
