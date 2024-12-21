@@ -158,6 +158,18 @@ var (
 	ErrTooManyItemsToList = minio.NotImplemented{
 		Message: "ListObjects(V2): listing too many items for gateway-side filtering using arbitrary delimiter/prefix",
 	}
+
+	// ErrVersionIDMarkerWithoutKeyMarker is returned for
+	// ListObjectVersions when a version-id marker has been specified
+	// without a key marker.
+	ErrVersionIDMarkerWithoutKeyMarker = func(bucketName string) miniogo.ErrorResponse {
+		return miniogo.ErrorResponse{
+			Code:       "InvalidArgument",
+			Message:    "A version-id marker cannot be specified without a key marker.",
+			BucketName: bucketName,
+			StatusCode: http.StatusBadRequest,
+		}
+	}
 )
 
 // Gateway is the implementation of cmd.Gateway.
@@ -844,10 +856,8 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		return minio.ListObjectVersionsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	// TODO(ver): move it to satellite
-	// TODO(ver): check how AWS S3 behaves in such case
 	if len(marker) == 0 && len(versionMarker) != 0 {
-		return minio.ListObjectVersionsInfo{}, minio.InvalidArgument{Bucket: bucket}
+		return minio.ListObjectVersionsInfo{}, ErrVersionIDMarkerWithoutKeyMarker(bucket)
 	}
 
 	if delimiter != "" && delimiter != "/" {
