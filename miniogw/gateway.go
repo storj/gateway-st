@@ -101,7 +101,7 @@ var (
 	// `minio.SlowDown`, but not SlowDown to itself.
 	ErrSlowDown = miniogo.ErrorResponse{
 		Code:       "SlowDown",
-		StatusCode: http.StatusTooManyRequests,
+		StatusCode: http.StatusServiceUnavailable,
 		Message:    "Please reduce your request rate.",
 	}
 
