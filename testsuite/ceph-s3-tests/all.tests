@@ -788,3 +788,6 @@ s3tests_boto3/functional/test_s3.py::test_object_lock_uploading_obj
 # s3tests_boto3/functional/test_sts.py::test_assume_role_with_web_identity_resource_tag_princ_tag
 # s3tests_boto3/functional/test_sts.py::test_assume_role_with_web_identity_resource_tag_copy_obj
 # s3tests_boto3/functional/test_sts.py::test_assume_role_with_web_identity_role_resource_tag
+
+s3tests_boto3/functional/test_s3.py::test_get_versioned_object_attributes
+s3tests_boto3/functional/test_s3.py::test_get_object_attributes
