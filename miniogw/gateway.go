@@ -213,18 +213,18 @@ func (layer *gatewayLayer) getFilePath(bucket, object string) string {
 	return path.Join(layer.dataDir, bucket, object)
 }
 
-func (layer *gatewayLayer) getLock(bucket, object string) *sync.RWMutex {
+func (layer *gatewayLayer) getLock(bucket, object string) *sync.Mutex {
 	key := path.Join(bucket, object)
-	actual, _ := layer.lockMap.LoadOrStore(key, &sync.RWMutex{})
-	return actual.(*sync.RWMutex)
+	actual, _ := layer.lockMap.LoadOrStore(key, &sync.Mutex{})
+	return actual.(*sync.Mutex)
 }
 
 func (layer *gatewayLayer) syncStatFile(bucket, object string) (fs.FileInfo, error) {
 	filePath := layer.getFilePath(bucket, object)
 
 	lock := layer.getLock(bucket, object)
-	lock.RLock()
-	defer lock.RUnlock()
+	lock.Lock()
+	defer lock.Unlock()
 
 	return os.Stat(filePath)
 }
@@ -233,8 +233,8 @@ func (layer *gatewayLayer) syncReadFile(bucket, object string) (fs.FileInfo, []b
 	filePath := layer.getFilePath(bucket, object)
 
 	lock := layer.getLock(bucket, object)
-	lock.RLock()
-	defer lock.RUnlock()
+	lock.Lock()
+	defer lock.Unlock()
 
 	info, err := os.Stat(filePath)
 	if err != nil {
