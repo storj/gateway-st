@@ -4,17 +4,19 @@
 package miniogw
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
+	"sync"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/spacemonkeygo/monkit/v3"
 
-	"storj.io/common/sync2"
 	"storj.io/common/version"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/pkg/auth"
@@ -53,6 +55,8 @@ func (gateway *Gateway) Production() bool {
 
 type gatewayLayer struct {
 	dataDir string
+	lockMap sync.Map
+
 	minio.GatewayUnsupported
 }
 
@@ -125,48 +129,12 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	filePath := path.Join(layer.dataDir, bucket, object)
-	fileLock := flock.New(filePath)
-
-	// Lock the file for read with context
-	lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	locked, err := fileLock.TryRLockContext(lockCtx, 250*time.Millisecond)
+	info, content, err := layer.syncReadFile(bucket, object)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, minio.ObjectNotFound{Bucket: bucket, Object: object}
 		}
 		return nil, err
-	}
-	if !locked {
-		return nil, minio.SlowDown{}
-	}
-
-	file, err := os.Open(filePath)
-	if err != nil {
-		fileLock.Unlock()
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, minio.ObjectNotFound{Bucket: bucket, Object: object}
-		}
-		return nil, err
-	}
-
-	info, err := file.Stat()
-	if err != nil {
-		file.Close()
-		fileLock.Unlock()
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, minio.ObjectNotFound{Bucket: bucket, Object: object}
-		}
-		return nil, err
-	}
-
-	if info.Size() == 0 && time.Since(info.ModTime()) < 5*time.Second {
-		file.Close()
-		os.Remove(filePath)
-		fileLock.Unlock()
-		return nil, minio.ObjectNotFound{Bucket: bucket, Object: object}
 	}
 
 	objectInfo := minio.ObjectInfo{
@@ -176,39 +144,18 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 		ModTime: info.ModTime(),
 	}
 
-	return minio.NewGetObjectReaderFromReader(file, objectInfo, opts, func() {
-		file.Close()
-		fileLock.Unlock()
-	})
+	return minio.NewGetObjectReaderFromReader(bytes.NewReader(content), objectInfo, opts)
 }
 
 func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	filePath := path.Join(layer.dataDir, bucket, object)
-	fileLock := flock.New(filePath)
-
-	// Lock the file for read with context
-	lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	locked, err := fileLock.TryRLockContext(lockCtx, 250*time.Millisecond)
+	info, err := layer.syncStatFile(bucket, object)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return minio.ObjectInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
+		}
 		return minio.ObjectInfo{}, err
-	}
-	if !locked {
-		return minio.ObjectInfo{}, minio.SlowDown{}
-	}
-	defer fileLock.Unlock()
-
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return minio.ObjectInfo{}, err
-	}
-
-	if info.Size() == 0 && time.Since(info.ModTime()) < 5*time.Second {
-		os.Remove(filePath)
-		return minio.ObjectInfo{}, minio.ObjectNotFound{Bucket: bucket, Object: object}
 	}
 
 	return minio.ObjectInfo{
@@ -222,36 +169,12 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, object str
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	filePath := path.Join(layer.dataDir, bucket, object)
-	fileLock := flock.New(filePath)
-
-	// Lock the file for read-write with context
-	lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	locked, err := fileLock.TryLockContext(lockCtx, 250*time.Millisecond)
-	if errors.Is(err, os.ErrNotExist) {
-		err = os.MkdirAll(path.Dir(filePath), 0755)
-		if err != nil {
-			return minio.ObjectInfo{}, err
-		}
-		locked, err = fileLock.TryLockContext(lockCtx, 250*time.Millisecond)
-	}
+	content, err := io.ReadAll(data)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
-	if !locked {
-		return minio.ObjectInfo{}, minio.SlowDown{}
-	}
-	defer fileLock.Unlock()
 
-	file, err := os.Create(filePath)
-	if err != nil {
-		return minio.ObjectInfo{}, err
-	}
-	defer file.Close()
-
-	size, err := sync2.Copy(ctx, file, data)
+	err = layer.syncWriteFile(bucket, object, content)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -259,7 +182,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	return minio.ObjectInfo{
 		Bucket:  bucket,
 		Name:    object,
-		Size:    size,
+		Size:    int64(len(content)),
 		ModTime: time.Now(),
 	}, nil
 }
@@ -284,4 +207,62 @@ func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucket strin
 
 func (layer *gatewayLayer) SetObjectLockConfig(ctx context.Context, bucket string, config *objectlock.Config) error {
 	return nil
+}
+
+func (layer *gatewayLayer) getFilePath(bucket, object string) string {
+	return path.Join(layer.dataDir, bucket, object)
+}
+
+func (layer *gatewayLayer) getLock(bucket, object string) *sync.RWMutex {
+	key := path.Join(bucket, object)
+	actual, _ := layer.lockMap.LoadOrStore(key, &sync.RWMutex{})
+	return actual.(*sync.RWMutex)
+}
+
+func (layer *gatewayLayer) syncStatFile(bucket, object string) (fs.FileInfo, error) {
+	filePath := layer.getFilePath(bucket, object)
+
+	lock := layer.getLock(bucket, object)
+	lock.RLock()
+	defer lock.RUnlock()
+
+	return os.Stat(filePath)
+}
+
+func (layer *gatewayLayer) syncReadFile(bucket, object string) (fs.FileInfo, []byte, error) {
+	filePath := layer.getFilePath(bucket, object)
+
+	lock := layer.getLock(bucket, object)
+	lock.RLock()
+	defer lock.RUnlock()
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return info, content, nil
+}
+
+func (layer *gatewayLayer) syncWriteFile(bucket, object string, content []byte) error {
+	filePath := layer.getFilePath(bucket, object)
+
+	lock := layer.getLock(bucket, object)
+	lock.Lock()
+	defer lock.Unlock()
+
+	err := os.WriteFile(filePath, content, 0644)
+	if errors.Is(err, os.ErrNotExist) {
+		err = os.MkdirAll(path.Dir(filePath), 0755)
+		if err != nil {
+			return err
+		}
+		err = os.WriteFile(filePath, content, 0644)
+	}
+	return err
 }

@@ -5,7 +5,6 @@ go 1.21.0
 toolchain go1.23.2
 
 require (
-	github.com/gofrs/flock v0.12.1
 	github.com/minio/cli v1.22.0
 	github.com/spacemonkeygo/monkit/v3 v3.0.23
 	github.com/spf13/cobra v1.8.0
@@ -192,6 +191,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241015192408-796eee8c2d53 // indirect
 	google.golang.org/grpc v1.67.1 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/jcmturner/aescts.v1 v1.0.1 // indirect
 	gopkg.in/jcmturner/dnsutils.v1 v1.0.1 // indirect
