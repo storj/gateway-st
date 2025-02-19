@@ -129,7 +129,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 	fileLock := flock.New(filePath)
 
 	// Lock the file for read with context
-	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	locked, err := fileLock.TryRLockContext(lockCtx, 250*time.Millisecond)
@@ -189,7 +189,7 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, object str
 	fileLock := flock.New(filePath)
 
 	// Lock the file for read with context
-	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	locked, err := fileLock.TryRLockContext(lockCtx, 250*time.Millisecond)
@@ -226,7 +226,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	fileLock := flock.New(filePath)
 
 	// Lock the file for read-write with context
-	lockCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	lockCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	locked, err := fileLock.TryLockContext(lockCtx, 250*time.Millisecond)
