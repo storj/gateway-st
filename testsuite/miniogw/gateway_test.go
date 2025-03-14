@@ -4165,7 +4165,7 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 // before because of bad encryption/decryption of ETag in libuplink, so this
 // test mainly assures it doesn't happen again.
 //
-// Related fix: https://review.dev.storj.io/c/storj/uplink/+/5710
+// Related fix: https://review.dev.storj.tools/c/storj/uplink/+/5710
 func TestPutObjectPartSegmentSize(t *testing.T) {
 	t.Parallel()
 
