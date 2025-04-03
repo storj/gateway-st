@@ -1136,7 +1136,7 @@ func TestSetObjectRetention(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = sync2.Copy(ctx, upload, bytes.NewBuffer([]byte("test")))
+			_, err = sync2.Copy(ctx, upload, bytes.NewBufferString("test"))
 			require.NoError(t, err)
 			require.NoError(t, upload.Commit())
 
