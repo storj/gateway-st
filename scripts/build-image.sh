@@ -16,11 +16,14 @@ fi
 
 if go env > /dev/null; then
 	PKG_CACHE_PATH=$(go env GOPATH)
+	BUILD_CACHE_PATH=$(go env GOCACHE)
 	GOARCH=$(go env GOARCH)
 else
 	# go is not installed, make a few assumptions about environment
 	mkdir -p /tmp/go-pkg
 	PKG_CACHE_PATH=/tmp/go-pkg
+	mkdir -p /tmp/go-cache
+	BUILD_CACHE_PATH=/tmp/go-cache
 	GOARCH=amd64
 fi
 
@@ -34,6 +37,7 @@ docker run \
 	-u "$(id -u)":"$(id -g)" \
 	-v "$PWD":/go/build \
 	-v "$PKG_CACHE_PATH":/go/pkg \
+	-v "$BUILD_CACHE_PATH":/tmp/.cache/go-build \
 	-e GOARM=6 -e GOOS=linux -e GOARCH="$GOARCH" -e GOPROXY -e CGO_ENABLED \
 	-w /go/build \
 	--rm storjlabs/golang:"$GO_VERSION" \
