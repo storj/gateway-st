@@ -196,14 +196,14 @@ func (l *singleTenancyLayer) DeleteObject(ctx context.Context, bucket, object st
 	return objInfo, l.log(err)
 }
 
-func (l *singleTenancyLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, errors []error) {
-	deleted, errors = l.layer.DeleteObjects(WithUplinkProject(ctx, l.project), bucket, objects, opts)
+func (l *singleTenancyLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
+	deleted, deleteErrors, err = l.layer.DeleteObjects(WithUplinkProject(ctx, l.project), bucket, objects, opts)
 
-	for _, err := range errors {
-		_ = l.log(err)
+	for _, deleteError := range deleteErrors {
+		_ = l.log(deleteError.Error)
 	}
 
-	return deleted, errors
+	return deleted, deleteErrors, l.log(err)
 }
 
 func (l *singleTenancyLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {

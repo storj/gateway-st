@@ -2485,8 +2485,8 @@ storj.io/eventkit v0.0.0-20250410172343-61f26d3de156 h1:5MZ0CyMbG6Pi0rRzUWVG6dvp
 storj.io/eventkit v0.0.0-20250410172343-61f26d3de156/go.mod h1:CpnM6kfZV58dcq3lpbo/IQ4/KoutarnTSHY0GYVwnYw=
 storj.io/infectious v0.0.2 h1:rGIdDC/6gNYAStsxsZU79D/MqFjNyJc1tsyyj9sTl7Q=
 storj.io/infectious v0.0.2/go.mod h1:QEjKKww28Sjl1x8iDsjBpOM4r1Yp8RsowNcItsZJ1Vs=
-storj.io/minio v0.0.0-20250401203336-4f3c22e9dbf2 h1:t6uWJ6LY785juKVkj9QOFaTU2b2WO2gRfQMQv5orJpw=
-storj.io/minio v0.0.0-20250401203336-4f3c22e9dbf2/go.mod h1:7K8uGsPLNLn4MR1pYVZEYJTBfcUBw/SkrygLFSvzabg=
+storj.io/minio v0.0.0-20250414171507-1348e050be0b h1:wbUCth57oBaCSMc5hZUbaYAC20URwLFqgtc3M71/upI=
+storj.io/minio v0.0.0-20250414171507-1348e050be0b/go.mod h1:7K8uGsPLNLn4MR1pYVZEYJTBfcUBw/SkrygLFSvzabg=
 storj.io/minmaxheap v0.0.0-20250403032542-1e24a6fe9c16 h1:s1SbAgJZQGR0CVneOyZ0wdqJJmwPciH0dtI+Mwc1fWw=
 storj.io/minmaxheap v0.0.0-20250403032542-1e24a6fe9c16/go.mod h1:6p7gFeGH+4LJ6xqL0ZPFhHcOHNpN9vacqt8UDyHK0do=
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F5MjBRgUGYdqWXWcwccZsm1SQ=

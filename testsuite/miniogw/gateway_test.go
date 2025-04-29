@@ -2074,36 +2074,40 @@ func TestDeleteObjects(t *testing.T) {
 
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting an object from a bucket with empty name
-		deletedObjects, deleteErrors := layer.DeleteObjects(ctx, "", []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
-		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.BucketNameInvalid{}, deleteErrors[0])
-		require.Len(t, deletedObjects, 1)
-		assert.Empty(t, deletedObjects[0])
+		deletedObjects, deleteErrors, err := layer.DeleteObjects(ctx, "", []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, []minio.DeleteObjectsError{{
+			ObjectName: testFile,
+			Error:      minio.BucketNameInvalid{},
+		}}, deleteErrors)
+		assert.Empty(t, deletedObjects)
 
 		// Check the error when deleting an object from non-existing bucket
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
-		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, deleteErrors[0])
-		require.Len(t, deletedObjects, 1)
-		assert.Empty(t, deletedObjects[0])
+		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, []minio.DeleteObjectsError{{
+			ObjectName: testFile,
+			Error:      minio.BucketNotFound{Bucket: testBucket},
+		}}, deleteErrors)
+		assert.Empty(t, deletedObjects)
 
 		// Create the bucket using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
 		// Check the error when deleting an object with empty name
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: ""}}, minio.ObjectOptions{})
-		require.Len(t, deleteErrors, 1)
-		assert.Equal(t, minio.ObjectNameInvalid{Bucket: testBucket}, deleteErrors[0])
-		require.Len(t, deletedObjects, 1)
-		assert.Empty(t, deletedObjects[0])
+		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: ""}}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, []minio.DeleteObjectsError{{
+			Error: minio.ObjectNameInvalid{Bucket: testBucket},
+		}}, deleteErrors)
+		assert.Empty(t, deletedObjects)
 
 		// Check that there is NO error when deleting a non-existing object
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
-		require.Len(t, deleteErrors, 1)
-		assert.Empty(t, deleteErrors[0])
-		require.Len(t, deletedObjects, 1)
-		assert.Equal(t, deletedObjects, []minio.DeletedObject{{ObjectName: testFile}})
+		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		assert.Empty(t, deleteErrors)
+		assert.Equal(t, []minio.DeletedObject{{ObjectName: testFile}}, deletedObjects)
 
 		// Create the 3 objects using the Uplink API
 		_, err = createFile(ctx, project, testBucketInfo.Name, testFile, nil, nil)
@@ -2114,10 +2118,9 @@ func TestDeleteObjects(t *testing.T) {
 		require.NoError(t, err)
 
 		// Delete the 1st and the 3rd object using the Minio API
-		deletedObjects, deleteErrors = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}, {ObjectName: testFile3}}, minio.ObjectOptions{})
-		require.Len(t, deleteErrors, 2)
-		require.NoError(t, deleteErrors[0])
-		require.NoError(t, deleteErrors[1])
+		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}, {ObjectName: testFile3}}, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Empty(t, deleteErrors)
 		require.Len(t, deletedObjects, 2)
 		assert.NotEmpty(t, deletedObjects[0])
 		assert.NotEmpty(t, deletedObjects[1])

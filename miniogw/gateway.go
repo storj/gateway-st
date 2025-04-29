@@ -1303,43 +1303,86 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 	return minioVersionedObjectInfo(bucket, "", object), nil
 }
 
-func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []error) {
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []minio.DeleteObjectsError, error) {
 	// TODO: implement multiple object deletion in libuplink API
-	deleted, errs := make([]minio.DeletedObject, len(objects)), make([]error, len(objects))
+	deletedObjects, deleteErrors := make([]minio.DeletedObject, 0, len(objects)), make([]minio.DeleteObjectsError, 0, len(objects))
 
 	limiter := sync2.NewLimiter(layer.compatibilityConfig.DeleteObjectsConcurrency)
 
-	for i, object := range objects {
-		i, object := i, object
-		opts := opts
-		opts.VersionID = object.VersionID
-		limiter.Go(ctx, func() {
-			info, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
-			if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
-				errs[i] = ConvertError(err, bucket, object.ObjectName)
-				return
-			}
-			// DeleteMarker/DeleteMarkerVersionId have different meaning if request VersionID was specified.
-			//
-			// VersionID IS specified
-			// 	DeleteMarker true, delete marker was permanently deleted
-			// 	DeleteMarkerVersionId set, VersionID of deleted delete marker
-			// VersionID IS NOT specified
-			// 	DeleteMarker true, delete marker was created
-			// 	DeleteMarkerVersionId set, VersionID of created marker
-
-			deleted[i].ObjectName = object.ObjectName
-			deleted[i].VersionID = info.VersionID
-			deleted[i].DeleteMarker = info.DeleteMarker
-			if deleted[i].DeleteMarker {
-				deleted[i].DeleteMarkerVersionID = info.VersionID
-			}
-		})
+	type deleteResult struct {
+		index       int
+		deleted     *minio.DeletedObject
+		deleteError *minio.DeleteObjectsError
 	}
 
-	limiter.Wait()
+	finished := make(map[int]struct{}, len(objects))
+	resultCh := make(chan deleteResult)
 
-	return deleted, errs
+	go func() {
+		defer close(resultCh)
+
+		for i, object := range objects {
+			i, object := i, object
+			opts := opts
+			opts.VersionID = object.VersionID
+
+			limiter.Go(ctx, func() {
+				deleted, deleteError := layer.deleteObjectsSingle(ctx, bucket, object, opts)
+				resultCh <- deleteResult{
+					index:       i,
+					deleted:     deleted,
+					deleteError: deleteError,
+				}
+			})
+		}
+
+		limiter.Wait()
+	}()
+
+	for result := range resultCh {
+		if result.deleteError != nil {
+			deleteErrors = append(deleteErrors, *result.deleteError)
+		} else if result.deleted != nil {
+			deletedObjects = append(deletedObjects, *result.deleted)
+		}
+		finished[result.index] = struct{}{}
+	}
+
+	if ctx.Err() != nil {
+		for i, object := range objects {
+			if _, ok := finished[i]; !ok {
+				deleteErrors = append(deleteErrors, minio.DeleteObjectsError{
+					ObjectName: object.ObjectName,
+					VersionID:  object.VersionID,
+					Error:      minio.OperationTimedOut{},
+				})
+			}
+		}
+	}
+
+	return deletedObjects, deleteErrors, nil
+}
+
+func (layer *gatewayLayer) deleteObjectsSingle(ctx context.Context, bucket string, object minio.ObjectToDelete, opts minio.ObjectOptions) (*minio.DeletedObject, *minio.DeleteObjectsError) {
+	info, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
+	if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
+		return nil, &minio.DeleteObjectsError{
+			ObjectName: object.ObjectName,
+			VersionID:  object.VersionID,
+			Error:      ConvertError(err, bucket, object.ObjectName),
+		}
+	}
+
+	deleted := &minio.DeletedObject{
+		ObjectName:   object.ObjectName,
+		VersionID:    info.VersionID,
+		DeleteMarker: info.DeleteMarker,
+	}
+	if deleted.DeleteMarker {
+		deleted.DeleteMarkerVersionID = info.VersionID
+	}
+
+	return deleted, nil
 }
 
 func (layer *gatewayLayer) IsTaggingSupported() bool {

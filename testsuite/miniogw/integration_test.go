@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os/exec"
 	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -527,14 +528,21 @@ func TestVersioning(t *testing.T) {
 				return rawClient.API.RemoveObjectsWithResult(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{})
 			}
 
-			i := 1
-			for result := range removeObjects(versionIDs[1:]) {
-				require.NoError(t, result.Err)
-				require.Equal(t, "objectA", result.ObjectName)
-				require.Equal(t, versionIDs[i], result.ObjectVersionID)
-				require.False(t, result.DeleteMarker)
-				i++
+			expected := make([]minio.RemoveObjectResult, 0, len(versionIDs)-1)
+			for i := 1; i < len(versionIDs); i++ {
+				expected = append(expected, minio.RemoveObjectResult{
+					ObjectName:      "objectA",
+					ObjectVersionID: versionIDs[i],
+					DeleteMarker:    false,
+				})
 			}
+
+			removed := make([]minio.RemoveObjectResult, 0, len(versionIDs)-1)
+			for result := range removeObjects(versionIDs[1:]) {
+				removed = append(removed, result)
+			}
+
+			require.ElementsMatch(t, expected, removed)
 
 			for range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
 				WithVersions: true,
@@ -571,17 +579,23 @@ func TestVersioning(t *testing.T) {
 				listedIDs = append(listedIDs, listed.VersionID)
 			}
 
-			resultChan := removeObjects(listedIDs)
+			removed = removed[:0]
+			for result := range removeObjects(listedIDs) {
+				removed = append(removed, result)
+			}
+			sort.Slice(removed, func(i, j int) bool {
+				return removed[i].DeleteMarker
+			})
 
 			for i := 0; i < 2; i++ {
-				result := <-resultChan
+				result := removed[i]
 				require.NoError(t, result.Err)
 				require.Equal(t, "objectA", result.ObjectName)
 				require.True(t, result.DeleteMarker)
 				require.NotEmpty(t, result.DeleteMarkerVersionID)
 			}
 
-			result := <-resultChan
+			result := removed[2]
 			require.NoError(t, result.Err)
 			require.Equal(t, "objectA", result.ObjectName)
 			require.False(t, result.DeleteMarker)
