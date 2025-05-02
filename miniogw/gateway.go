@@ -43,6 +43,20 @@ import (
 var (
 	mon = monkit.Package()
 
+	// ErrInternalError is a generic error response for internal errors.
+	ErrInternalError = miniogo.ErrorResponse{
+		Code:       "InternalError",
+		StatusCode: http.StatusInternalServerError,
+		Message:    "An internal error occurred.",
+	}
+
+	// ErrAccessDenied indicates that a user is not allowed to perform the requested operation.
+	ErrAccessDenied = miniogo.ErrorResponse{
+		Code:       "AccessDenied",
+		StatusCode: http.StatusForbidden,
+		Message:    "Access Denied.",
+	}
+
 	// ErrBandwidthLimitExceeded is a custom error for when a user has reached their
 	// Satellite bandwidth limit.
 	//
@@ -169,6 +183,41 @@ var (
 			BucketName: bucketName,
 			StatusCode: http.StatusBadRequest,
 		}
+	}
+
+	// ErrObjectKeyMissing is returned by DeleteObjects when an object key is missing.
+	ErrObjectKeyMissing = miniogo.ErrorResponse{
+		Code:       "UserKeyMustBeSpecified",
+		Message:    "An object key was not provided.",
+		StatusCode: http.StatusBadRequest,
+	}
+
+	// ErrObjectKeyTooLong is returned by DeleteObjects when the length of an object key exceeds the limit.
+	ErrObjectKeyTooLong = miniogo.ErrorResponse{
+		Code:       "KeyTooLongError",
+		Message:    "A provided object key is too long.",
+		StatusCode: http.StatusBadRequest,
+	}
+
+	// ErrObjectVersionInvalid is returned by DeleteObjects when an object version is malformed.
+	ErrObjectVersionInvalid = miniogo.ErrorResponse{
+		Code:       "InvalidVersion",
+		Message:    "A provided object version ID is invalid.",
+		StatusCode: http.StatusBadRequest,
+	}
+
+	// ErrDeleteObjectsNoItems is returned by DeleteObjects when no objects are specified for deletion.
+	ErrDeleteObjectsNoItems = miniogo.ErrorResponse{
+		Code:       "MalformedXML",
+		Message:    "The list of objects must contain at least one item.",
+		StatusCode: http.StatusBadRequest,
+	}
+
+	// ErrDeleteObjectsTooManyItems is returned by DeleteObjects when too many objects are specified for deletion.
+	ErrDeleteObjectsTooManyItems = miniogo.ErrorResponse{
+		Code:       "MalformedXML",
+		Message:    "The list of objects contains too many items.",
+		StatusCode: http.StatusBadRequest,
 	}
 )
 
@@ -1303,8 +1352,94 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 	return minioVersionedObjectInfo(bucket, "", object), nil
 }
 
-func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []minio.DeleteObjectsError, error) {
-	// TODO: implement multiple object deletion in libuplink API
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deletedObjects []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucket); err != nil {
+		return nil, nil, minio.BucketNameInvalid{Bucket: bucket}
+	}
+
+	project, err := projectFromContext(ctx, bucket, "")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	items := make([]versioned.DeleteObjectsItem, 0, len(objects))
+	for _, object := range objects {
+		version, err := decodeVersionID(object.VersionID)
+		if err != nil {
+			return nil, nil, ErrObjectVersionInvalid
+		}
+		items = append(items, metaclient.DeleteObjectsItem{
+			ObjectKey: object.ObjectName,
+			Version:   version,
+		})
+	}
+
+	results, err := versioned.DeleteObjects(ctx, project, bucket, items, &metaclient.DeleteObjectsOptions{
+		BypassGovernanceRetention: opts.BypassGovernanceRetention,
+		Quiet:                     opts.Quiet,
+	})
+	if err != nil {
+		if errors.Is(err, versioned.ErrDeleteObjectsUnimplemented) {
+			deletedObjects, deleteErrors = layer.deleteObjectsFallback(ctx, bucket, objects, opts)
+			return deletedObjects, deleteErrors, nil
+		}
+		return nil, nil, ConvertError(err, bucket, "")
+	}
+
+	var numErrs int
+	for _, result := range results {
+		if result.Status != storj.DeleteObjectsStatusNotFound && result.Status != storj.DeleteObjectsStatusOK {
+			numErrs++
+		}
+	}
+
+	deletedObjects = make([]minio.DeletedObject, 0, len(results)-numErrs)
+	deleteErrors = make([]minio.DeleteObjectsError, 0, numErrs)
+	for _, result := range results {
+		switch result.Status {
+		case storj.DeleteObjectsStatusOK:
+			deleted := minio.DeletedObject{
+				ObjectName: result.ObjectKey,
+			}
+			if result.Removed != nil {
+				deleted.VersionID = encodeVersionID(result.Removed.Version)
+			}
+			if result.Marker != nil {
+				deleted.DeleteMarker = true
+				deleted.DeleteMarkerVersionID = encodeVersionID(result.Marker.Version)
+			}
+			deletedObjects = append(deletedObjects, deleted)
+		case storj.DeleteObjectsStatusNotFound:
+			deletedObjects = append(deletedObjects, minio.DeletedObject{
+				ObjectName: result.ObjectKey,
+				VersionID:  encodeVersionID(result.RequestedVersion),
+			})
+		default:
+			deleteErrors = append(deleteErrors, minio.DeleteObjectsError{
+				ObjectName: result.ObjectKey,
+				VersionID:  encodeVersionID(result.RequestedVersion),
+				Error:      convertDeleteObjectsStatus(result.Status),
+			})
+		}
+	}
+
+	return deletedObjects, deleteErrors, nil
+}
+
+func convertDeleteObjectsStatus(status storj.DeleteObjectsStatus) error {
+	switch status {
+	case storj.DeleteObjectsStatusLocked:
+		return ErrObjectProtected
+	case storj.DeleteObjectsStatusUnauthorized:
+		return ErrAccessDenied
+	default:
+		return ErrInternalError
+	}
+}
+
+func (layer *gatewayLayer) deleteObjectsFallback(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []minio.DeleteObjectsError) {
 	deletedObjects, deleteErrors := make([]minio.DeletedObject, 0, len(objects)), make([]minio.DeleteObjectsError, 0, len(objects))
 
 	limiter := sync2.NewLimiter(layer.compatibilityConfig.DeleteObjectsConcurrency)
@@ -1327,7 +1462,7 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 			opts.VersionID = object.VersionID
 
 			limiter.Go(ctx, func() {
-				deleted, deleteError := layer.deleteObjectsSingle(ctx, bucket, object, opts)
+				deleted, deleteError := layer.deleteObjectsFallbackSingle(ctx, bucket, object, opts)
 				resultCh <- deleteResult{
 					index:       i,
 					deleted:     deleted,
@@ -1360,10 +1495,10 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 		}
 	}
 
-	return deletedObjects, deleteErrors, nil
+	return deletedObjects, deleteErrors
 }
 
-func (layer *gatewayLayer) deleteObjectsSingle(ctx context.Context, bucket string, object minio.ObjectToDelete, opts minio.ObjectOptions) (*minio.DeletedObject, *minio.DeleteObjectsError) {
+func (layer *gatewayLayer) deleteObjectsFallbackSingle(ctx context.Context, bucket string, object minio.ObjectToDelete, opts minio.ObjectOptions) (*minio.DeletedObject, *minio.DeleteObjectsError) {
 	info, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
 	if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
 		return nil, &minio.DeleteObjectsError{
@@ -1738,6 +1873,13 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 // ConvertError translates Storj-specific err associated with object to
 // MinIO/S3-specific error. It returns nil if err is nil.
 func ConvertError(err error, bucketName, object string) error {
+	if convertedErr := asObjectLockError(bucketName, object, err); convertedErr != nil {
+		return convertedErr
+	}
+	if convertedErr := asDeleteObjectsError(err); convertedErr != nil {
+		return convertedErr
+	}
+
 	switch {
 	case err == nil:
 		return nil
@@ -1767,20 +1909,6 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
-	case noLockEnabledErr(err):
-		return ErrBucketObjectLockNotEnabled
-	case errors.Is(err, bucket.ErrBucketInvalidStateObjectLock):
-		return ErrBucketInvalidStateObjectLock
-	case errors.Is(err, bucket.ErrBucketInvalidObjectLockConfig):
-		return ErrBucketInvalidObjectLockConfig
-	case errors.Is(err, versioned.ErrObjectLockInvalidObjectState):
-		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
-	case errors.Is(err, versioned.ErrRetentionNotFound):
-		return ErrRetentionNotFound
-	case errors.Is(err, versioned.ErrObjectProtected):
-		return ErrObjectProtected
-	case errors.Is(err, privateProject.ErrLockNotEnabled):
-		return minio.NotImplemented{Message: "Object Lock feature is not enabled"}
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
 		// extremely busy. An event like this might happen during, e.g.
@@ -1797,9 +1925,46 @@ func ConvertError(err error, bucketName, object string) error {
 	}
 }
 
+func asObjectLockError(bucketName, object string, err error) error {
+	switch {
+	case noLockEnabledErr(err):
+		return ErrBucketObjectLockNotEnabled
+	case errors.Is(err, bucket.ErrBucketInvalidStateObjectLock):
+		return ErrBucketInvalidStateObjectLock
+	case errors.Is(err, bucket.ErrBucketInvalidObjectLockConfig):
+		return ErrBucketInvalidObjectLockConfig
+	case errors.Is(err, versioned.ErrObjectLockInvalidObjectState):
+		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
+	case errors.Is(err, versioned.ErrRetentionNotFound):
+		return ErrRetentionNotFound
+	case errors.Is(err, versioned.ErrObjectProtected):
+		return ErrObjectProtected
+	case errors.Is(err, privateProject.ErrLockNotEnabled):
+		return minio.NotImplemented{Message: "Object Lock feature is not enabled"}
+	default:
+		return nil
+	}
+}
+
 func noLockEnabledErr(err error) bool {
 	return errors.Is(err, bucket.ErrBucketNoLock) ||
 		errors.Is(err, versioned.ErrNoObjectLockConfiguration)
+}
+
+func asDeleteObjectsError(err error) error {
+	switch {
+	case errors.Is(err, versioned.ErrObjectKeyMissing):
+		return ErrObjectKeyMissing
+	case errors.Is(err, versioned.ErrObjectKeyTooLong):
+		return ErrObjectKeyTooLong
+	case errors.Is(err, versioned.ErrObjectVersionInvalid):
+		return ErrObjectVersionInvalid
+	case errors.Is(err, versioned.ErrDeleteObjectsNoItems):
+		return ErrDeleteObjectsNoItems
+	case errors.Is(err, versioned.ErrDeleteObjectsTooManyItems):
+		return ErrDeleteObjectsTooManyItems
+	}
+	return nil
 }
 
 func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {

@@ -28,6 +28,7 @@ import (
 	"storj.io/common/sync2"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
+	"storj.io/common/uuid"
 	"storj.io/gateway/miniogw"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
@@ -59,6 +60,14 @@ const (
 	maxUploadsLimit = 1000
 )
 
+var defaultS3CompatibilityConfig = miniogw.S3CompatibilityConfig{
+	IncludeCustomMetadataListing: true,
+	MaxKeysLimit:                 maxKeysLimit,
+	MaxKeysExhaustiveLimit:       100000,
+	MaxUploadsLimit:              maxUploadsLimit,
+	DeleteObjectsConcurrency:     100,
+}
+
 func TestCreateBucketWithCustomPlacement(t *testing.T) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
@@ -79,15 +88,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctx := miniogw.WithUplinkProject(tCtx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
-			MaxKeysExhaustiveLimit:       100000,
-			MaxUploadsLimit:              maxUploadsLimit,
-			DeleteObjectsConcurrency:     100,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
@@ -904,15 +905,7 @@ func TestSetObjectRetention(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
-			MaxKeysExhaustiveLimit:       100000,
-			MaxUploadsLimit:              maxUploadsLimit,
-			DeleteObjectsConcurrency:     100,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -946,7 +939,7 @@ func TestSetObjectRetention(t *testing.T) {
 				RetainUntil: future,
 			}
 
-			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			_, err := createVersionedFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
 			require.NoError(t, err)
 
 			newRetention := uplinkToMinioRetention(t, retention)
@@ -972,7 +965,7 @@ func TestSetObjectRetention(t *testing.T) {
 				RetainUntil: future,
 			}
 
-			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			_, err := createVersionedFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
 			require.NoError(t, err)
 
 			newRetention := uplinkToMinioRetention(t, retention)
@@ -989,7 +982,7 @@ func TestSetObjectRetention(t *testing.T) {
 				RetainUntil: future,
 			}
 
-			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			_, err := createVersionedFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
 			require.NoError(t, err)
 
 			opts := minio.ObjectOptions{Retention: &lock.ObjectRetention{
@@ -1022,7 +1015,7 @@ func TestSetObjectRetention(t *testing.T) {
 				RetainUntil: time.Now().Add(time.Hour),
 			}
 
-			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
+			_, err := createVersionedFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), retention)
 			require.NoError(t, err)
 
 			opts := minio.ObjectOptions{}
@@ -1170,7 +1163,7 @@ func TestGetObjectRetention(t *testing.T) {
 				RetainUntil: future,
 			}
 
-			_, err := createFileWithRetention(ctx, project, bucketName, objectKey, []byte("test"), expectedRetention)
+			_, err := createVersionedFile(ctx, project, bucketName, objectKey, []byte("test"), expectedRetention)
 			require.NoError(t, err)
 
 			retention, err := layer.GetObjectRetention(ctx, bucketName, objectKey, "")
@@ -1988,15 +1981,7 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
-			MaxKeysExhaustiveLimit:       100000,
-			MaxUploadsLimit:              maxUploadsLimit,
-			DeleteObjectsConcurrency:     100,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -2009,7 +1994,7 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 		runRetentionModeTests(t, "Active retention period", func(t *testing.T, mode storj.RetentionMode) {
 			objectKey := testrand.Path()
 
-			_, err := createFileWithRetention(ctxWithProject, project, bucketName, objectKey, []byte("test"), metaclient.Retention{
+			_, err := createVersionedFile(ctxWithProject, project, bucketName, objectKey, []byte("test"), metaclient.Retention{
 				Mode:        mode,
 				RetainUntil: time.Now().Add(time.Hour),
 			})
@@ -2072,15 +2057,299 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 func TestDeleteObjects(t *testing.T) {
 	t.Parallel()
 
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.UseBucketLevelObjectVersioning = true
+				config.Metainfo.ObjectLockEnabled = true
+				config.Metainfo.DeleteObjectsEnabled = true
+			},
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+				config.APIKeyVersion = macaroon.APIKeyVersionObjectLock
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		sat := planet.Satellites[0]
+
+		project, err := planet.Uplinks[0].OpenProject(ctx, sat)
+		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		require.NoError(t, layer.MakeBucketWithLocation(ctxWithProject, testBucket, minio.BucketOptions{
+			LockEnabled: true,
+		}))
+
+		type minimalObject struct {
+			key       string
+			versionID string
+		}
+
+		createObject := func(t *testing.T, prefix string, retention metaclient.Retention) minimalObject {
+			objectKey := prefix + testrand.Path()
+			info, err := createVersionedFile(ctxWithProject, project, testBucket, objectKey, nil, retention)
+			require.NoError(t, err)
+
+			return minimalObject{
+				key:       objectKey,
+				versionID: hex.EncodeToString(info.Version),
+			}
+		}
+
+		getLastCommittedVersion := func(t *testing.T, objectKey string) minio.ObjectInfo {
+			maxVersion := hex.EncodeToString(metabase.NewStreamVersionID(metabase.MaxVersion+1, uuid.UUID{}).Bytes())
+
+			result, err := layer.ListObjectVersions(ctxWithProject, testBucket, "", objectKey, maxVersion, "", 1)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Objects)
+			require.Equal(t, objectKey, result.Objects[0].Name)
+
+			return result.Objects[0]
+		}
+
+		t.Run("Basic", func(t *testing.T) {
+			obj1 := createObject(t, "", metaclient.Retention{})
+			obj2 := createObject(t, "", metaclient.Retention{})
+
+			deleted, deleteErrs, err := layer.DeleteObjects(ctxWithProject, testBucket, []minio.ObjectToDelete{
+				{
+					ObjectName: obj1.key,
+					VersionID:  obj1.versionID,
+				},
+				{
+					ObjectName: obj2.key,
+				},
+			}, minio.ObjectOptions{})
+			require.NoError(t, err)
+			require.Empty(t, deleteErrs)
+
+			obj2Marker := getLastCommittedVersion(t, obj2.key)
+			require.True(t, obj2Marker.DeleteMarker)
+
+			require.ElementsMatch(t, []minio.DeletedObject{
+				{
+					ObjectName: obj1.key,
+					VersionID:  obj1.versionID,
+				},
+				{
+					ObjectName:            obj2.key,
+					DeleteMarker:          true,
+					DeleteMarkerVersionID: obj2Marker.VersionID,
+				},
+			}, deleted)
+		})
+
+		t.Run("Missing objects", func(t *testing.T) {
+			obj1 := minimalObject{
+				key:       testrand.Path(),
+				versionID: randomVersionID(),
+			}
+			obj2Key := testrand.Path()
+
+			deleted, deleteErrs, err := layer.DeleteObjects(ctxWithProject, testBucket, []minio.ObjectToDelete{
+				{
+					ObjectName: obj1.key,
+					VersionID:  obj1.versionID,
+				}, {
+					ObjectName: obj2Key,
+				},
+			}, minio.ObjectOptions{})
+			require.NoError(t, err)
+			require.Empty(t, deleteErrs)
+
+			obj2Marker := getLastCommittedVersion(t, obj2Key)
+			require.True(t, obj2Marker.DeleteMarker)
+
+			require.ElementsMatch(t, []minio.DeletedObject{
+				{
+					ObjectName: obj1.key,
+					VersionID:  obj1.versionID,
+				},
+				{
+					ObjectName:            obj2Key,
+					DeleteMarker:          true,
+					DeleteMarkerVersionID: obj2Marker.VersionID,
+				},
+			}, deleted)
+		})
+
+		t.Run("Missing bucket", func(t *testing.T) {
+			bucketName := "nonexistent-bucket"
+
+			deleted, deleteErrors, err := layer.DeleteObjects(ctxWithProject, bucketName, []minio.ObjectToDelete{{
+				ObjectName: testrand.Path(),
+			}}, minio.ObjectOptions{})
+			require.Equal(t, minio.BucketNotFound{Bucket: bucketName}, err)
+			require.Empty(t, deleted)
+			require.Empty(t, deleteErrors)
+		})
+
+		t.Run("Quiet mode", func(t *testing.T) {
+			const prefix = "prefix/"
+
+			access := planet.Uplinks[0].Access[sat.ID()]
+			access, err := access.Share(uplink.FullPermission(), uplink.SharePrefix{
+				Bucket: testBucket,
+				Prefix: prefix,
+			})
+			require.NoError(t, err)
+
+			project, err := uplink.OpenProject(ctx, access)
+			require.NoError(t, err)
+			defer ctx.Check(project.Close)
+
+			ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+
+			obj := createObject(t, prefix, metaclient.Retention{})
+
+			unauthorizedObj := createObject(t, "", metaclient.Retention{})
+
+			lockedObj := createObject(t, prefix, metaclient.Retention{
+				Mode:        storj.ComplianceMode,
+				RetainUntil: time.Now().Add(time.Hour),
+			})
+
+			deleted, deleteErrs, err := layer.DeleteObjects(ctxWithProject, testBucket, []minio.ObjectToDelete{
+				{
+					ObjectName: obj.key,
+					VersionID:  obj.versionID,
+				},
+				{
+					ObjectName: lockedObj.key,
+					VersionID:  lockedObj.versionID,
+				},
+				{
+					ObjectName: unauthorizedObj.key,
+					VersionID:  unauthorizedObj.versionID,
+				},
+			}, minio.ObjectOptions{
+				Quiet: true,
+			})
+			require.NoError(t, err)
+			require.Empty(t, deleted)
+
+			require.ElementsMatch(t, []minio.DeleteObjectsError{
+				{
+					ObjectName: lockedObj.key,
+					VersionID:  lockedObj.versionID,
+					Error:      miniogw.ErrObjectProtected,
+				},
+				{
+					ObjectName: unauthorizedObj.key,
+					VersionID:  unauthorizedObj.versionID,
+					Error:      miniogw.ErrAccessDenied,
+				},
+			}, deleteErrs)
+		})
+
+		t.Run("Governance bypass", func(t *testing.T) {
+			obj := createObject(t, "", metaclient.Retention{
+				Mode:        storj.GovernanceMode,
+				RetainUntil: time.Now().Add(time.Hour),
+			})
+
+			objsToDelete := []minio.ObjectToDelete{{
+				ObjectName: obj.key,
+				VersionID:  obj.versionID,
+			}}
+
+			deleted, deleteErrs, err := layer.DeleteObjects(ctxWithProject, testBucket, objsToDelete, minio.ObjectOptions{})
+			require.NoError(t, err)
+			require.Empty(t, deleted)
+
+			require.Equal(t, []minio.DeleteObjectsError{{
+				ObjectName: obj.key,
+				VersionID:  obj.versionID,
+				Error:      miniogw.ErrObjectProtected,
+			}}, deleteErrs)
+
+			deleted, deleteErrs, err = layer.DeleteObjects(ctxWithProject, testBucket, objsToDelete, minio.ObjectOptions{
+				BypassGovernanceRetention: true,
+			})
+			require.NoError(t, err)
+			require.Empty(t, deleteErrs)
+
+			require.Equal(t, []minio.DeletedObject{{
+				ObjectName: obj.key,
+				VersionID:  obj.versionID,
+			}}, deleted)
+		})
+
+		t.Run("Invalid options", func(t *testing.T) {
+			object := minio.ObjectToDelete{
+				ObjectName: testrand.Path(),
+				VersionID:  randomVersionID(),
+			}
+
+			test := func(t *testing.T, bucketName string, objects []minio.ObjectToDelete, expectedError error) {
+				deleted, deleteErrs, err := layer.DeleteObjects(ctxWithProject, bucketName, objects, minio.ObjectOptions{})
+				require.Empty(t, deleted)
+				require.Empty(t, deleteErrs)
+				require.ErrorIs(t, err, expectedError)
+			}
+
+			t.Run("Missing bucket name", func(t *testing.T) {
+				test(t, "", []minio.ObjectToDelete{object}, minio.BucketNameInvalid{})
+			})
+
+			t.Run("Invalid bucket name", func(t *testing.T) {
+				bucketName := string(testrand.RandAlphaNumeric(64))
+				test(t, bucketName, []minio.ObjectToDelete{object}, minio.BucketNameInvalid{Bucket: bucketName})
+			})
+
+			t.Run("No items", func(t *testing.T) {
+				test(t, testBucket, []minio.ObjectToDelete{}, miniogw.ErrDeleteObjectsNoItems)
+			})
+
+			t.Run("Too many items", func(t *testing.T) {
+				objects := make([]minio.ObjectToDelete, 0, 1001)
+				for i := 0; i < metabase.DeleteObjectsMaxItems+1; i++ {
+					objects = append(objects, object)
+				}
+				test(t, testBucket, objects, miniogw.ErrDeleteObjectsTooManyItems)
+			})
+
+			t.Run("Missing object key", func(t *testing.T) {
+				test(t, testBucket, []minio.ObjectToDelete{{
+					VersionID: randomVersionID(),
+				}}, miniogw.ErrObjectKeyMissing)
+			})
+
+			t.Run("Object key too long", func(t *testing.T) {
+				objectKey := string(testrand.RandAlphaNumeric(sat.Config.Metainfo.MaxEncryptedObjectKeyLength + 1))
+				test(t, testBucket, []minio.ObjectToDelete{{
+					ObjectName: objectKey,
+				}}, miniogw.ErrObjectKeyTooLong)
+			})
+
+			t.Run("Invalid object version", func(t *testing.T) {
+				test(t, testrand.BucketName(), []minio.ObjectToDelete{{
+					ObjectName: testrand.Path(),
+					VersionID:  randomVersionID()[:8],
+				}}, miniogw.ErrObjectVersionInvalid)
+			})
+		})
+	})
+}
+
+func TestDeleteObjectsFallback(t *testing.T) {
+	t.Parallel()
+
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when deleting an object from a bucket with empty name
 		deletedObjects, deleteErrors, err := layer.DeleteObjects(ctx, "", []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
-		require.NoError(t, err)
-		assert.Equal(t, []minio.DeleteObjectsError{{
-			ObjectName: testFile,
-			Error:      minio.BucketNameInvalid{},
-		}}, deleteErrors)
+		require.Equal(t, minio.BucketNameInvalid{}, err)
 		assert.Empty(t, deletedObjects)
+		assert.Empty(t, deleteErrors)
 
 		// Check the error when deleting an object from non-existing bucket
 		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
@@ -2097,11 +2366,9 @@ func TestDeleteObjects(t *testing.T) {
 
 		// Check the error when deleting an object with empty name
 		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: ""}}, minio.ObjectOptions{})
-		require.NoError(t, err)
-		assert.Equal(t, []minio.DeleteObjectsError{{
-			Error: minio.ObjectNameInvalid{Bucket: testBucket},
-		}}, deleteErrors)
+		require.Equal(t, miniogw.ErrObjectKeyMissing, err)
 		assert.Empty(t, deletedObjects)
+		assert.Empty(t, deleteErrors)
 
 		// Check that there is NO error when deleting a non-existing object
 		deletedObjects, deleteErrors, err = layer.DeleteObjects(ctx, testBucket, []minio.ObjectToDelete{{ObjectName: testFile}}, minio.ObjectOptions{})
@@ -4646,13 +4913,7 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, projectWithRestrictedAccess)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
-			MaxKeysExhaustiveLimit:       100000,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -5106,13 +5367,7 @@ func TestProjectUsageLimit(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
-			MaxKeysExhaustiveLimit:       100000,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -5178,13 +5433,7 @@ func TestSlowDown(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
-			MaxKeysExhaustiveLimit:       100000,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -5209,13 +5458,7 @@ func TestSlowDown(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 1000,
-			MaxKeysExhaustiveLimit:       100000,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -5246,6 +5489,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versionin
 				config.Metainfo.MaxSegmentSize = segmentSize
 				config.Metainfo.UseBucketLevelObjectVersioning = versioning
 				config.Metainfo.ObjectLockEnabled = objectLock && versioning
+				config.Metainfo.DeleteObjectsEnabled = false
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = pathCipher
@@ -5262,15 +5506,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versionin
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
 
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
-			MaxKeysExhaustiveLimit:       100000,
-			MaxUploadsLimit:              maxUploadsLimit,
-			DeleteObjectsConcurrency:     100,
-		}
-
-		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
@@ -5303,7 +5539,7 @@ func createFile(ctx context.Context, project *uplink.Project, bucket, key string
 	return upload.Info(), nil
 }
 
-func createFileWithRetention(ctx context.Context, project *uplink.Project, bucket, key string, data []byte, retention metaclient.Retention) (*versioned.VersionedObject, error) {
+func createVersionedFile(ctx context.Context, project *uplink.Project, bucket, key string, data []byte, retention metaclient.Retention) (*versioned.VersionedObject, error) {
 	upload, err := versioned.UploadObject(ctx, project, bucket, key, &metaclient.UploadOptions{
 		Retention: retention,
 	})
