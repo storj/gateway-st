@@ -1156,11 +1156,11 @@ storj.io/eventkit v0.0.0-20240415002644-1d9596fee086 h1:TkytkGUI6zGtH5Qx/O0VxQCc
 storj.io/eventkit v0.0.0-20240415002644-1d9596fee086/go.mod h1:S6p41RzIBKoeGAdrziksWkiijnZXql9YcNsc23t0u+8=
 storj.io/infectious v0.0.2 h1:rGIdDC/6gNYAStsxsZU79D/MqFjNyJc1tsyyj9sTl7Q=
 storj.io/infectious v0.0.2/go.mod h1:QEjKKww28Sjl1x8iDsjBpOM4r1Yp8RsowNcItsZJ1Vs=
-storj.io/minio v0.0.0-20250414171507-1348e050be0b h1:wbUCth57oBaCSMc5hZUbaYAC20URwLFqgtc3M71/upI=
-storj.io/minio v0.0.0-20250414171507-1348e050be0b/go.mod h1:7K8uGsPLNLn4MR1pYVZEYJTBfcUBw/SkrygLFSvzabg=
+storj.io/minio v0.0.0-20250505044116-871bf178a1a9 h1:CeIG76lDP+OaHLW+vSQ8DPw7DffTbpC0Vz+TDwUWOp0=
+storj.io/minio v0.0.0-20250505044116-871bf178a1a9/go.mod h1:7K8uGsPLNLn4MR1pYVZEYJTBfcUBw/SkrygLFSvzabg=
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd h1:XkLxAvogynNQu/1gM/F5MjBRgUGYdqWXWcwccZsm1SQ=
 storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd/go.mod h1:nwyyJiAFAPRu81qBfAE5cBGkVXROYSNJu9pGXLtStHE=
 storj.io/picobuf v0.0.3 h1:xAUPB5ZUGfxkqd3bnw3zp01kkWb9wlhg4vtZWUs2S9A=
 storj.io/picobuf v0.0.3/go.mod h1:4V4xelV1RSCck5GgmkL/Txw9l6IfX3XcBzegmL5Kudo=
-storj.io/uplink v1.13.2-0.20250502015737-6e1d40beb031 h1:EkyXZKfPaQYDoVcP1QgsGYqmGuIMiUW2nK7pFq9BBE8=
-storj.io/uplink v1.13.2-0.20250502015737-6e1d40beb031/go.mod h1:Jcv8KRhmT6sluOyhmt9d3NabDMJK8jNUgBF+//FUkKo=
+storj.io/uplink v1.13.2-0.20250502121312-7a6801d76d91 h1:XMKR9yIURGKM8VizpQ+yQN0G+ip6aFgJpT/iQC5cq1k=
+storj.io/uplink v1.13.2-0.20250502121312-7a6801d76d91/go.mod h1:Jcv8KRhmT6sluOyhmt9d3NabDMJK8jNUgBF+//FUkKo=

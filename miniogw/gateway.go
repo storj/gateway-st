@@ -1140,10 +1140,15 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		}
 	}
 
+	if err := verifyIfNoneMatch(opts.IfNoneMatch); err != nil {
+		return minio.ObjectInfo{}, err
+	}
+
 	upload, err := versioned.UploadObject(ctx, project, bucket, object, &metaclient.UploadOptions{
-		Expires:   e,
-		Retention: retention,
-		LegalHold: legalHold,
+		Expires:     e,
+		Retention:   retention,
+		LegalHold:   legalHold,
+		IfNoneMatch: opts.IfNoneMatch,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
@@ -1282,9 +1287,14 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		}
 	}
 
+	if err := verifyIfNoneMatch(destOpts.IfNoneMatch); err != nil {
+		return minio.ObjectInfo{}, err
+	}
+
 	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{
-		Retention: retention,
-		LegalHold: destOpts.LegalHold != nil && *destOpts.LegalHold == objectlock.LegalHoldOn,
+		Retention:   retention,
+		LegalHold:   destOpts.LegalHold != nil && *destOpts.LegalHold == objectlock.LegalHoldOn,
+		IfNoneMatch: destOpts.IfNoneMatch,
 	})
 	if err != nil {
 		// TODO how we can improve it, its ugly
@@ -1909,6 +1919,10 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
+	case errors.Is(err, versioned.ErrFailedPrecondition):
+		return minio.PreConditionFailed{}
+	case errors.Is(err, versioned.ErrUnimplemented):
+		return minio.NotImplemented{Message: err.Error()}
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
 		// extremely busy. An event like this might happen during, e.g.
@@ -2162,6 +2176,21 @@ func parseTTL(userDefined map[string]string) (time.Time, error) {
 	}
 
 	return time.Time{}, nil
+}
+
+// verifyIfNoneMatch verifies the requested value is correct.
+// The only supported value is "*".
+// Note for S3 compatibility we return 501 instead of 400 for anything unknown.
+// This function should be kept in sync with metabase.(IfNoneMatch).Verify() if
+// that changes.
+func verifyIfNoneMatch(val []string) error {
+	if len(val) == 0 {
+		return nil
+	}
+	if len(val) > 1 || val[0] != "*" {
+		return minio.NotImplemented{Message: "If-None-Match only supports a single value of '*'"}
+	}
+	return nil
 }
 
 // limitResults returns limit restricted to configuredLimit, aligned with paging

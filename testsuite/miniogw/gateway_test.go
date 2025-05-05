@@ -5469,6 +5469,117 @@ func TestSlowDown(t *testing.T) {
 	})
 }
 
+func TestConditionalWrites(t *testing.T) {
+	t.Parallel()
+
+	runTestWithVersioning(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		unversionedBucket, versionedBucket := testrand.BucketName(), testrand.BucketName()
+
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, unversionedBucket, minio.BucketOptions{}))
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, versionedBucket, minio.BucketOptions{}))
+		require.NoError(t, layer.SetBucketVersioning(ctx, versionedBucket, &versioning.Versioning{
+			Status: versioning.Enabled,
+		}))
+
+		runTest := func(name string, fn func(t *testing.T, bucket, key string)) {
+			for _, tc := range []struct {
+				name, bucket string
+			}{
+				{name: "unversioned bucket", bucket: unversionedBucket},
+				{name: "versioned bucket", bucket: versionedBucket},
+			} {
+				t.Run(fmt.Sprintf("%s %s", name, tc.name), func(t *testing.T) {
+					fn(t, tc.bucket, testrand.Path())
+				})
+			}
+		}
+
+		runTest("Unimplemented", func(t *testing.T, bucket, object string) {
+			_, err := layer.PutObject(ctx, bucket, object, newMinioPutObjReader(t), minio.ObjectOptions{
+				IfNoneMatch: []string{"somethingnew"},
+			})
+			require.ErrorIs(t, err, minio.NotImplemented{
+				Message: "If-None-Match only supports a single value of '*'",
+			})
+		})
+
+		runTest("PutObject", func(t *testing.T, bucket, object string) {
+			opts := minio.ObjectOptions{
+				UserDefined: make(map[string]string),
+				IfNoneMatch: []string{"*"},
+			}
+
+			_, err := layer.PutObject(ctx, bucket, object, newMinioPutObjReader(t), opts)
+			require.NoError(t, err)
+
+			_, err = layer.PutObject(ctx, bucket, object, newMinioPutObjReader(t), opts)
+			require.ErrorIs(t, err, minio.PreConditionFailed{})
+
+			_, err = layer.DeleteObject(ctx, bucket, object, minio.ObjectOptions{})
+			require.NoError(t, err)
+
+			_, err = layer.PutObject(ctx, bucket, object, newMinioPutObjReader(t), opts)
+			require.NoError(t, err)
+		})
+
+		runTest("CopyObject", func(t *testing.T, bucket, object string) {
+			srcObject, destObject := object, testrand.Path()
+
+			opts := minio.ObjectOptions{
+				UserDefined: make(map[string]string),
+				IfNoneMatch: []string{"*"},
+			}
+
+			_, err := layer.PutObject(ctx, bucket, srcObject, newMinioPutObjReader(t), opts)
+			require.NoError(t, err)
+
+			_, err = layer.CopyObject(ctx, bucket, srcObject, bucket, destObject, minio.ObjectInfo{}, minio.ObjectOptions{}, opts)
+			require.NoError(t, err)
+
+			_, err = layer.CopyObject(ctx, bucket, srcObject, bucket, destObject, minio.ObjectInfo{}, minio.ObjectOptions{}, opts)
+			require.ErrorIs(t, err, minio.PreConditionFailed{})
+
+			_, err = layer.DeleteObject(ctx, bucket, destObject, minio.ObjectOptions{})
+			require.NoError(t, err)
+
+			_, err = layer.CopyObject(ctx, bucket, srcObject, bucket, destObject, minio.ObjectInfo{}, minio.ObjectOptions{}, opts)
+			require.NoError(t, err)
+		})
+
+		runTest("CompleteMultipartUpload", func(t *testing.T, bucket, object string) {
+			newUpload := func() (string, []minio.CompletePart) {
+				uploadID, err := layer.NewMultipartUpload(ctx, bucket, object, minio.ObjectOptions{})
+				require.NoError(t, err)
+
+				partInfo, err := layer.PutObjectPart(ctx, bucket, object, uploadID, 1, newMinioPutObjReader(t), minio.ObjectOptions{})
+				require.NoError(t, err)
+
+				return uploadID, []minio.CompletePart{{PartNumber: 1, ETag: partInfo.ETag}}
+			}
+
+			opts := minio.ObjectOptions{
+				UserDefined: make(map[string]string),
+				IfNoneMatch: []string{"*"},
+			}
+
+			uploadID, completedParts := newUpload()
+			_, err := layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, completedParts, opts)
+			require.NoError(t, err)
+
+			uploadID, completedParts = newUpload()
+			_, err = layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, completedParts, opts)
+			require.ErrorIs(t, err, minio.PreConditionFailed{})
+
+			_, err = layer.DeleteObject(ctx, bucket, object, minio.ObjectOptions{})
+			require.NoError(t, err)
+
+			uploadID, completedParts = newUpload()
+			_, err = layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, completedParts, opts)
+			require.NoError(t, err)
+		})
+	})
+}
+
 func runTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	runTestWithPathCipher(t, storj.EncNull, false, false, test)
 }

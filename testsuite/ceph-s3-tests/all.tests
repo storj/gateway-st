@@ -141,8 +141,11 @@ s3tests_boto3/functional/test_s3.py::test_get_object_ifunmodifiedsince_good
 s3tests_boto3/functional/test_s3.py::test_get_object_ifunmodifiedsince_failed
 s3tests_boto3/functional/test_s3.py::test_put_object_ifmatch_good
 s3tests_boto3/functional/test_s3.py::test_put_object_ifmatch_overwrite_existed_good
-s3tests_boto3/functional/test_s3.py::test_put_object_ifnonmatch_good
-s3tests_boto3/functional/test_s3.py::test_put_object_ifnonmatch_nonexisted_good
+
+# TODO: re-enable these tests when https://github.com/ceph/s3-tests/issues/583 is solved.
+#s3tests_boto3/functional/test_s3.py::test_put_object_ifnonmatch_good
+#s3tests_boto3/functional/test_s3.py::test_put_object_ifnonmatch_nonexisted_good
+
 s3tests_boto3/functional/test_s3.py::test_bucket_head
 s3tests_boto3/functional/test_s3.py::test_bucket_head_notexist
 s3tests_boto3/functional/test_s3.py::test_object_raw_get_object_acl
