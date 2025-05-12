@@ -5513,7 +5513,7 @@ func TestConditionalWrites(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = layer.PutObject(ctx, bucket, object, newMinioPutObjReader(t), opts)
-			require.ErrorIs(t, err, minio.PreConditionFailed{})
+			require.ErrorIs(t, err, miniogw.ErrFailedPrecondition)
 
 			_, err = layer.DeleteObject(ctx, bucket, object, minio.ObjectOptions{})
 			require.NoError(t, err)
@@ -5537,7 +5537,7 @@ func TestConditionalWrites(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = layer.CopyObject(ctx, bucket, srcObject, bucket, destObject, minio.ObjectInfo{}, minio.ObjectOptions{}, opts)
-			require.ErrorIs(t, err, minio.PreConditionFailed{})
+			require.ErrorIs(t, err, miniogw.ErrFailedPrecondition)
 
 			_, err = layer.DeleteObject(ctx, bucket, destObject, minio.ObjectOptions{})
 			require.NoError(t, err)
@@ -5568,7 +5568,7 @@ func TestConditionalWrites(t *testing.T) {
 
 			uploadID, completedParts = newUpload()
 			_, err = layer.CompleteMultipartUpload(ctx, bucket, object, uploadID, completedParts, opts)
-			require.ErrorIs(t, err, minio.PreConditionFailed{})
+			require.ErrorIs(t, err, miniogw.ErrFailedPrecondition)
 
 			_, err = layer.DeleteObject(ctx, bucket, object, minio.ObjectOptions{})
 			require.NoError(t, err)

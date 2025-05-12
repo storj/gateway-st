@@ -219,6 +219,13 @@ var (
 		Message:    "The list of objects contains too many items.",
 		StatusCode: http.StatusBadRequest,
 	}
+
+	// ErrFailedPrecondition is returned when a precondition is not met, such as If-None-Match for conditional writes.
+	ErrFailedPrecondition = miniogo.ErrorResponse{
+		Code:       "PreconditionFailed",
+		Message:    "At least one of the pre-conditions you specified did not hold",
+		StatusCode: http.StatusPreconditionFailed,
+	}
 )
 
 // Gateway is the implementation of cmd.Gateway.
@@ -1920,7 +1927,7 @@ func ConvertError(err error, bucketName, object string) error {
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
 	case errors.Is(err, versioned.ErrFailedPrecondition):
-		return minio.PreConditionFailed{}
+		return ErrFailedPrecondition
 	case errors.Is(err, versioned.ErrUnimplemented):
 		return minio.NotImplemented{Message: err.Error()}
 	case errors.Is(err, syscall.ECONNRESET):
