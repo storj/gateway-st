@@ -367,7 +367,7 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 		// buckets, but with uplink, we need to explicitly force bucket
 		// deletion.
 		it := project.ListObjects(ctx, bucket, nil)
-		if !it.Next() && it.Err() == nil {
+		if !monItrNext(it, fastListing) && it.Err() == nil {
 			_, err = project.DeleteBucketWithObjects(ctx, bucket)
 			return ConvertError(err, bucket, "")
 		}
@@ -480,7 +480,7 @@ func (layer *gatewayLayer) listObjectsFast(
 	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	var more bool
-	for more = list.Next(); limit > 0 && more; more = list.Next() {
+	for more = monItrNext(list, fastListing); limit > 0 && more; more = monItrNext(list, fastListing) {
 		item := list.Item()
 
 		limit--
@@ -550,7 +550,7 @@ func (layer *gatewayLayer) listObjectsSingle(
 			// Limit: 1, would be nice to set here
 		})
 
-		if list.Next() {
+		if monItrNext(list, singleListing) {
 			prefixes = append(prefixes, p)
 		}
 		if list.Err() != nil {
@@ -696,7 +696,7 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 
 	var items []*uplink.Object
 
-	for i := 0; list.Next(); i++ {
+	for i := 0; monItrNext(list, exhaustiveListing); i++ {
 		if i == layer.compatibilityConfig.MaxKeysExhaustiveLimit {
 			return nil, nil, "", ErrTooManyItemsToList
 		}
@@ -2215,6 +2215,34 @@ func limitResults(limit int, configuredLimit int) int {
 		return configuredLimit - 1
 	}
 	return limit
+}
+
+type listingKind int
+
+const (
+	fastListing listingKind = iota
+	singleListing
+	exhaustiveListing
+)
+
+func (kind listingKind) String() string {
+	switch kind {
+	case fastListing:
+		return "fast"
+	case singleListing:
+		return "single"
+	case exhaustiveListing:
+		return "exhaustive"
+	default:
+		return "unknown"
+	}
+}
+
+// monItrNext is a helper function to track the number of items returned
+// by the object iterator.
+func monItrNext(it *uplink.ObjectIterator, kind listingKind) bool {
+	mon.Counter("ListObjects_items", monkit.NewSeriesTag("kind", kind.String())).Inc(1)
+	return it.Next()
 }
 
 func decodeVersionID(versionID string) ([]byte, error) {
