@@ -361,15 +361,23 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 
 	_, err = project.DeleteBucket(ctx, bucket)
 	if errs.Is(err, uplink.ErrBucketNotEmpty) {
-		// Check if the bucket contains any non-pending objects. If it doesn't,
-		// this would mean there were initiated non-committed and non-aborted
-		// multipart uploads. Other S3 implementations allow deletion of such
-		// buckets, but with uplink, we need to explicitly force bucket
-		// deletion.
-		it := project.ListObjects(ctx, bucket, nil)
-		if !monItrNext(it, fastListing) && it.Err() == nil {
+		// Check if the bucket contains any non-pending objects. If it
+		// doesn't, this would mean there were initiated non-committed
+		// and non-aborted multipart uploads. Other S3 implementations
+		// allow deletion of such buckets, but with uplink, we need to
+		// explicitly force bucket deletion.
+		list, more, listErr := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
+			Recursive: true,
+			Limit:     1,
+		})
+		if listErr != nil {
+			return ConvertError(listErr, bucket, "")
+		}
+		monLstNext(1, singleListing)
+		if len(list) == 0 && !more {
 			_, err = project.DeleteBucketWithObjects(ctx, bucket)
-			return ConvertError(err, bucket, "")
+			// err is handled by the return call (below) this path falls
+			// into.
 		}
 	}
 
@@ -468,37 +476,38 @@ func (layer *gatewayLayer) listObjectsFast(
 	}
 
 	recursive := delimiter == ""
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit) // FIXME(artur): do we still need the alignment?
 
-	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
+	list, more, err := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
 		Prefix:    prefix,
 		Cursor:    strings.TrimPrefix(after, prefix),
 		Recursive: recursive,
 		System:    true,
 		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
+		Limit:     limit,
 	})
+	if err != nil {
+		return nil, nil, "", err
+	}
+	monLstNext(int64(limit), fastListing)
 
-	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
-
-	var more bool
-	for more = monItrNext(list, fastListing); limit > 0 && more; more = monItrNext(list, fastListing) {
-		item := list.Item()
-
-		limit--
-
-		if item.IsPrefix {
-			prefixes = append(prefixes, item.Key)
-		} else {
-			objects = append(objects, minioObjectInfo(bucket, "", item))
+	for _, item := range list {
+		key := item.Key
+		if prefix != "" {
+			key = prefix + key
 		}
 
-		nextContinuationToken = item.Key
-	}
-	if list.Err() != nil {
-		return nil, nil, "", list.Err()
-	}
+		if item.IsPrefix {
+			prefixes = append(prefixes, key)
+		} else {
+			object := minioVersionedObjectInfo(bucket, "", item)
+			object.Name = key
+			objects = append(objects, object)
+		}
 
-	if !more {
-		nextContinuationToken = ""
+		if more {
+			nextContinuationToken = key
+		}
 	}
 
 	return prefixes, objects, nextContinuationToken, nil
@@ -526,7 +535,7 @@ func (layer *gatewayLayer) listObjectsSingle(
 
 	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
-	if limit > 0 && after == "" {
+	if after == "" {
 		object, err := project.StatObject(ctx, bucket, prefix)
 		if err != nil {
 			if !errors.Is(err, uplink.ErrObjectNotFound) {
@@ -541,20 +550,21 @@ func (layer *gatewayLayer) listObjectsSingle(
 		}
 	}
 
-	if limit > 0 && delimiter == "/" && (after == "" || after == prefix) {
+	if delimiter == "/" && (after == "" || after == prefix) {
 		p := prefix + "/"
 
-		list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
+		list, more, err := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
 			Prefix:    p,
 			Recursive: true,
-			// Limit: 1, would be nice to set here
+			Limit:     1,
 		})
-
-		if monItrNext(list, singleListing) {
-			prefixes = append(prefixes, p)
+		if err != nil {
+			return nil, nil, "", err
 		}
-		if list.Err() != nil {
-			return nil, nil, "", list.Err()
+		monLstNext(1, singleListing)
+
+		if len(list) > 0 || more {
+			prefixes = append(prefixes, p)
 		}
 	}
 
@@ -794,6 +804,10 @@ func (layer *gatewayLayer) listObjectsGeneral(
 	startAfter string,
 ) (_ minio.ListObjectsV2Info, err error) {
 	defer mon.Task()(&ctx)(&err)
+
+	if maxKeys == 0 {
+		return minio.ListObjectsV2Info{}, nil
+	}
 
 	var (
 		prefixes []string
@@ -2241,8 +2255,14 @@ func (kind listingKind) String() string {
 // monItrNext is a helper function to track the number of items returned
 // by the object iterator.
 func monItrNext(it *uplink.ObjectIterator, kind listingKind) bool {
-	mon.Counter("ListObjects_items", monkit.NewSeriesTag("kind", kind.String())).Inc(1)
+	monLstNext(1, kind)
 	return it.Next()
+}
+
+// monLstNext is a helper function to track the number of items returned
+// by the listing call.
+func monLstNext(limit int64, kind listingKind) {
+	mon.Counter("ListObjects_items", monkit.NewSeriesTag("kind", kind.String())).Inc(limit)
 }
 
 func decodeVersionID(versionID string) ([]byte, error) {
