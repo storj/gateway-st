@@ -987,7 +987,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		// results instead of the gateway listing exhaustively.
 		if !strings.HasPrefix(key, originalPrefix) {
 			if more {
-				nextMarker = item.Key
+				nextMarker = key
 				nextVersionIDMarker = encodeVersionID(item.Version)
 			}
 			continue
@@ -1002,7 +1002,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		}
 
 		if more {
-			nextMarker = item.Key
+			nextMarker = key
 			nextVersionIDMarker = encodeVersionID(item.Version)
 		}
 	}
