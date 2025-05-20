@@ -3577,18 +3577,18 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
 				prefix:    "",
 				delimiter: "",
 				lenPres:   0,
-				lenObjs:   1,
+				lenObjs:   2,
 			},
 			{
 				prefix:    "p/",
 				delimiter: "/",
-				lenPres:   1,
+				lenPres:   2,
 				lenObjs:   0,
 			},
 			{
 				prefix:    "p",
 				delimiter: "/",
-				lenPres:   0,
+				lenPres:   1,
 				lenObjs:   1,
 			},
 		} {
@@ -3664,7 +3664,7 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 51, // +1 to list 50 (see storj.io/gateway/miniogw limitResults())
+			MaxKeysLimit:                 50,
 			MaxKeysExhaustiveLimit:       100,
 			FullyCompatibleListing:       true, // this is what's important here
 		}

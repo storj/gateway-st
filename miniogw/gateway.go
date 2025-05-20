@@ -476,7 +476,7 @@ func (layer *gatewayLayer) listObjectsFast(
 	}
 
 	recursive := delimiter == ""
-	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit) // FIXME(artur): do we still need the alignment?
+	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	list, more, err := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
 		Prefix:    prefix,
@@ -760,8 +760,8 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	return prefixes, objects, nextContinuationToken, nil
 }
 
-// listObjectsGeneral lists bucket trying to best-effort conform to AWS S3's
-// listing APIs behavior.
+// listObjectsGeneral lists bucket trying to best-effort conform to AWS
+// S3's listing APIs behavior.
 //
 // It tries to list the bucket in three, mutually-exclusive ways:
 //
@@ -769,33 +769,39 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 //  2. Optimized for non-terminated prefix;
 //  3. Exhaustive.
 //
-// If prefix is empty or terminated with a forward slash and delimiter is empty
-// or a forward slash, it will call listObjectsFast to list items the fastest
-// way possible. For requests that come with prefix non-terminated with a
-// forward slash, it will call listObjectsSingle to perform a specific
-// optimization for this type of listing. Finally, for all other requests, e.g.,
-// these that come with a non-forward slash delimiter, it will perform an
-// exhaustive listing calling listObjectsExhaustive as it's the only way to make
-// such bucket listing using libuplink.
+// If prefix is empty or terminated with a forward slash and delimiter
+// is empty or a forward slash, it will call listObjectsFast to list
+// items the fastest way possible. For requests that come with prefix
+// non-terminated with a forward slash, it will call listObjectsSingle
+// to perform a specific optimization for this type of listing. Finally,
+// for all other requests, e.g., these that come with a non-forward
+// slash delimiter, it will perform an exhaustive listing calling
+// listObjectsExhaustive as it's the only way to make such bucket
+// listing using libuplink.
 //
-// Optimization for non-terminated prefixes relies on the fact that much of
-// S3-compatible software uses a call to ListObjects(V2) with a non-terminated
-// prefix to check whether a key that is equal to this prefix exists. It only
-// cares about the first result. Since we can't do such listing with libuplink
-// directly and making an exhaustive listing for this kind of query has terrible
-// performance, we only check if an object exists. We additionally check if
-// there's a prefix object for this prefix because it doesn't cost much more. We
-// return these items in a list alone, setting continuation token to one of
-// them, signaling that there might be more (S3 only guarantees to return not
-// too many items and not as many as possible). If we didn't find anything, we
-// fall back to the exhaustive listing.
+// Optimization for non-terminated prefixes relies on the fact that much
+// of S3-compatible software uses a call to ListObjects(V2) with a
+// non-terminated prefix to check whether a key that is equal to this
+// prefix exists. It only cares about the first result. Since we can't
+// do such listing with libuplink directly and making an exhaustive
+// listing for this kind of query has terrible performance, we only
+// check if an object exists. We additionally check if there's a prefix
+// object for this prefix because it doesn't cost much more. We return
+// these items in a list alone, setting continuation token to one of
+// them, signaling that there might be more (S3 only guarantees to
+// return not too many items and not as many as possible). If we didn't
+// find anything, we fall back to the exhaustive listing.
 //
-// The only S3-incompatible thing that listObjectsGeneral represents is that for
-// fast listing, it will not return items lexicographically ordered, but it is a
-// burden we must all bear.
+// The only S3-incompatible thing that listObjectsGeneral represents is
+// that for fast listing, it will not return items lexicographically
+// ordered, but it is a burden we must all bear.
 //
-// If layer.compatibilityConfig.FullyCompatibleListing is true, it will always
-// list exhaustively to achieve full S3 compatibility. Use at your own risk.
+// If layer.compatibilityConfig.FullyCompatibleListing is true, it will
+// always list exhaustively to achieve full S3 compatibility. Use at
+// your own risk.
+//
+// If maxKeys is 0, it will return an empty minio.ListObjectsV2Info,
+// which later translates into a result that is compatible with AWS S3.
 func (layer *gatewayLayer) listObjectsGeneral(
 	ctx context.Context,
 	project *uplink.Project,
@@ -952,8 +958,6 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 
 	recursive := delimiter == ""
 
-	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
-
 	items, more, err := versioned.ListObjectVersions(ctx, project, bucket, &versioned.ListObjectVersionsOptions{
 		Prefix:        prefix,
 		Cursor:        strings.TrimPrefix(marker, prefix),
@@ -961,7 +965,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		Recursive:     recursive,
 		System:        true,
 		Custom:        layer.compatibilityConfig.IncludeCustomMetadataListing,
-		Limit:         limit,
+		Limit:         limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit),
 	})
 	if err != nil {
 		return minio.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
@@ -2214,19 +2218,27 @@ func verifyIfNoneMatch(val []string) error {
 	return nil
 }
 
-// limitResults returns limit restricted to configuredLimit, aligned with paging
-// limitations on the satellite side. It will also return the highest limit
-// possible if limit is negative. If limit is zero, no keys are returned, which
-// is compatible with AWS S3.
-func limitResults(limit int, configuredLimit int) int {
+// limitResultsWithAlignment is like limitResults, but it aligns with
+// paging limitations on the satellite side.
+func limitResultsWithAlignment(limit int, configuredLimit int) int {
 	if limit < 0 || limit >= configuredLimit {
-		// Return max results with a buffer to gather the continuation token to
-		// avoid paging problems until we have a method in libuplink to get more
-		// info about page boundaries.
+		// Return max results with a buffer to gather the continuation
+		// token to avoid paging problems until we have a method in
+		// libuplink to get more info about page boundaries.
 		if configuredLimit-1 == 0 {
 			return 1
 		}
 		return configuredLimit - 1
+	}
+	return limit
+}
+
+// limitResults returns limit restricted to configuredLimit. It will
+// also return the highest limit possible if limit is negative, which is
+// compatible with AWS S3.
+func limitResults(limit int, configuredLimit int) int {
+	if limit < 0 || limit >= configuredLimit {
+		return configuredLimit
 	}
 	return limit
 }

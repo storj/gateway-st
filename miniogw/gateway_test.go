@@ -12,7 +12,7 @@ import (
 	minio "storj.io/minio/cmd"
 )
 
-func TestLimitResults(t *testing.T) {
+func TestLimitResultsWithAlignment(t *testing.T) {
 	for i, tt := range [...]struct {
 		maxKeys  int
 		expected int
@@ -32,6 +32,31 @@ func TestLimitResults(t *testing.T) {
 		{1000, 999},
 		{4500, 999},
 		{10000, 999},
+	} {
+		assert.Equal(t, tt.expected, limitResultsWithAlignment(tt.maxKeys, 1000), i)
+	}
+}
+
+func TestLimitResults(t *testing.T) {
+	for i, tt := range [...]struct {
+		maxKeys  int
+		expected int
+	}{
+		{-10000, 1000},
+		{-4500, 1000},
+		{-1000, 1000},
+		{-999, 1000},
+		{-998, 1000},
+		{-500, 1000},
+		{-1, 1000},
+		{0, 0},
+		{1, 1},
+		{500, 500},
+		{998, 998},
+		{999, 999},
+		{1000, 1000},
+		{4500, 1000},
+		{10000, 1000},
 	} {
 		assert.Equal(t, tt.expected, limitResults(tt.maxKeys, 1000), i)
 	}

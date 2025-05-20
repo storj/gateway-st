@@ -59,7 +59,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		prefixes      []string
 	)
 
-	limit := limitResults(maxUploads, layer.compatibilityConfig.MaxUploadsLimit)
+	limit := limitResultsWithAlignment(maxUploads, layer.compatibilityConfig.MaxUploadsLimit)
 
 	for limit > 0 && list.Next() {
 		limit--
