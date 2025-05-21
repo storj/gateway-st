@@ -45,17 +45,21 @@ func NewSingleTenantGateway(log *zap.Logger, access *uplink.Access, config uplin
 
 func (g *singleTenantGateway) Name() string { return g.gateway.Name() }
 
-func (g *singleTenantGateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
+func (g *singleTenantGateway) NewGatewayLayer(authCredentials auth.Credentials) (minio.ObjectLayer, error) {
 	project, err := g.config.OpenProject(minio.GlobalContext, g.access)
 	if err != nil {
 		return nil, errs.Wrap(err)
 	}
 
-	layer, err := g.gateway.NewGatewayLayer(creds)
+	layer, err := g.gateway.NewGatewayLayer(authCredentials)
 
 	return &singleTenancyLayer{
 		logger:  g.log,
 		project: project,
+		credentialsInfo: CredentialsInfo{
+			Access: g.access,
+			// TODO(artur): fill the PublicProjectID field as well
+		},
 		layer:   layer,
 		website: g.website,
 	}, err
@@ -66,9 +70,10 @@ func (g *singleTenantGateway) Production() bool { return g.gateway.Production() 
 type singleTenancyLayer struct {
 	minio.GatewayUnsupported
 
-	logger  *zap.Logger
-	project *uplink.Project
-	layer   minio.ObjectLayer
+	logger          *zap.Logger
+	project         *uplink.Project
+	credentialsInfo CredentialsInfo
+	layer           minio.ObjectLayer
 
 	website bool
 }
@@ -110,7 +115,7 @@ func (l *singleTenancyLayer) Shutdown(ctx context.Context) error {
 }
 
 func (l *singleTenancyLayer) StorageInfo(ctx context.Context) (minio.StorageInfo, []error) {
-	info, errors := l.layer.StorageInfo(WithUplinkProject(ctx, l.project))
+	info, errors := l.layer.StorageInfo(WithCredentials(ctx, l.project, l.credentialsInfo))
 
 	for _, err := range errors {
 		_ = l.log(err)
@@ -120,84 +125,84 @@ func (l *singleTenancyLayer) StorageInfo(ctx context.Context) (minio.StorageInfo
 }
 
 func (l *singleTenancyLayer) MakeBucketWithLocation(ctx context.Context, bucket string, opts minio.BucketOptions) error {
-	return l.log(l.layer.MakeBucketWithLocation(WithUplinkProject(ctx, l.project), bucket, opts))
+	return l.log(l.layer.MakeBucketWithLocation(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, opts))
 }
 
 func (l *singleTenancyLayer) GetBucketInfo(ctx context.Context, bucket string) (bucketInfo minio.BucketInfo, err error) {
-	bucketInfo, err = l.layer.GetBucketInfo(WithUplinkProject(ctx, l.project), bucket)
+	bucketInfo, err = l.layer.GetBucketInfo(WithCredentials(ctx, l.project, l.credentialsInfo), bucket)
 	return bucketInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) ListBuckets(ctx context.Context) (buckets []minio.BucketInfo, err error) {
-	buckets, err = l.layer.ListBuckets(WithUplinkProject(ctx, l.project))
+	buckets, err = l.layer.ListBuckets(WithCredentials(ctx, l.project, l.credentialsInfo))
 	return buckets, l.log(err)
 }
 
 func (l *singleTenancyLayer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error {
-	return l.log(l.layer.DeleteBucket(WithUplinkProject(ctx, l.project), bucket, forceDelete))
+	return l.log(l.layer.DeleteBucket(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, forceDelete))
 }
 
 func (l *singleTenancyLayer) GetObjectLockConfig(ctx context.Context, bucket string) (objectLockConfig *objectlock.Config, err error) {
-	objectLockConfig, err = l.layer.GetObjectLockConfig(WithUplinkProject(ctx, l.project), bucket)
+	objectLockConfig, err = l.layer.GetObjectLockConfig(WithCredentials(ctx, l.project, l.credentialsInfo), bucket)
 	return objectLockConfig, l.log(err)
 }
 
 func (l *singleTenancyLayer) SetObjectLockConfig(ctx context.Context, bucket string, objectLockConfig *objectlock.Config) (err error) {
-	return l.log(l.layer.SetObjectLockConfig(WithUplinkProject(ctx, l.project), bucket, objectLockConfig))
+	return l.log(l.layer.SetObjectLockConfig(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, objectLockConfig))
 }
 
 func (l *singleTenancyLayer) GetObjectLegalHold(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectLegalHold, err error) {
-	lh, err := l.layer.GetObjectLegalHold(WithUplinkProject(ctx, l.project), bucketName, object, version)
+	lh, err := l.layer.GetObjectLegalHold(WithCredentials(ctx, l.project, l.credentialsInfo), bucketName, object, version)
 	return lh, l.log(err)
 }
 
 func (l *singleTenancyLayer) SetObjectLegalHold(ctx context.Context, bucket, object, version string, lh *objectlock.ObjectLegalHold) (err error) {
-	err = l.layer.SetObjectLegalHold(WithUplinkProject(ctx, l.project), bucket, object, version, lh)
+	err = l.layer.SetObjectLegalHold(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, version, lh)
 	return l.log(err)
 }
 
 func (l *singleTenancyLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result minio.ListObjectsInfo, err error) {
-	result, err = l.layer.ListObjects(WithUplinkProject(ctx, l.project), bucket, prefix, marker, delimiter, maxKeys)
+	result, err = l.layer.ListObjects(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, prefix, marker, delimiter, maxKeys)
 	return result, l.log(err)
 }
 
 func (l *singleTenancyLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result minio.ListObjectsV2Info, err error) {
-	result, err = l.layer.ListObjectsV2(WithUplinkProject(ctx, l.project), bucket, prefix, continuationToken, delimiter, maxKeys, fetchOwner, startAfter)
+	result, err = l.layer.ListObjectsV2(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, prefix, continuationToken, delimiter, maxKeys, fetchOwner, startAfter)
 	return result, l.log(err)
 }
 
 func (l *singleTenancyLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (result minio.ListObjectVersionsInfo, err error) {
-	result, err = l.layer.ListObjectVersions(WithUplinkProject(ctx, l.project), bucket, prefix, marker, versionMarker, delimiter, maxKeys)
+	result, err = l.layer.ListObjectVersions(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, prefix, marker, versionMarker, delimiter, maxKeys)
 	return result, l.log(err)
 }
 
 func (l *singleTenancyLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
-	reader, err = l.layer.GetObjectNInfo(WithUplinkProject(ctx, l.project), bucket, object, rs, h, lockType, opts)
+	reader, err = l.layer.GetObjectNInfo(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, rs, h, lockType, opts)
 	return reader, l.log(err)
 }
 
 func (l *singleTenancyLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = l.layer.GetObjectInfo(WithUplinkProject(ctx, l.project), bucket, object, opts)
+	objInfo, err = l.layer.GetObjectInfo(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, opts)
 	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = l.layer.PutObject(WithUplinkProject(ctx, l.project), bucket, object, data, opts)
+	objInfo, err = l.layer.PutObject(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, data, opts)
 	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = l.layer.CopyObject(WithUplinkProject(ctx, l.project), srcBucket, srcObject, destBucket, destObject, srcInfo, srcOpts, destOpts)
+	objInfo, err = l.layer.CopyObject(WithCredentials(ctx, l.project, l.credentialsInfo), srcBucket, srcObject, destBucket, destObject, srcInfo, srcOpts, destOpts)
 	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) DeleteObject(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = l.layer.DeleteObject(WithUplinkProject(ctx, l.project), bucket, object, opts)
+	objInfo, err = l.layer.DeleteObject(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, opts)
 	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deleted []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
-	deleted, deleteErrors, err = l.layer.DeleteObjects(WithUplinkProject(ctx, l.project), bucket, objects, opts)
+	deleted, deleteErrors, err = l.layer.DeleteObjects(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, objects, opts)
 
 	for _, deleteError := range deleteErrors {
 		_ = l.log(deleteError.Error)
@@ -207,36 +212,36 @@ func (l *singleTenancyLayer) DeleteObjects(ctx context.Context, bucket string, o
 }
 
 func (l *singleTenancyLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
-	result, err = l.layer.ListMultipartUploads(WithUplinkProject(ctx, l.project), bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
+	result, err = l.layer.ListMultipartUploads(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
 	return result, l.log(err)
 }
 
 func (l *singleTenancyLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
-	uploadID, err = l.layer.NewMultipartUpload(WithUplinkProject(ctx, l.project), bucket, object, opts)
+	uploadID, err = l.layer.NewMultipartUpload(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, opts)
 	return uploadID, l.log(err)
 }
 
 func (l *singleTenancyLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
-	info, err = l.layer.PutObjectPart(WithUplinkProject(ctx, l.project), bucket, object, uploadID, partID, data, opts)
+	info, err = l.layer.PutObjectPart(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, partID, data, opts)
 	return info, l.log(err)
 }
 
 func (l *singleTenancyLayer) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
-	info, err = l.layer.GetMultipartInfo(WithUplinkProject(ctx, l.project), bucket, object, uploadID, opts)
+	info, err = l.layer.GetMultipartInfo(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, opts)
 	return info, l.log(err)
 }
 
 func (l *singleTenancyLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
-	result, err = l.layer.ListObjectParts(WithUplinkProject(ctx, l.project), bucket, object, uploadID, partNumberMarker, maxParts, opts)
+	result, err = l.layer.ListObjectParts(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, partNumberMarker, maxParts, opts)
 	return result, l.log(err)
 }
 
 func (l *singleTenancyLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts minio.ObjectOptions) error {
-	return l.log(l.layer.AbortMultipartUpload(WithUplinkProject(ctx, l.project), bucket, object, uploadID, opts))
+	return l.log(l.layer.AbortMultipartUpload(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, opts))
 }
 
 func (l *singleTenancyLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
-	objInfo, err = l.layer.CompleteMultipartUpload(WithUplinkProject(ctx, l.project), bucket, object, uploadID, uploadedParts, opts)
+	objInfo, err = l.layer.CompleteMultipartUpload(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, uploadedParts, opts)
 	return objInfo, l.log(err)
 }
 
@@ -279,36 +284,36 @@ func (l *singleTenancyLayer) IsTaggingSupported() bool {
 }
 
 func (l *singleTenancyLayer) PutObjectTags(ctx context.Context, bucketName, objectPath string, tags string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
-	objInfo, err := l.layer.PutObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, tags, opts)
+	objInfo, err := l.layer.PutObjectTags(WithCredentials(ctx, l.project, l.credentialsInfo), bucketName, objectPath, tags, opts)
 	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) GetObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
-	t, err = l.layer.GetObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, opts)
+	t, err = l.layer.GetObjectTags(WithCredentials(ctx, l.project, l.credentialsInfo), bucketName, objectPath, opts)
 	return t, l.log(err)
 }
 
 func (l *singleTenancyLayer) DeleteObjectTags(ctx context.Context, bucketName, objectPath string, opts minio.ObjectOptions) (minio.ObjectInfo, error) {
-	objInfo, err := l.layer.DeleteObjectTags(WithUplinkProject(ctx, l.project), bucketName, objectPath, opts)
+	objInfo, err := l.layer.DeleteObjectTags(WithCredentials(ctx, l.project, l.credentialsInfo), bucketName, objectPath, opts)
 	return objInfo, l.log(err)
 }
 
 func (l *singleTenancyLayer) GetBucketVersioning(ctx context.Context, bucket string) (_ *versioning.Versioning, err error) {
-	versioning, err := l.layer.GetBucketVersioning(WithUplinkProject(ctx, l.project), bucket)
+	versioning, err := l.layer.GetBucketVersioning(WithCredentials(ctx, l.project, l.credentialsInfo), bucket)
 	return versioning, l.log(err)
 }
 
 func (l *singleTenancyLayer) SetBucketVersioning(ctx context.Context, bucket string, v *versioning.Versioning) (err error) {
-	err = l.layer.SetBucketVersioning(WithUplinkProject(ctx, l.project), bucket, v)
+	err = l.layer.SetBucketVersioning(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, v)
 	return l.log(err)
 }
 
 func (l *singleTenancyLayer) GetObjectRetention(ctx context.Context, bucket, object, versionID string) (_ *objectlock.ObjectRetention, err error) {
-	retention, err := l.layer.GetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID)
+	retention, err := l.layer.GetObjectRetention(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, versionID)
 	return retention, l.log(err)
 }
 
 func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, opts minio.ObjectOptions) (err error) {
-	err = l.layer.SetObjectRetention(WithUplinkProject(ctx, l.project), bucket, object, versionID, opts)
+	err = l.layer.SetObjectRetention(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, versionID, opts)
 	return l.log(err)
 }

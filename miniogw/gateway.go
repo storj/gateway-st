@@ -2007,11 +2007,11 @@ func asDeleteObjectsError(err error) error {
 }
 
 func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
-	pr, ok := GetUplinkProject(ctx)
+	c, ok := GetCredentials(ctx)
 	if !ok {
 		return nil, ConvertError(ErrNoUplinkProject.New("not found"), bucket, object)
 	}
-	return pr, nil
+	return c.Project, nil
 }
 
 func upsertObjectMetadata(metadata map[string]string, existingMetadata uplink.CustomMetadata) {

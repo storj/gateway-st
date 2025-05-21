@@ -86,7 +86,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		defer tCtx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctx := miniogw.WithUplinkProject(tCtx, project)
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -903,7 +903,7 @@ func TestSetObjectRetention(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -1979,7 +1979,7 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -2078,7 +2078,7 @@ func TestDeleteObjects(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -2207,7 +2207,7 @@ func TestDeleteObjects(t *testing.T) {
 			require.NoError(t, err)
 			defer ctx.Check(project.Close)
 
-			ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+			ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 			obj := createObject(t, prefix, metaclient.Retention{})
 
@@ -3660,7 +3660,7 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		s3Compatibility := miniogw.S3CompatibilityConfig{
 			IncludeCustomMetadataListing: true,
@@ -4911,7 +4911,7 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 		defer func() { require.NoError(t, projectWithRestrictedAccess.Close()) }()
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, projectWithRestrictedAccess)
+		ctxWithProject := miniogw.WithCredentials(ctx, projectWithRestrictedAccess, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -5365,7 +5365,7 @@ func TestProjectUsageLimit(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -5431,7 +5431,7 @@ func TestSlowDown(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -5456,7 +5456,7 @@ func TestSlowDown(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -5615,7 +5615,7 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versionin
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithUplinkProject(ctx, project)
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
