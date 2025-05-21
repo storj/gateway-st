@@ -15,6 +15,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.25.0
 	storj.io/common v0.0.0-20250516203136-6ed112765e5d
+	storj.io/eventkit v0.0.0-20240415002644-1d9596fee086
 	storj.io/minio v0.0.0-20250505044116-871bf178a1a9
 	storj.io/uplink v1.13.2-0.20250519121701-eea66af8328e
 )
@@ -204,7 +205,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	storj.io/drpc v0.0.35-0.20240709171858-0075ac871661 // indirect
-	storj.io/eventkit v0.0.0-20240415002644-1d9596fee086 // indirect
 	storj.io/infectious v0.0.2 // indirect
 	storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd // indirect
 	storj.io/picobuf v0.0.3 // indirect

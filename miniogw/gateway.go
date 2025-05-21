@@ -24,6 +24,7 @@ import (
 	"storj.io/common/storj"
 	"storj.io/common/sync2"
 	"storj.io/common/version"
+	"storj.io/eventkit"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -40,7 +41,7 @@ import (
 )
 
 var (
-	mon = monkit.Package()
+	mon, ek = monkit.Package(), eventkit.Package()
 
 	// ErrInternalError is a generic error response for internal errors.
 	ErrInternalError = miniogo.ErrorResponse{
@@ -1423,14 +1424,6 @@ func asDeleteObjectsError(err error) error {
 		return ErrDeleteObjectsTooManyItems
 	}
 	return nil
-}
-
-func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
-	c, ok := GetCredentials(ctx)
-	if !ok {
-		return nil, ConvertError(ErrNoUplinkProject.New("not found"), bucket, object)
-	}
-	return c.Project, nil
 }
 
 func upsertObjectMetadata(metadata map[string]string, existingMetadata uplink.CustomMetadata) {

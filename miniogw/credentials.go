@@ -41,3 +41,19 @@ func GetCredentials(ctx context.Context) (Credentials, bool) {
 	c, ok := ctx.Value(credentialsKey{}).(Credentials)
 	return c, ok
 }
+
+func credentialsFromContext(ctx context.Context) (Credentials, error) {
+	c, ok := GetCredentials(ctx)
+	if !ok {
+		return Credentials{}, ErrNoUplinkProject.New("credentials not found")
+	}
+	return c, nil
+}
+
+func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
+	c, err := credentialsFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.Project, nil
+}

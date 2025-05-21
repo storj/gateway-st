@@ -10,12 +10,15 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/spacemonkeygo/monkit/v3"
 
+	"storj.io/eventkit"
 	minio "storj.io/minio/cmd"
 	"storj.io/uplink"
+	"storj.io/uplink/private/access"
 	versioned "storj.io/uplink/private/object"
 )
 
@@ -159,6 +162,21 @@ func (layer *gatewayLayer) listObjectsSingle(
 	return prefixes, objects, nextContinuationToken, nil
 }
 
+func ctxCredentialsToTags(ctx context.Context) []eventkit.Tag {
+	var tags []eventkit.Tag
+	credentials, err := credentialsFromContext(ctx)
+	if err != nil {
+		return tags
+	}
+	if credentials.PublicProjectID != "" {
+		tags = append(tags, eventkit.String("public_project_id", credentials.PublicProjectID))
+	}
+	if credentials.Access != nil {
+		tags = append(tags, eventkit.Bytes("macaroon_head", access.APIKey(credentials.Access).Head()))
+	}
+	return tags
+}
+
 // collapseKey returns a key, if possible, that begins with prefix and ends with
 // delimiter, sharing a path with key. Otherwise, it returns false.
 func collapseKey(prefix, delimiter, key string) (commonPrefix string, collapsed bool) {
@@ -271,6 +289,16 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	if i := strings.LastIndex(prefix, "/"); i != -1 {
 		listPrefix = prefix[:i] + "/"
 	}
+
+	now := time.Now()
+	defer func() {
+		tags := ctxCredentialsToTags(ctx)
+		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
+		tags = append(tags, eventkit.Bool("prefix_optimization_applied", listPrefix != ""))
+		tags = append(tags, eventkit.Bool("well_known_prefix", strings.HasSuffix(prefix, "/")))
+		tags = append(tags, eventkit.Bool("well_known_delimiter", delimiter == "/" || delimiter == ""))
+		ek.Event("ListObjects_exhaustive", tags...)
+	}()
 
 	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
 		Prefix:    listPrefix,
