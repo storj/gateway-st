@@ -551,6 +551,10 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		return minio.ListObjectVersionsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
+	if maxKeys == 0 {
+		return minio.ListObjectVersionsInfo{}, nil
+	}
+
 	project, err := projectFromContext(ctx, bucket, "")
 	if err != nil {
 		return minio.ListObjectVersionsInfo{}, err
