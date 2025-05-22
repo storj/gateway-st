@@ -2418,7 +2418,7 @@ func TestListObjects(t *testing.T) {
 	t.Run("once", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjects(t, f)
+		testListObjects(t, f, true)
 	})
 	t.Run("loop", func(t *testing.T) {
 		t.Parallel()
@@ -2443,7 +2443,7 @@ func TestListObjects(t *testing.T) {
 	t.Run("limits", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsLimits(t, f)
+		testListObjectsLimits(t, f, true)
 	})
 }
 
@@ -2461,7 +2461,7 @@ func TestListObjectsV2(t *testing.T) {
 	t.Run("once", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjects(t, f)
+		testListObjects(t, f, true)
 	})
 	t.Run("loop", func(t *testing.T) {
 		t.Parallel()
@@ -2486,11 +2486,50 @@ func TestListObjectsV2(t *testing.T) {
 	t.Run("limits", func(t *testing.T) {
 		t.Parallel()
 
-		testListObjectsLimits(t, f)
+		testListObjectsLimits(t, f, true)
 	})
 }
 
-func testListObjects(t *testing.T, listObjects listObjectsFunc) {
+func TestListObjectVersions(t *testing.T) {
+	t.Parallel()
+
+	f := func(ctx context.Context, layer minio.ObjectLayer, bucket, prefix, marker, delimiter string, maxKeys int) ([]string, []minio.ObjectInfo, string, string, bool, error) {
+		list, err := layer.ListObjectVersions(ctx, bucket, prefix, marker, "", delimiter, maxKeys)
+		if err != nil {
+			return nil, nil, "", "", false, err
+		}
+		return list.Prefixes, list.Objects, marker, list.NextMarker, list.IsTruncated, nil
+	}
+
+	t.Run("once", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjects(t, f, false)
+	})
+	t.Run("loop", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsLoop(t, f)
+	})
+	t.Run("stat", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsStatLoop(t, f)
+	})
+
+	// NOTE(artur): testListObjectsArbitraryPrefixDelimiter &&
+	// testListObjectsArbitraryPrefixDelimiter are going to fail for
+	// ListObjectVersions because it doesn't support arbitrary
+	// delimiters.
+
+	t.Run("limits", func(t *testing.T) {
+		t.Parallel()
+
+		testListObjectsLimits(t, f, false)
+	})
+}
+
+func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOptimization bool) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects in a bucket with empty name
 		_, _, _, _, _, err := listObjects(ctx, layer, "", "", "", "/", maxKeysLimit)
@@ -2542,14 +2581,15 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 		sort.Strings(filePaths)
 
 		for i, tt := range []struct {
-			name      string
-			prefix    string
-			marker    string
-			delimiter string
-			maxKeys   int
-			more      bool
-			prefixes  []string
-			objects   []string
+			name                          string
+			prefix                        string
+			marker                        string
+			delimiter                     string
+			maxKeys                       int
+			more                          bool
+			prefixes                      []string
+			objects                       []string
+			listSingleOptimizationRelated bool
 		}{
 			{
 				name:      "Basic non-recursive",
@@ -2697,65 +2737,73 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				more:    true,
 				objects: []string{"a/xc", "aa", "b", "b/ya", "b/yaa"},
 			}, {
-				name:     "list as stat, recursive, object, prefix, and object-with-prefix exist",
-				prefix:   "i",
-				more:     true,
-				maxKeys:  maxKeysLimit,
-				prefixes: nil,
-				objects:  []string{"i"},
+				name:                          "list as stat, recursive, object, prefix, and object-with-prefix exist",
+				prefix:                        "i",
+				more:                          true,
+				maxKeys:                       maxKeysLimit,
+				prefixes:                      nil,
+				objects:                       []string{"i"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:      "list as stat, nonrecursive, object, prefix, and object-with-prefix exist",
-				prefix:    "i",
-				delimiter: "/",
-				maxKeys:   maxKeysLimit,
-				more:      true,
-				prefixes:  []string{"i/"},
-				objects:   []string{"i"},
+				name:                          "list as stat, nonrecursive, object, prefix, and object-with-prefix exist",
+				prefix:                        "i",
+				delimiter:                     "/",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      []string{"i/"},
+				objects:                       []string{"i"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:     "list as stat, recursive, object and prefix exist, no object-with-prefix",
-				prefix:   "j",
-				maxKeys:  maxKeysLimit,
-				more:     true,
-				prefixes: nil,
-				objects:  []string{"j"},
+				name:                          "list as stat, recursive, object and prefix exist, no object-with-prefix",
+				prefix:                        "j",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      nil,
+				objects:                       []string{"j"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:      "list as stat, nonrecursive, object and prefix exist, no object-with-prefix",
-				prefix:    "j",
-				delimiter: "/",
-				maxKeys:   maxKeysLimit,
-				more:      true,
-				prefixes:  []string{"j/"},
-				objects:   []string{"j"},
+				name:                          "list as stat, nonrecursive, object and prefix exist, no object-with-prefix",
+				prefix:                        "j",
+				delimiter:                     "/",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      []string{"j/"},
+				objects:                       []string{"j"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:     "list as stat, recursive, object and object-with-prefix exist, no prefix",
-				prefix:   "k",
-				maxKeys:  maxKeysLimit,
-				more:     true,
-				prefixes: nil,
-				objects:  []string{"k"},
+				name:                          "list as stat, recursive, object and object-with-prefix exist, no prefix",
+				prefix:                        "k",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      nil,
+				objects:                       []string{"k"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:      "list as stat, nonrecursive, object and object-with-prefix exist, no prefix",
-				prefix:    "k",
-				delimiter: "/",
-				maxKeys:   maxKeysLimit,
-				more:      true,
-				prefixes:  nil,
-				objects:   []string{"k"},
+				name:                          "list as stat, nonrecursive, object and object-with-prefix exist, no prefix",
+				prefix:                        "k",
+				delimiter:                     "/",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      nil,
+				objects:                       []string{"k"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:     "list as stat, recursive, object exists, no object-with-prefix or prefix",
-				prefix:   "l",
-				maxKeys:  maxKeysLimit,
-				more:     true,
-				prefixes: nil,
-				objects:  []string{"l"},
+				name:                          "list as stat, recursive, object exists, no object-with-prefix or prefix",
+				prefix:                        "l",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      nil,
+				objects:                       []string{"l"},
+				listSingleOptimizationRelated: true,
 			}, {
-				name:      "list as stat, nonrecursive, object exists, no object-with-prefix or prefix",
-				prefix:    "l",
-				delimiter: "/",
-				maxKeys:   maxKeysLimit,
-				more:      true,
-				prefixes:  nil,
-				objects:   []string{"l"},
+				name:                          "list as stat, nonrecursive, object exists, no object-with-prefix or prefix",
+				prefix:                        "l",
+				delimiter:                     "/",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      nil,
+				objects:                       []string{"l"},
+				listSingleOptimizationRelated: true,
 			}, {
 				name:     "list as stat, recursive, prefix, and object-with-prefix exist, no object (fallback to exhaustive)",
 				prefix:   "m",
@@ -2763,13 +2811,14 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				prefixes: nil,
 				objects:  []string{"m/i", "mm"},
 			}, {
-				name:      "list as stat, nonrecursive, prefix, and object-with-prefix exist, no object",
-				prefix:    "m",
-				delimiter: "/",
-				maxKeys:   maxKeysLimit,
-				more:      true,
-				prefixes:  []string{"m/"},
-				objects:   nil,
+				name:                          "list as stat, nonrecursive, prefix, and object-with-prefix exist, no object",
+				prefix:                        "m",
+				delimiter:                     "/",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      []string{"m/"},
+				objects:                       nil,
+				listSingleOptimizationRelated: true,
 			}, {
 				name:     "list as stat, recursive, prefix exists, no object-with-prefix, no object (fallback to exhaustive)",
 				prefix:   "n",
@@ -2777,13 +2826,14 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				prefixes: nil,
 				objects:  []string{"n/i"},
 			}, {
-				name:      "list as stat, nonrecursive, prefix exists, no object-with-prefix, no object",
-				prefix:    "n",
-				delimiter: "/",
-				maxKeys:   maxKeysLimit,
-				more:      true,
-				prefixes:  []string{"n/"},
-				objects:   nil,
+				name:                          "list as stat, nonrecursive, prefix exists, no object-with-prefix, no object",
+				prefix:                        "n",
+				delimiter:                     "/",
+				maxKeys:                       maxKeysLimit,
+				more:                          true,
+				prefixes:                      []string{"n/"},
+				objects:                       nil,
+				listSingleOptimizationRelated: true,
 			}, {
 				name:     "list as stat, recursive, object-with-prefix exists, no prefix, no object (fallback to exhaustive)",
 				prefix:   "o",
@@ -2811,6 +2861,10 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc) {
 				objects:   nil,
 			},
 		} {
+			if !testListSingleOptimization && tt.listSingleOptimizationRelated {
+				continue
+			}
+
 			errTag := fmt.Sprintf("%d. %+v", i, tt)
 
 			// Check that the expected objects can be listed using the Minio API
@@ -3540,7 +3594,7 @@ func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer m
 	return gotPrefixes, gotObjects, nil
 }
 
-func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
+func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc, testListExhaustiveOptimization bool) {
 	runTest(t, func(t *testing.T, ctx context.Context, _ minio.ObjectLayer, project *uplink.Project) {
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
@@ -3550,6 +3604,7 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
 			"p/a/d",
 			"p/b/d",
 			"p/c/d",
+			"q",
 		} {
 			_, err := createFile(ctx, project, testBucketInfo.Name, key, nil, nil)
 			require.NoError(t, err)
@@ -3602,8 +3657,10 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc) {
 			assert.True(t, truncated)
 		}
 
-		_, _, _, _, _, err = listObjects(ctx, l, testBucketInfo.Name, "p/a", "p/b/d", "/d", 1)
-		require.ErrorIs(t, err, miniogw.ErrTooManyItemsToList, "MaxKeysExhaustiveLimit")
+		if testListExhaustiveOptimization {
+			_, _, _, _, _, err = listObjects(ctx, l, testBucketInfo.Name, "p/a", "p/b/d", "/d", 1)
+			require.ErrorIs(t, err, miniogw.ErrTooManyItemsToList, "MaxKeysExhaustiveLimit")
+		}
 
 		require.NoError(t, l.Shutdown(ctx))
 	})
