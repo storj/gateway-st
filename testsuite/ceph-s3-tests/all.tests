@@ -760,8 +760,8 @@ s3tests_boto3/functional/test_s3.py::test_object_lock_get_obj_metadata
 s3tests_boto3/functional/test_s3.py::test_object_lock_uploading_obj
 # TODO: re-enable changing mode tests when https://github.com/storj/edge/issues/529 is solved.
 # s3tests_boto3/functional/test_s3.py::test_object_lock_changing_mode_from_governance_with_bypass
-# s3tests_boto3/functional/test_s3.py::test_object_lock_changing_mode_from_governance_without_bypass
-# s3tests_boto3/functional/test_s3.py::test_object_lock_changing_mode_from_compliance
+s3tests_boto3/functional/test_s3.py::test_object_lock_changing_mode_from_governance_without_bypass
+s3tests_boto3/functional/test_s3.py::test_object_lock_changing_mode_from_compliance
 s3tests_boto3/functional/test_s3.py::test_copy_object_ifmatch_good
 s3tests_boto3/functional/test_s3.py::test_copy_object_ifmatch_failed
 s3tests_boto3/functional/test_s3.py::test_copy_object_ifnonematch_good
