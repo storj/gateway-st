@@ -1,8 +1,8 @@
 module storj.io/gateway
 
-go 1.21
+go 1.23.0
 
-toolchain go1.21.0
+toolchain go1.24.2
 
 require (
 	github.com/minio/cli v1.22.0
@@ -13,11 +13,11 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/term v0.25.0
-	storj.io/common v0.0.0-20250516203136-6ed112765e5d
-	storj.io/eventkit v0.0.0-20240415002644-1d9596fee086
+	golang.org/x/term v0.32.0
+	storj.io/common v0.0.0-20250522165802-807832ddbca1
+	storj.io/eventkit v0.0.0-20250410172343-61f26d3de156
 	storj.io/minio v0.0.0-20250505044116-871bf178a1a9
-	storj.io/uplink v1.13.2-0.20250519121701-eea66af8328e
+	storj.io/uplink v1.13.2-0.20250523121258-d2d134cb6a83
 )
 
 require (
@@ -180,14 +180,14 @@ require (
 	go.opentelemetry.io/otel/metric v1.29.0 // indirect
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/crypto v0.28.0 // indirect
+	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/net v0.30.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
@@ -204,8 +204,8 @@ require (
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	storj.io/drpc v0.0.35-0.20240709171858-0075ac871661 // indirect
+	storj.io/drpc v0.0.35-0.20250513201419-f7819ea69b55 // indirect
 	storj.io/infectious v0.0.2 // indirect
 	storj.io/monkit-jaeger v0.0.0-20240221095020-52b0792fa6cd // indirect
-	storj.io/picobuf v0.0.3 // indirect
+	storj.io/picobuf v0.0.4 // indirect
 )
