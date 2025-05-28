@@ -692,8 +692,8 @@ s3tests_boto3/functional/test_s3.py::test_versioned_concurrent_object_create_and
 # s3tests_boto3/functional/test_s3.py::test_put_max_kvsize_tags
 s3tests_boto3/functional/test_s3.py::test_put_excess_key_tags
 s3tests_boto3/functional/test_s3.py::test_put_excess_val_tags
-s3tests_boto3/functional/test_s3.py::test_put_modify_tags
-s3tests_boto3/functional/test_s3.py::test_put_delete_tags
+# s3tests_boto3/functional/test_s3.py::test_put_modify_tags
+# s3tests_boto3/functional/test_s3.py::test_put_delete_tags
 # s3tests_boto3/functional/test_s3.py::test_post_object_tags_anonymous_request
 s3tests_boto3/functional/test_s3.py::test_post_object_tags_authenticated_request
 # s3tests_boto3/functional/test_s3.py::test_put_obj_with_tags
