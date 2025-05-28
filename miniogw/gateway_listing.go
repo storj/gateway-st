@@ -74,7 +74,7 @@ func (layer *gatewayLayer) listObjectsFast(
 	if err != nil {
 		return nil, nil, "", err
 	}
-	monLstNext(int64(limit), fastListing)
+	monLstNext(int64(len(list)), fastListing)
 
 	for _, item := range list {
 		key := item.Key
