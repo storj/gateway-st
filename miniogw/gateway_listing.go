@@ -171,8 +171,10 @@ func ctxCredentialsToTags(ctx context.Context) []eventkit.Tag {
 	if credentials.PublicProjectID != "" {
 		tags = append(tags, eventkit.String("public_project_id", credentials.PublicProjectID))
 	}
-	if credentials.Access != nil {
-		tags = append(tags, eventkit.Bytes("macaroon_head", access.APIKey(credentials.Access).Head()))
+	ag := credentials.Access
+	if ag != nil {
+		tags = append(tags, eventkit.Bytes("macaroon_head", access.APIKey(ag).Head()))
+		tags = append(tags, eventkit.String("satellite_address", ag.SatelliteAddress()))
 	}
 	return tags
 }
