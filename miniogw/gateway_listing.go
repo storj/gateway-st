@@ -292,9 +292,11 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 		listPrefix = prefix[:i] + "/"
 	}
 
+	var fetchedCount int64
 	now := time.Now()
 	defer func() {
 		tags := ctxCredentialsToTags(ctx)
+		tags = append(tags, eventkit.Int64("fetched_count", fetchedCount))
 		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
 		tags = append(tags, eventkit.Bool("prefix_optimization_applied", listPrefix != ""))
 		tags = append(tags, eventkit.Bool("well_known_prefix", strings.HasSuffix(prefix, "/")))
@@ -319,6 +321,8 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	var items []*uplink.Object
 
 	for i := 0; monItrNext(list, exhaustiveListing); i++ {
+		fetchedCount++
+
 		if i == layer.compatibilityConfig.MaxKeysExhaustiveLimit {
 			return nil, nil, "", ErrTooManyItemsToList
 		}
@@ -687,6 +691,6 @@ func monItrNext(it *uplink.ObjectIterator, kind listingKind) bool {
 
 // monLstNext is a helper function to track the number of items returned
 // by the listing call.
-func monLstNext(limit int64, kind listingKind) {
-	mon.Counter("ListObjects_items", monkit.NewSeriesTag("kind", kind.String())).Inc(limit)
+func monLstNext(delta int64, kind listingKind) {
+	mon.Counter("ListObjects_items", monkit.NewSeriesTag("kind", kind.String())).Inc(delta)
 }
