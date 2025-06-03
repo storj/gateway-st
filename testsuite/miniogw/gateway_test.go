@@ -50,6 +50,8 @@ import (
 
 const (
 	testBucket      = "test-bucket"
+	testBucketB     = "test-bucket-b"
+	testBucketC     = "test-bucket-c"
 	testFile        = "test-file"
 	testFile2       = "test-file-2"
 	testFile3       = "test-file-3"
@@ -121,19 +123,19 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		err = planet.Satellites[0].API.DB.Console().Projects().UpdateDefaultPlacement(ctx, projectID, storj.DefaultPlacement)
 		require.NoError(t, err)
 
-		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		err = layer.MakeBucketWithLocation(ctx, testBucketB, minio.BucketOptions{
 			Location: "Poland",
 		})
 		require.NoError(t, err)
 
-		placement, err = bucketsDB.GetBucketPlacement(ctx, []byte(testBucket), projectID)
+		placement, err = bucketsDB.GetBucketPlacement(ctx, []byte(testBucketB), projectID)
 		require.NoError(t, err)
 		require.Equal(t, storj.PlacementConstraint(40), placement)
 
-		err = layer.DeleteBucket(ctx, testBucket, true)
+		err = layer.DeleteBucket(ctx, testBucketB, true)
 		require.NoError(t, err)
 
-		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		err = layer.MakeBucketWithLocation(ctx, testBucketB, minio.BucketOptions{
 			Location: "EU",
 		})
 		require.True(t, metaclient.ErrInvalidPlacement.Has(err))
@@ -144,14 +146,14 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		// passing invalid placement should not fail if self-serve placement is disabled.
 		// This is for backward compatibility with integration tests that'll pass placements
 		// regardless of self-serve placement being enabled or not.
-		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
+		err = layer.MakeBucketWithLocation(ctx, testBucketC, minio.BucketOptions{
 			Location: "EU", // invalid placement
 		})
 		require.NoError(t, err)
 
 		// placement should be set to default event though a placement was passed
 		// because self-serve placement is disabled.
-		placement, err = planet.Satellites[0].API.DB.Buckets().GetBucketPlacement(ctx, []byte(testBucket), projectID)
+		placement, err = planet.Satellites[0].API.DB.Buckets().GetBucketPlacement(ctx, []byte(testBucketC), projectID)
 		require.NoError(t, err)
 		require.Equal(t, storj.DefaultPlacement, placement)
 	})

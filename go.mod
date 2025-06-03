@@ -17,7 +17,7 @@ require (
 	storj.io/common v0.0.0-20250529081337-15d9add689d4
 	storj.io/eventkit v0.0.0-20250410172343-61f26d3de156
 	storj.io/minio v0.0.0-20250505044116-871bf178a1a9
-	storj.io/uplink v1.13.2-0.20250529124627-1197eab6410a
+	storj.io/uplink v1.13.2-0.20250602143429-348b2b0a4cdd
 )
 
 require (
