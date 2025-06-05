@@ -383,13 +383,13 @@ integration-network-remove:
 .PHONY: integration-services-start
 integration-services-start:
 	storj-up network set minimal,db integration-network-${BUILD_NUMBER} && \
-        storj-up network unset minimal,db default && \
-        storj-up env setenv satellite-api STORJ_CONSOLE_SIGNUP_ACTIVATION_CODE_ENABLED=false && \
-        storj-up env setenv satellite-api STORJ_METAINFO_USE_BUCKET_LEVEL_OBJECT_VERSIONING=true && \
-        storj-up env setenv satellite-api STORJ_METAINFO_OBJECT_LOCK_ENABLED=true && \
-        storj-up env setenv satellite-api STORJ_METAINFO_DELETE_OBJECTS_ENABLED=true && \
-        docker compose up -d && \
-        storj-up health
+	storj-up network unset minimal,db default && \
+	storj-up env setenv satellite-api STORJ_CONSOLE_SIGNUP_ACTIVATION_CODE_ENABLED=false && \
+	storj-up env setenv satellite-api STORJ_METAINFO_USE_BUCKET_LEVEL_OBJECT_VERSIONING=true && \
+	storj-up env setenv satellite-api STORJ_METAINFO_OBJECT_LOCK_ENABLED=true && \
+	storj-up env setenv satellite-api STORJ_METAINFO_DELETE_OBJECTS_ENABLED=true && \
+	docker compose up -d && \
+	storj-up health
 
 	$$(docker compose exec -T satellite-api storj-up credentials -p -e -s satellite-api:7777) && \
 	docker run \
