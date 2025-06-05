@@ -326,7 +326,6 @@ integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to
 integration-ceph-tests: ## (environment needs to be started first)
 	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
-	--cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	--network integration-network-${BUILD_NUMBER} \
 	-e GATEWAY_0_ADDR=gateway:9999 \
 	-e "GATEWAY_0_ACCESS_KEY=$$AWS_ACCESS_KEY_ID" \
