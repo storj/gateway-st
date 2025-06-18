@@ -4245,15 +4245,6 @@ func TestNewMultipartUploadWithOL(t *testing.T) {
 	})
 }
 
-func TestCopyObjectPart(t *testing.T) {
-	t.Parallel()
-
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		_, err := layer.CopyObjectPart(ctx, "srcBucket", "srcObject", "destBucket", "destObject", "uploadID", 0, 0, 10, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
-		require.EqualError(t, err, minio.NotImplemented{}.Error())
-	})
-}
-
 func TestStorageClassSupport(t *testing.T) {
 	t.Parallel()
 

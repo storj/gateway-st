@@ -24,6 +24,7 @@ type S3CompatibilityConfig struct {
 	MaxUploadsLimit              int   `help:"MaxUploads parameter limit for S3's ListMultipartUploads responses" default:"1000"`
 	FullyCompatibleListing       bool  `help:"make ListObjects(V2) fully S3-compatible (specifically: always return lexicographically ordered results) but slow" default:"false"`
 	DisableCopyObject            bool  `help:"return 501 (Not Implemented) for CopyObject calls" default:"false"`
+	DisableUploadPartCopy        bool  `help:"return 501 (Not Implemented) for UploadPartCopy calls" default:"false"`
 	MinPartSize                  int64 `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
 	DeleteObjectsConcurrency     int   `help:"how many objects to delete in parallel with DeleteObjects" default:"100"`
 }
