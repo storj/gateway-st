@@ -331,14 +331,14 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOp
 			}, {
 				name:      "Prefix non-recursive with mark",
 				prefix:    "a/",
-				marker:    "xb",
+				marker:    "a/xb",
 				delimiter: "/",
 				maxKeys:   maxKeysLimit,
 				objects:   []string{"xbb", "xc"},
 			}, {
 				name:      "Prefix non-recursive with mark and max keys",
 				prefix:    "a/",
-				marker:    "xaa",
+				marker:    "a/xaa",
 				delimiter: "/",
 				maxKeys:   2,
 				more:      true,
@@ -1290,14 +1290,9 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc, testListEx
 	})
 }
 
-// TestListObjectsFullyCompatible tests whether exhaustive listing's results
-// are, e.g., lexicographically ordered. It also tests cases when incorrectly
-// implemented obvious exhaustive listing optimizations (in the context of
-// libuplink API) might return wrong results. It cannot test whether such
-// optimizations exist (there are other ways to check this).
-func TestListObjectsFullyCompatible(t *testing.T) {
-	t.Parallel()
-
+// testListObjectsCompatibility contains the common test logic for both
+// fully compatible and fast arbitrary prefix tests
+func testListObjectsCompatibility(t *testing.T, s3Compatibility miniogw.S3CompatibilityConfig) {
 	bucketName := testrand.BucketName()
 
 	const (
@@ -1341,14 +1336,7 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
-
-		s3Compatibility := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 50,
-			MaxKeysExhaustiveLimit:       100,
-			FullyCompatibleListing:       true, // this is what's important here
-		}
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{Access: planet.Uplinks[0].Access[planet.Satellites[0].ID()]})
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
@@ -1441,7 +1429,9 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 			assert.Equal(t, prefix+prefix2, result.Prefixes[0], name)
 		}
-		{
+
+		// Only run the arbitrary delimiter test for fully compatible mode
+		if s3Compatibility.FullyCompatibleListing {
 			const name = "mustn't trigger optimizations: arbitrary delimiter"
 
 			var (
@@ -1477,7 +1467,9 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 				assert.Equal(t, p, objects[i].Name, name, i)
 			}
 		}
-		{
+
+		// Only run the arbitrary delimiter test for fully compatible mode
+		if s3Compatibility.FullyCompatibleListing {
 			const name = "mustn't trigger optimizations: prefix without trailing forward slash + arbitrary delimiter"
 
 			result, err := layer.ListObjects(ctxWithProject, bucketName, strings.TrimSuffix(prefix, "/"), "", prefix2, 100)
@@ -1491,6 +1483,7 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 			assert.Equal(t, prefix+prefix2, result.Prefixes[0], name)
 		}
+
 		{
 			const name = "partially optimized: prefix"
 
@@ -1525,7 +1518,9 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 			assert.Equal(t, prefix, result.Prefixes[0], name)
 		}
-		{
+
+		// Only run the arbitrary delimiter test for fully compatible mode
+		if s3Compatibility.FullyCompatibleListing {
 			const name = "partially optimized: prefix + arbitrary delimiter"
 
 			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix, "", strings.SplitAfterN(prefix2, "/", 2)[1], 100)
@@ -1539,6 +1534,7 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 			assert.Equal(t, prefix+prefix2, result.Prefixes[0], name)
 		}
+
 		{
 			const name = "optimized: prefix + forward slash delimiter"
 
@@ -1553,5 +1549,79 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 
 			assert.Equal(t, prefix+strings.SplitAfterN(prefix2, "/", 2)[0], result.Prefixes[0], name)
 		}
+
+		{
+			const name = "marker before prefix"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix, "aaaa", "/", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+
+			require.Len(t, result.Prefixes, 1, name)
+
+			assert.Equal(t, prefix+strings.SplitAfterN(prefix2, "/", 2)[0], result.Prefixes[0], name)
+		}
+
+		{
+			const name = "marker after prefix"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix, "zzzz", "/", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Objects, name)
+			assert.Empty(t, result.Prefixes, name)
+		}
+
+		{
+			const name = "marker contains prefix"
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, prefix+prefix2, prefixed[len(prefixed)-2], "", 100)
+			require.NoError(t, err, name)
+
+			assert.False(t, result.IsTruncated, name)
+			assert.Empty(t, result.NextMarker, name)
+			assert.Empty(t, result.Prefixes, name)
+
+			require.Len(t, result.Objects, 1, name)
+			assert.Equal(t, prefixed[len(prefixed)-1], result.Objects[0].Name, name)
+		}
 	})
+}
+
+// TestListObjectsFullyCompatible tests whether exhaustive listing's results
+// are, e.g., lexicographically ordered. It also tests cases when incorrectly
+// implemented obvious exhaustive listing optimizations (in the context of
+// libuplink API) might return wrong results. It cannot test whether such
+// optimizations exist (there are other ways to check this).
+func TestListObjectsFullyCompatible(t *testing.T) {
+	t.Parallel()
+
+	s3Compatibility := miniogw.S3CompatibilityConfig{
+		IncludeCustomMetadataListing: true,
+		MaxKeysLimit:                 50,
+		MaxKeysExhaustiveLimit:       100,
+		FullyCompatibleListing:       true,
+	}
+
+	testListObjectsCompatibility(t, s3Compatibility)
+}
+
+// TestListObjectsFastArbitraryPrefixes disables exhaustive listing and path
+// encryption to test arbitrary prefix support
+func TestListObjectsFastArbitraryPrefixes(t *testing.T) {
+	t.Parallel()
+
+	s3Compatibility := miniogw.S3CompatibilityConfig{
+		IncludeCustomMetadataListing: true,
+		MaxKeysLimit:                 50,
+		MaxKeysExhaustiveLimit:       0,
+		FullyCompatibleListing:       false,
+	}
+
+	testListObjectsCompatibility(t, s3Compatibility)
 }

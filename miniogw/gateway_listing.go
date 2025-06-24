@@ -15,6 +15,8 @@ import (
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/spacemonkeygo/monkit/v3"
 
+	"storj.io/common/grant"
+	"storj.io/common/storj"
 	"storj.io/eventkit"
 	minio "storj.io/minio/cmd"
 	"storj.io/uplink"
@@ -40,6 +42,29 @@ var ErrVersionIDMarkerWithoutKeyMarker = func(bucketName string) miniogo.ErrorRe
 	}
 }
 
+// hasEncNullPathCipher determines if the access grant uses EncNull cipher for path encryption.
+func hasEncNullPathCipher(ctx context.Context) bool {
+	creds, err := credentialsFromContext(ctx)
+	if err != nil {
+		return false
+	}
+
+	if creds.Access == nil {
+		return false
+	}
+
+	serializedAccess, err := creds.Access.Serialize()
+	if err != nil {
+		return false
+	}
+	access, err := grant.ParseAccess(serializedAccess)
+	if err != nil {
+		return false
+	}
+
+	return access.EncAccess.Store.GetDefaultPathCipher() == storj.EncNull
+}
+
 func (layer *gatewayLayer) listObjectsFast(
 	ctx context.Context,
 	project *uplink.Project,
@@ -58,6 +83,15 @@ func (layer *gatewayLayer) listObjectsFast(
 
 	if continuationToken != "" {
 		after = continuationToken
+	}
+
+	if prefix != "" && after != "" && !strings.HasPrefix(after, prefix) {
+		// no results possible if after prefix
+		if after > prefix {
+			return prefixes, objects, nextContinuationToken, nil
+		}
+		// no effect if before prefix
+		after = ""
 	}
 
 	recursive := delimiter == ""
@@ -439,7 +473,7 @@ func (layer *gatewayLayer) listObjectsGeneral(
 
 	supportedPrefix := prefix == "" || strings.HasSuffix(prefix, "/")
 
-	if !layer.compatibilityConfig.FullyCompatibleListing && supportedPrefix && (delimiter == "" || delimiter == "/") {
+	if !layer.compatibilityConfig.FullyCompatibleListing && (supportedPrefix || hasEncNullPathCipher(ctx)) && (delimiter == "" || delimiter == "/") {
 		prefixes, objects, token, err = layer.listObjectsFast(
 			ctx,
 			project,
