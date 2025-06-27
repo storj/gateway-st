@@ -41,7 +41,6 @@ import (
 	"storj.io/storj/satellite"
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
-	"storj.io/storj/satellite/nodeselection"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
 	"storj.io/uplink/private/metaclient"
@@ -75,9 +74,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				config.Placement = nodeselection.ConfigurablePlacementRule{
-					PlacementRules: "test_placement.yaml",
-				}
+				require.NoError(t, config.Placement.Set("test_placement_rules.yaml"))
 				config.Console.Placement.SelfServeEnabled = true
 			},
 		},

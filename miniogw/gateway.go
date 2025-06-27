@@ -228,8 +228,16 @@ func (gateway *Gateway) Name() string {
 
 // NewGatewayLayer implements cmd.Gateway.
 func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
+	rawCOPConfig := gateway.compatibilityConfig.UploadPartCopy.EnabledCombinations
+
+	copConfig, err := newCopyObjectPartConfig(rawCOPConfig)
+	if err != nil {
+		return nil, errs.New("failed to parse UploadPartCopy enabled combinations: %w", err)
+	}
+
 	return &gatewayLayer{
-		compatibilityConfig: gateway.compatibilityConfig,
+		compatibilityConfig:  gateway.compatibilityConfig,
+		copyObjectPartConfig: copConfig,
 	}, nil
 }
 
@@ -240,7 +248,9 @@ func (gateway *Gateway) Production() bool {
 
 type gatewayLayer struct {
 	minio.GatewayUnsupported
-	compatibilityConfig S3CompatibilityConfig
+
+	compatibilityConfig  S3CompatibilityConfig
+	copyObjectPartConfig copyObjectPartConfig
 }
 
 // Shutdown is a no-op.

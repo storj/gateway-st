@@ -8,13 +8,17 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"io"
+	"slices"
+	"strings"
 
 	"github.com/zeebo/errs"
 
 	"storj.io/common/memory"
 	"storj.io/common/sync2"
+	"storj.io/common/uuid"
 	minio "storj.io/minio/cmd"
 	"storj.io/uplink"
+	"storj.io/uplink/private/bucket"
 	versioned "storj.io/uplink/private/object"
 )
 
@@ -28,7 +32,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 ) (info minio.PartInfo, err error) {
 	// input validation
 
-	if layer.compatibilityConfig.DisableUploadPartCopy {
+	if layer.compatibilityConfig.UploadPartCopy.DisableGlobally {
 		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy"}
 	}
 
@@ -88,12 +92,22 @@ func (layer *gatewayLayer) CopyObjectPart(
 		}
 	}
 
-	// work
+	// enablement validation
 
-	project, err := projectFromContext(ctx, srcBucket, srcObject)
+	credentials, err := credentialsFromContext(ctx)
 	if err != nil {
 		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
+
+	project := credentials.Project
+
+	if ok, err := layer.copyObjectPartConfig.enabled(ctx, project, credentials.PublicProjectID, srcBucket, destBucket); err != nil {
+		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
+	} else if !ok {
+		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy"}
+	}
+
+	// work
 
 	download, err := versioned.DownloadObject(ctx, project, srcBucket, srcObject, srcVersion, &uplink.DownloadOptions{
 		Offset: startOffset,
@@ -141,4 +155,79 @@ func (layer *gatewayLayer) CopyObjectPart(
 		Size:         partInfo.Size,
 		ActualSize:   partInfo.Size,
 	}, nil
+}
+
+type copyObjectPartConfig map[string][]string
+
+func (config copyObjectPartConfig) enabled(
+	ctx context.Context,
+	project *uplink.Project,
+	projectID, srcBucket, destBucket string,
+) (bool, error) {
+	projectID, err := sanitizeUUID(projectID)
+	if err != nil {
+		return false, errs.New("invalid project ID: %w", err)
+	}
+
+	allowedLocations, ok := config[projectID]
+	if !ok {
+		allowedLocations, ok = config["*"]
+		if !ok {
+			return false, nil
+		}
+	}
+
+	if slices.Contains(allowedLocations, "*") {
+		return true, nil
+	}
+
+	srcLocation, err := bucket.GetBucketLocation(ctx, project, srcBucket)
+	if err != nil {
+		return false, errs.New("failed to get source bucket location: %w", err)
+	}
+	destLocation, err := bucket.GetBucketLocation(ctx, project, destBucket)
+	if err != nil {
+		return false, errs.New("failed to get destination bucket location: %w", err)
+	}
+
+	return srcLocation == destLocation && slices.Contains(allowedLocations, srcLocation), nil
+}
+
+func newCopyObjectPartConfig(rawConfig []string) (copyObjectPartConfig, error) {
+	config := make(copyObjectPartConfig)
+
+	for _, raw := range rawConfig {
+		before, after, found := strings.Cut(raw, ":")
+		if !found {
+			return nil, errs.New("%s does not contain a colon", raw)
+		}
+
+		if before == "" || after == "" {
+			return nil, errs.New("%s contains an empty part", raw)
+		}
+
+		var projectID string
+
+		if before == "*" {
+			projectID = "*"
+		} else {
+			p, err := sanitizeUUID(before)
+			if err != nil {
+				return nil, errs.New("%s does not contain a valid project ID: %w", raw, err)
+			}
+			projectID = p
+		}
+
+		config[projectID] = append(config[projectID], after)
+	}
+
+	return config, nil
+}
+
+func sanitizeUUID(s string) (string, error) {
+	ret, err := uuid.FromString(s)
+	if err != nil {
+		return "", err
+	}
+	return ret.String(), nil
 }

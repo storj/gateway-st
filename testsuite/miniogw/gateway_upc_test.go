@@ -4,38 +4,80 @@
 package miniogw_test
 
 import (
-	"context"
 	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"storj.io/common/memory"
+	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
+	"storj.io/gateway/miniogw"
 	minio "storj.io/minio/cmd"
-	"storj.io/uplink"
+	"storj.io/minio/pkg/auth"
+	"storj.io/storj/private/testplanet"
+	"storj.io/storj/satellite"
 )
 
 func TestCopyObjectPart(t *testing.T) {
 	t.Parallel()
 
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		bucket, err := project.CreateBucket(ctx, testrand.BucketName())
+	const uploadPartCopyEnabledLocation = "UploadPartCopyEnabled"
+
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				require.NoError(t, config.Placement.Set("test_placement_rules.yaml"))
+				config.Console.Placement.SelfServeEnabled = true
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		sat := planet.Satellites[0]
+		upl := planet.Uplinks[0]
+
+		project, err := upl.OpenProject(ctx, sat)
 		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctx2 := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
+			Access:          upl.Access[sat.ID()],
+			PublicProjectID: upl.Projects[0].PublicID.String(),
+		})
+
+		defaultS3CompatibilityConfig.UploadPartCopy.EnabledCombinations = []string{
+			testrand.UUID().String() + ":" + uploadPartCopyEnabledLocation,
+			upl.Projects[0].PublicID.String() + ":" + uploadPartCopyEnabledLocation,
+			"*:1234567890",
+		}
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctx2)) }()
+
+		bucketName := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctx2, bucketName, minio.BucketOptions{
+			Location: uploadPartCopyEnabledLocation,
+		}))
 
 		srcObject, dstObject := "original", "upc-copy"
 		data := testrand.Bytes(100 * memory.KB)
 
-		_, err = createFile(ctx, project, bucket.Name, srcObject, data, nil)
+		_, err = createFile(ctx2, project, bucketName, srcObject, data, map[string]string{
+			"apples":  "20",
+			"bananas": "12",
+		})
 		require.NoError(t, err)
 
-		uploadID, err := layer.NewMultipartUpload(ctx, bucket.Name, dstObject, minio.ObjectOptions{})
+		uploadID, err := layer.NewMultipartUpload(ctx2, bucketName, dstObject, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		defer func() {
-			if err = layer.AbortMultipartUpload(ctx, bucket.Name, dstObject, uploadID, minio.ObjectOptions{}); err != nil {
-				assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucket.Name, Object: dstObject, UploadID: uploadID})
+			if err = layer.AbortMultipartUpload(ctx2, bucketName, dstObject, uploadID, minio.ObjectOptions{}); err != nil {
+				assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucketName, Object: dstObject, UploadID: uploadID})
 			}
 		}()
 
@@ -59,7 +101,7 @@ func TestCopyObjectPart(t *testing.T) {
 		} {
 			offset, length := offsetLength.offset, offsetLength.length
 
-			info, err := layer.CopyObjectPart(ctx, bucket.Name, srcObject, bucket.Name, dstObject, uploadID, i+1, offset, length, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+			info, err := layer.CopyObjectPart(ctx2, bucketName, srcObject, bucketName, dstObject, uploadID, i+1, offset, length, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
 			require.NoError(t, err)
 
 			require.Equal(t, i+1, info.PartNumber)
@@ -74,10 +116,10 @@ func TestCopyObjectPart(t *testing.T) {
 			})
 		}
 
-		_, err = layer.CompleteMultipartUpload(ctx, bucket.Name, dstObject, uploadID, parts, minio.ObjectOptions{})
+		_, err = layer.CompleteMultipartUpload(ctx2, bucketName, dstObject, uploadID, parts, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		actual, err := project.DownloadObject(ctx, bucket.Name, dstObject, nil)
+		actual, err := project.DownloadObject(ctx2, bucketName, dstObject, nil)
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, actual.Close()) }()
