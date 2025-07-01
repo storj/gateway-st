@@ -66,7 +66,10 @@ var defaultS3CompatibilityConfig = miniogw.S3CompatibilityConfig{
 	MaxKeysLimit:                 maxKeysLimit,
 	MaxKeysExhaustiveLimit:       100000,
 	MaxUploadsLimit:              maxUploadsLimit,
-	DeleteObjectsConcurrency:     100,
+	UploadPartCopy: miniogw.UploadPartCopyConfig{
+		Enable: true,
+	},
+	DeleteObjectsConcurrency: 100,
 }
 
 func TestCreateBucketWithCustomPlacement(t *testing.T) {

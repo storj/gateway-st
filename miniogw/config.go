@@ -15,8 +15,9 @@ type ServerConfig struct {
 	Address string `help:"address to serve S3 api over" default:"127.0.0.1:7777" basic-help:"true"`
 }
 
-type uploadPartCopyConfig struct {
-	DisableGlobally     bool     `help:"return 501 (Not Implemented) for UploadPartCopy calls" default:"false"`
+// UploadPartCopyConfig defines the configuration for the UploadPartCopy feature.
+type UploadPartCopyConfig struct {
+	Enable              bool     `help:"return 501 (Not Implemented) for UploadPartCopy calls if not enabled" default:"false"`
 	EnabledCombinations []string `help:"combinations ((public project ID):(bucket location),…) where UploadPartCopy is enabled" default:"*:*"`
 }
 
@@ -29,7 +30,7 @@ type S3CompatibilityConfig struct {
 	MaxUploadsLimit              int  `help:"MaxUploads parameter limit for S3's ListMultipartUploads responses" default:"1000"`
 	FullyCompatibleListing       bool `help:"make ListObjects(V2) fully S3-compatible (specifically: always return lexicographically ordered results) but slow" default:"false"`
 	DisableCopyObject            bool `help:"return 501 (Not Implemented) for CopyObject calls" default:"false"`
-	UploadPartCopy               uploadPartCopyConfig
+	UploadPartCopy               UploadPartCopyConfig
 	MinPartSize                  int64 `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
 	DeleteObjectsConcurrency     int   `help:"how many objects to delete in parallel with DeleteObjects" default:"100"`
 }

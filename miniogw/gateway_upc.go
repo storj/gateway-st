@@ -34,7 +34,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 ) (info minio.PartInfo, err error) {
 	// input validation
 
-	if layer.compatibilityConfig.UploadPartCopy.DisableGlobally {
+	if !layer.compatibilityConfig.UploadPartCopy.Enable {
 		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy"}
 	}
 
