@@ -142,9 +142,9 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	if size := download.Info().System.ContentLength; startOffset >= size || startOffset+length > size {
 		return minio.PartInfo{}, miniogo.ErrorResponse{
-			Code:       "InvalidArgument",
-			Message:    "Range specified is not valid for source object",
-			StatusCode: http.StatusBadRequest,
+			Code:       "InvalidRange",
+			Message:    "The requested range cannot be satisfied.",
+			StatusCode: http.StatusRequestedRangeNotSatisfiable,
 		}
 	}
 

@@ -396,4 +396,5 @@ integration-services-start:
 		--access "$$STORJ_ACCESS" \
 		--minio.access-key "$$AWS_ACCESS_KEY_ID" \
 		--minio.secret-key "$$AWS_SECRET_ACCESS_KEY" \
-		--s3.fully-compatible-listing
+		--s3.fully-compatible-listing \
+		--s3.upload-part-copy.enable
