@@ -10,12 +10,14 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/zeebo/errs"
 
 	"storj.io/common/memory"
 	"storj.io/common/sync2"
 	"storj.io/common/uuid"
+	"storj.io/eventkit"
 	minio "storj.io/minio/cmd"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
@@ -101,9 +103,28 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	project := credentials.Project
 
-	if ok, err := layer.copyObjectPartConfig.enabled(ctx, project, credentials.PublicProjectID, srcBucket, destBucket); err != nil {
+	// telemetry
+
+	enabled, now := false, time.Now()
+	defer func() {
+		tags := ctxCredentialsToTags(ctx)
+		tags = append(tags, eventkit.Bool("enabled", enabled))
+		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
+		tags = append(tags, eventkit.String("source bucket", srcBucket))
+		tags = append(tags, eventkit.String("source object", hex.EncodeToString([]byte(srcObject))))
+		tags = append(tags, eventkit.String("destination bucket", destBucket))
+		tags = append(tags, eventkit.String("destination object", hex.EncodeToString([]byte(destObject))))
+		tags = append(tags, eventkit.String("upload ID", uploadID))
+		tags = append(tags, eventkit.Int64("part number", int64(partID)))
+		tags = append(tags, eventkit.Int64("start offset", startOffset))
+		tags = append(tags, eventkit.Int64("length", length))
+		ek.Event("UploadPartCopy_naive", tags...)
+	}()
+
+	enabled, err = layer.copyObjectPartConfig.enabled(ctx, project, credentials.PublicProjectID, srcBucket, destBucket)
+	if err != nil {
 		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
-	} else if !ok {
+	} else if !enabled {
 		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy: not enabled for this project or location"}
 	}
 
