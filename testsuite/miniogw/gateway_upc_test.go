@@ -5,6 +5,7 @@ package miniogw_test
 
 import (
 	"io"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,8 +25,111 @@ import (
 func TestCopyObjectPart(t *testing.T) {
 	t.Parallel()
 
-	const uploadPartCopyEnabledLocation = "UploadPartCopyEnabled"
+	for _, tc := range [...]struct {
+		name                      string
+		enabledCombinations       []string
+		projectID, bucketLocation string
+		expectedFailure           bool
+	}{
+		{
+			name:           "project enabled for one location",
+			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation: "New Zealand",
+			enabledCombinations: []string{
+				"*:Yugoslavia",
+				"a04ade2c-6b0e-4e0d-92f8-df8410699bb2:New Zealand",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:*",
+			},
+			expectedFailure: false,
+		},
+		{
+			name:           "project enabled for all locations",
+			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation: "Poland",
+			enabledCombinations: []string{
+				"*:United States of America",
+				"a04ade2c-6b0e-4e0d-92f8-df8410699bb2:*",
+				"a04ade2c-6b0e-4e0d-92f8-df8410699bb2:New Zealand",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:New Zealand",
+			},
+			expectedFailure: false,
+		},
+		{
+			name:           "location enabled for all projects",
+			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation: "United States of America",
+			enabledCombinations: []string{
+				"*:United States of America",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:*",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:New Zealand",
+			},
+			expectedFailure: false,
+		},
+		{
+			name:           "location enabled for all projects 2",
+			projectID:      "e0e4a478-4e94-4fe3-b592-661f67ef652c",
+			bucketLocation: "New Zealand",
+			enabledCombinations: []string{
+				"*:New Zealand",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:*",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:United States of America",
+			},
+			expectedFailure: false,
+		},
+		{
+			name:           "all projects enabled for all locations",
+			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation: "New Zealand",
+			enabledCombinations: []string{
+				"*:*",
+				"*:United States of America",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:*",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:Poland",
+			},
+			expectedFailure: false,
+		},
+		{
+			name:           "project is not enabled for the location",
+			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation: "New Zealand",
+			enabledCombinations: []string{
+				"*:United States of America",
+				"a04ade2c-6b0e-4e0d-92f8-df8410699bb2:Poland",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:*",
+			},
+			expectedFailure: true,
+		},
+		{
+			name:           "project is not enabled for all locations",
+			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation: "New Zealand",
+			enabledCombinations: []string{
+				"*:United States of America",
+				"e0e4a478-4e94-4fe3-b592-661f67ef652c:Poland",
+			},
+			expectedFailure: true,
+		},
+		{
+			name:                "no enabled combinations",
+			projectID:           "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
+			bucketLocation:      "New Zealand",
+			enabledCombinations: []string{},
+			expectedFailure:     true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
+			rand.Shuffle(len(tc.enabledCombinations), func(i, j int) {
+				tc.enabledCombinations[i], tc.enabledCombinations[j] = tc.enabledCombinations[j], tc.enabledCombinations[i]
+			})
+
+			testCopyObjectPart(t, tc.enabledCombinations, tc.projectID, tc.bucketLocation, tc.expectedFailure)
+		})
+	}
+}
+
+func testCopyObjectPart(t *testing.T, enabledCombinations []string, projectID, bucketLocation string, expectFailure bool) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
@@ -45,26 +149,24 @@ func TestCopyObjectPart(t *testing.T) {
 		// Establish new context with *uplink.Project for the gateway to pick up.
 		ctx2 := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
 			Access:          upl.Access[sat.ID()],
-			PublicProjectID: upl.Projects[0].PublicID.String(),
+			PublicProjectID: projectID,
 		})
 
-		defaultS3CompatibilityConfig.UploadPartCopy.EnabledCombinations = []string{
-			testrand.UUID().String() + ":" + uploadPartCopyEnabledLocation,
-			upl.Projects[0].PublicID.String() + ":" + uploadPartCopyEnabledLocation,
-			"*:1234567890",
-		}
-		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		compatibilityConfig := defaultS3CompatibilityConfig
+		compatibilityConfig.UploadPartCopy.EnabledCombinations = enabledCombinations
+
+		layer, err := miniogw.NewStorjGateway(compatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)
 
 		defer func() { require.NoError(t, layer.Shutdown(ctx2)) }()
 
 		bucketName := testrand.BucketName()
 		require.NoError(t, layer.MakeBucketWithLocation(ctx2, bucketName, minio.BucketOptions{
-			Location: uploadPartCopyEnabledLocation,
+			Location: bucketLocation,
 		}))
 
 		srcObject, dstObject := "original", "upc-copy"
-		data := testrand.Bytes(100 * memory.KB)
+		data := testrand.Bytes(10 * memory.KB)
 
 		_, err = createFile(ctx2, project, bucketName, srcObject, data, map[string]string{
 			"apples":  "20",
@@ -88,20 +190,24 @@ func TestCopyObjectPart(t *testing.T) {
 		}{
 			{
 				offset: 0 * memory.KB.Int64(),
-				length: 10 * memory.KB.Int64(),
+				length: 1 * memory.KB.Int64(),
 			},
 			{
-				offset: 10 * memory.KB.Int64(),
-				length: 80 * memory.KB.Int64(),
+				offset: 1 * memory.KB.Int64(),
+				length: 8 * memory.KB.Int64(),
 			},
 			{
-				offset: 90 * memory.KB.Int64(),
-				length: 10 * memory.KB.Int64(),
+				offset: 9 * memory.KB.Int64(),
+				length: 1 * memory.KB.Int64(),
 			},
 		} {
 			offset, length := offsetLength.offset, offsetLength.length
 
 			info, err := layer.CopyObjectPart(ctx2, bucketName, srcObject, bucketName, dstObject, uploadID, i+1, offset, length, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+			if expectFailure {
+				require.ErrorIs(t, err, minio.NotImplemented{Message: "UploadPartCopy: not enabled for this project or location"})
+				return
+			}
 			require.NoError(t, err)
 
 			require.Equal(t, i+1, info.PartNumber)

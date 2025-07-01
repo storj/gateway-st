@@ -104,7 +104,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 	if ok, err := layer.copyObjectPartConfig.enabled(ctx, project, credentials.PublicProjectID, srcBucket, destBucket); err != nil {
 		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	} else if !ok {
-		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy"}
+		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy: not enabled for this project or location"}
 	}
 
 	// work
@@ -169,12 +169,10 @@ func (config copyObjectPartConfig) enabled(
 		return false, errs.New("invalid project ID: %w", err)
 	}
 
-	allowedLocations, ok := config[projectID]
-	if !ok {
-		allowedLocations, ok = config["*"]
-		if !ok {
-			return false, nil
-		}
+	allowedLocations := slices.Concat(config[projectID], config["*"])
+
+	if len(allowedLocations) == 0 {
+		return false, nil
 	}
 
 	if slices.Contains(allowedLocations, "*") {

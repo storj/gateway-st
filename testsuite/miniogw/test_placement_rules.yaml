@@ -1,5 +1,7 @@
 placements:
+  - id: 39
+    name: New Zealand
   - id: 40
     name: Poland
   - id: 41
-    name: UploadPartCopyEnabled
+    name: United States of America
