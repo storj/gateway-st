@@ -116,6 +116,13 @@ func TestCopyObjectPart(t *testing.T) {
 			enabledCombinations: []string{},
 			expectedFailure:     true,
 		},
+		{
+			name:                "no project ID",
+			projectID:           "",
+			bucketLocation:      "New Zealand",
+			enabledCombinations: []string{"*:*"},
+			expectedFailure:     false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

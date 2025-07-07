@@ -181,12 +181,11 @@ func (config copyObjectPartConfig) enabled(
 	project *uplink.Project,
 	projectID, srcBucket, destBucket string,
 ) (bool, error) {
-	projectID, err := sanitizeUUID(projectID)
-	if err != nil {
-		return false, errs.New("invalid project ID: %w", err)
-	}
+	allowedLocations := slices.Clone(config["*"])
 
-	allowedLocations := slices.Concat(config[projectID], config["*"])
+	if projectID, err := sanitizeUUID(projectID); err == nil {
+		allowedLocations = append(allowedLocations, config[projectID]...)
+	}
 
 	if len(allowedLocations) == 0 {
 		return false, nil
