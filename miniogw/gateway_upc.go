@@ -8,10 +8,12 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
 
+	miniogo "github.com/minio/minio-go/v7"
 	"github.com/zeebo/errs"
 
 	"storj.io/common/memory"
@@ -137,6 +139,14 @@ func (layer *gatewayLayer) CopyObjectPart(
 	defer func() {
 		err = errs.Combine(err, ConvertError(download.Close(), srcBucket, srcObject))
 	}()
+
+	if size := download.Info().System.ContentLength; startOffset >= size || startOffset+length > size {
+		return minio.PartInfo{}, miniogo.ErrorResponse{
+			Code:       "InvalidArgument",
+			Message:    "Range specified is not valid for source object",
+			StatusCode: http.StatusBadRequest,
+		}
+	}
 
 	sum := md5.New()
 	src := io.TeeReader(download, sum)

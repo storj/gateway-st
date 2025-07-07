@@ -4,6 +4,7 @@
 package miniogw_test
 
 import (
+	"context"
 	"io"
 	"math/rand/v2"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"storj.io/minio/pkg/auth"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
+	"storj.io/uplink"
 )
 
 func TestCopyObjectPart(t *testing.T) {
@@ -89,6 +91,13 @@ func TestCopyObjectPart(t *testing.T) {
 			expectedFailure: false,
 		},
 		{
+			name:                "no project ID",
+			projectID:           "",
+			bucketLocation:      "New Zealand",
+			enabledCombinations: []string{"*:*"},
+			expectedFailure:     false,
+		},
+		{
 			name:           "project is not enabled for the location",
 			projectID:      "a04ade2c-6b0e-4e0d-92f8-df8410699bb2",
 			bucketLocation: "New Zealand",
@@ -116,13 +125,6 @@ func TestCopyObjectPart(t *testing.T) {
 			enabledCombinations: []string{},
 			expectedFailure:     true,
 		},
-		{
-			name:                "no project ID",
-			projectID:           "",
-			bucketLocation:      "New Zealand",
-			enabledCombinations: []string{"*:*"},
-			expectedFailure:     false,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -132,6 +134,116 @@ func TestCopyObjectPart(t *testing.T) {
 			})
 
 			testCopyObjectPart(t, tc.enabledCombinations, tc.projectID, tc.bucketLocation, tc.expectedFailure)
+		})
+	}
+}
+
+func TestCopyObjectPartRange(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range [...]struct {
+		name            string
+		contentLength   memory.Size
+		offset          int64
+		length          int64
+		expectedFailure bool
+	}{
+		{
+			name:            "zero offset, negative length",
+			contentLength:   5 * memory.KB,
+			offset:          0,
+			length:          -1,
+			expectedFailure: false,
+		},
+		{
+			name:            "zero offset, equal length",
+			contentLength:   500,
+			offset:          0,
+			length:          500,
+			expectedFailure: false,
+		},
+		{
+			name:            "zero offset, less than content length length",
+			contentLength:   500,
+			offset:          0,
+			length:          456,
+			expectedFailure: false,
+		},
+		{
+			name:            "non-zero offset, negative length",
+			contentLength:   5 * memory.KB,
+			offset:          123,
+			length:          -1,
+			expectedFailure: false,
+		},
+		{
+			name:            "non-zero offset, less than content length length 1",
+			contentLength:   500,
+			offset:          123,
+			length:          377,
+			expectedFailure: false,
+		},
+		{
+			name:            "non-zero offset, less than content length length 2",
+			contentLength:   500,
+			offset:          123,
+			length:          246,
+			expectedFailure: false,
+		},
+		{
+			name:            "out of range 1",
+			contentLength:   500,
+			offset:          500,
+			length:          1,
+			expectedFailure: true,
+		},
+		{
+			name:            "out of range 2",
+			contentLength:   500,
+			offset:          501,
+			length:          1,
+			expectedFailure: true,
+		},
+		{
+			name:            "out of range 3",
+			contentLength:   500,
+			offset:          0,
+			length:          501,
+			expectedFailure: true,
+		},
+		{
+			name:            "out of range 4",
+			contentLength:   500,
+			offset:          0,
+			length:          999,
+			expectedFailure: true,
+		},
+		{
+			name:            "out of range 5",
+			contentLength:   500,
+			offset:          123,
+			length:          999,
+			expectedFailure: true,
+		},
+		{
+			name:            "out of range 6",
+			contentLength:   500,
+			offset:          123,
+			length:          500,
+			expectedFailure: true,
+		},
+		{
+			name:            "out of range 7",
+			contentLength:   500,
+			offset:          123,
+			length:          378,
+			expectedFailure: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			testCopyObjectPartRange(t, tc.contentLength, tc.offset, tc.length, tc.expectedFailure)
 		})
 	}
 }
@@ -241,5 +353,50 @@ func testCopyObjectPart(t *testing.T, enabledCombinations []string, projectID, b
 		require.NoError(t, err)
 
 		require.Equal(t, data, actualData)
+	})
+}
+
+func testCopyObjectPartRange(t *testing.T, contentLength memory.Size, offset, length int64, expectFailure bool) {
+	runTest(t, func(t *testing.T, ctx context.Context, ol minio.ObjectLayer, p *uplink.Project) {
+		srcBucket := testrand.BucketName()
+		dstBucket := testrand.BucketName()
+
+		_, err := p.EnsureBucket(ctx, srcBucket)
+		require.NoError(t, err)
+		_, err = p.EnsureBucket(ctx, dstBucket)
+		require.NoError(t, err)
+
+		src := "Moka.jpg"
+		dst := "Moka copy.jpg"
+
+		data := testrand.Bytes(contentLength)
+
+		_, err = createFile(ctx, p, srcBucket, "Moka.jpg", data, nil)
+		require.NoError(t, err)
+
+		uploadID, err := ol.NewMultipartUpload(ctx, dstBucket, dst, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		defer func() {
+			require.NoError(t, ol.AbortMultipartUpload(ctx, dstBucket, dst, uploadID, minio.ObjectOptions{}))
+		}()
+
+		info, err := ol.CopyObjectPart(ctx, srcBucket, src, dstBucket, dst, uploadID, 2, offset, length, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+		if expectFailure {
+			require.Error(t, err)
+			return
+		}
+		require.NoError(t, err)
+
+		require.Equal(t, 2, info.PartNumber)
+		if length >= 0 {
+			require.Equal(t, md5Hex(data[offset:offset+length]), info.ETag)
+			require.Equal(t, length, info.Size)
+			require.Equal(t, length, info.ActualSize)
+		} else {
+			require.Equal(t, md5Hex(data[offset:]), info.ETag)
+			require.Equal(t, contentLength.Int64()-offset, info.Size)
+			require.Equal(t, contentLength.Int64()-offset, info.ActualSize)
+		}
 	})
 }

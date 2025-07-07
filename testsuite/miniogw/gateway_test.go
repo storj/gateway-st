@@ -67,7 +67,8 @@ var defaultS3CompatibilityConfig = miniogw.S3CompatibilityConfig{
 	MaxKeysExhaustiveLimit:       100000,
 	MaxUploadsLimit:              maxUploadsLimit,
 	UploadPartCopy: miniogw.UploadPartCopyConfig{
-		Enable: true,
+		Enable:              true,
+		EnabledCombinations: []string{"*:*"},
 	},
 	DeleteObjectsConcurrency: 100,
 }
