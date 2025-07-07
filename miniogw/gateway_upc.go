@@ -47,9 +47,8 @@ func (layer *gatewayLayer) CopyObjectPart(
 	}
 	if err = ValidateBucket(ctx, destBucket); err != nil {
 		return minio.PartInfo{}, minio.BucketNameInvalid{
-			Bucket:    destBucket,
-			Object:    destObject,
-			VersionID: dstOpts.VersionID,
+			Bucket: destBucket,
+			Object: destObject,
 		}
 	}
 
@@ -68,29 +67,26 @@ func (layer *gatewayLayer) CopyObjectPart(
 	}
 	if l := len(destObject); l == 0 {
 		return minio.PartInfo{}, minio.ObjectNameInvalid{
-			Bucket:    destBucket,
-			Object:    destObject,
-			VersionID: dstOpts.VersionID,
+			Bucket: destBucket,
+			Object: destObject,
 		}
 	} else if l > memory.KiB.Int() {
 		return minio.PartInfo{}, minio.ObjectNameTooLong{
-			Bucket:    destBucket,
-			Object:    destObject,
-			VersionID: dstOpts.VersionID,
+			Bucket: destBucket,
+			Object: destObject,
 		}
 	}
 
-	srcVersion, err := decodeVersionID(srcInfo.VersionID)
+	srcVersion, err := decodeVersionID(srcOpts.VersionID)
 	if err != nil {
 		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
 	if partID < 1 || partID > 10000 {
 		return minio.PartInfo{}, minio.InvalidArgument{
-			Bucket:    destBucket,
-			Object:    destObject,
-			VersionID: dstOpts.VersionID,
-			Err:       errs.New("part number must be an integer between 1 and 10000, inclusive"),
+			Bucket: destBucket,
+			Object: destObject,
+			Err:    errs.New("part number must be an integer between 1 and 10000, inclusive"),
 		}
 	}
 
