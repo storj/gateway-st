@@ -221,6 +221,11 @@ func (l *singleTenancyLayer) NewMultipartUpload(ctx context.Context, bucket, obj
 	return uploadID, l.log(err)
 }
 
+func (l *singleTenancyLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject, uploadID string, partID int, startOffset, length int64, srcInfo minio.ObjectInfo, srcOpts, dstOpts minio.ObjectOptions) (info minio.PartInfo, err error) {
+	info, err = l.layer.CopyObjectPart(WithCredentials(ctx, l.project, l.credentialsInfo), srcBucket, srcObject, destBucket, destObject, uploadID, partID, startOffset, length, srcInfo, srcOpts, dstOpts)
+	return info, l.log(err)
+}
+
 func (l *singleTenancyLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
 	info, err = l.layer.PutObjectPart(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, partID, data, opts)
 	return info, l.log(err)
