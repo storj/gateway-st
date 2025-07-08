@@ -2,7 +2,7 @@ pipeline {
     agent none
 
     options {
-        timeout(time: 26, unit: 'MINUTES')
+        timeout(time: 36, unit: 'MINUTES')
         skipDefaultCheckout(true)
     }
 
