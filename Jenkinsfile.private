@@ -49,7 +49,7 @@ node('node') {
     echo "Setting build result to FAILURE"
     currentBuild.result = "FAILURE"
 
-    slackSend color: 'danger', channel: '#team-edge', message: "@edge gateway-st branch ${env.BRANCH_NAME} build failed during stage ${lastStage} ${env.BUILD_URL}"
+    slackSend color: 'danger', channel: '#team-integrations-edge', message: "@edge gateway-st branch ${env.BRANCH_NAME} build failed during stage ${lastStage} ${env.BUILD_URL}"
 
     mail from: 'builds@storj.io',
       replyTo: 'builds@storj.io',
