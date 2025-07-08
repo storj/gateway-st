@@ -484,29 +484,29 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
 }
 
-func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *uplink.DownloadOptions, err error) {
+func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *versioned.DownloadObjectOptions, err error) {
 	switch {
 	// Case 1: Not present -> represented by a nil RangeSpec
 	case rs == nil:
 		return nil, nil
 	// Case 2: bytes=1-10 (absolute start and end offsets) -> RangeSpec{false, 1, 10}
 	case rs.Start >= 0 && rs.End >= 0 && !rs.IsSuffixLength:
-		return &uplink.DownloadOptions{
+		return &versioned.DownloadObjectOptions{
 			Offset: rs.Start,
 			Length: rs.End - rs.Start + 1,
 		}, nil
 	// Case 3: bytes=10- (absolute start offset with end offset unspecified) -> RangeSpec{false, 10, -1}
 	case rs.Start >= 0 && rs.End == -1 && !rs.IsSuffixLength:
-		return &uplink.DownloadOptions{
+		return &versioned.DownloadObjectOptions{
 			Offset: rs.Start,
 			Length: -1,
 		}, nil
 	// Case 4: bytes=-30 (suffix length specification) -> RangeSpec{true, -30, -1}
 	case rs.Start <= 0 && rs.End == -1 && rs.IsSuffixLength:
 		if rs.Start == 0 {
-			return &uplink.DownloadOptions{Offset: 0, Length: 0}, nil
+			return &versioned.DownloadObjectOptions{Offset: 0, Length: 0}, nil
 		}
-		return &uplink.DownloadOptions{
+		return &versioned.DownloadObjectOptions{
 			Offset: rs.Start,
 			Length: -1,
 		}, nil

@@ -128,7 +128,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	// work
 
-	download, err := versioned.DownloadObject(ctx, project, srcBucket, srcObject, srcVersion, &uplink.DownloadOptions{
+	download, err := versioned.DownloadObject(ctx, project, srcBucket, srcObject, srcVersion, &versioned.DownloadObjectOptions{
 		Offset: startOffset,
 		Length: length,
 	})

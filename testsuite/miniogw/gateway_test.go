@@ -38,6 +38,7 @@ import (
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
+	"storj.io/storj/satellite/console"
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
 	"storj.io/uplink"
@@ -77,8 +78,9 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				require.NoError(t, config.Placement.Set("test_placement_rules.yaml"))
+				require.NoError(t, config.Placement.Set(`40:annotation("location","Poland")`))
 				config.Console.Placement.SelfServeEnabled = true
+				config.Console.Placement.SelfServeDetails.SetMap(map[storj.PlacementConstraint]console.PlacementDetail{40: {}})
 			},
 		},
 	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
@@ -3278,7 +3280,7 @@ func TestCompleteMultipartUploadPartNumberETagChecks(t *testing.T) {
 			object := testrand.Path()
 			uploadID, err := layer.NewMultipartUpload(ctx, bucket.Name, object, minio.ObjectOptions{})
 			require.NoError(t, err, tt.name)
-			defer func(name string) {
+			defer func(name string) { //nolint:gocritic
 				if err = layer.AbortMultipartUpload(ctx, bucket.Name, object, uploadID, minio.ObjectOptions{}); err != nil {
 					assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucket.Name, Object: object, UploadID: uploadID}, name)
 				}
@@ -3364,7 +3366,7 @@ func TestCompleteMultipartUploadSizeCheck(t *testing.T) {
 			object := testrand.Path()
 			uploadID, err := l.NewMultipartUpload(ctx, bucket.Name, object, minio.ObjectOptions{})
 			require.NoError(t, err, tt.name)
-			defer func(name string) {
+			defer func(name string) { //nolint:gocritic
 				if err = l.AbortMultipartUpload(ctx, bucket.Name, object, uploadID, minio.ObjectOptions{}); err != nil {
 					assert.ErrorIs(t, err, minio.InvalidUploadID{Bucket: bucket.Name, Object: object, UploadID: uploadID}, name)
 				}

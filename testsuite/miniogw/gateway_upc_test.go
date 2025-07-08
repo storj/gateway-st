@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"storj.io/common/memory"
+	"storj.io/common/storj"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/miniogw"
@@ -21,6 +22,7 @@ import (
 	"storj.io/minio/pkg/auth"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
+	"storj.io/storj/satellite/console"
 	"storj.io/uplink"
 )
 
@@ -253,8 +255,13 @@ func testCopyObjectPart(t *testing.T, enabledCombinations []string, projectID, b
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				require.NoError(t, config.Placement.Set("test_placement_rules.yaml"))
+				require.NoError(t, config.Placement.Set(`39:annotation("location","New Zealand");40:annotation("location","Poland");41:annotation("location","United States of America")`))
 				config.Console.Placement.SelfServeEnabled = true
+				config.Console.Placement.SelfServeDetails.SetMap(map[storj.PlacementConstraint]console.PlacementDetail{
+					39: {},
+					40: {},
+					41: {},
+				})
 			},
 		},
 	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
