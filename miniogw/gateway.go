@@ -160,6 +160,29 @@ var (
 		Message:    "Access Denied because object protected by object lock",
 	}
 
+	// ErrBucketTooManyTags is a custom error returned when a user attempts to set more than 50 tags on a bucket.
+	// Note: https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html documents "TooManyTags"
+	// but in practice it actually responds with "BadRequest".
+	ErrBucketTooManyTags = miniogo.ErrorResponse{
+		Code:       "BadRequest",
+		StatusCode: http.StatusBadRequest,
+		Message:    "The number of tags exceeds the limit of 50 tags.",
+	}
+
+	// ErrBucketInvalidTag is a custom error returned when a user attempts to set an invalid tag on a bucket.
+	ErrBucketInvalidTag = miniogo.ErrorResponse{
+		Code:       "InvalidTag",
+		StatusCode: http.StatusBadRequest,
+		Message:    "This request contains a tag key or value that isn't valid.",
+	}
+
+	// ErrBucketDuplicateTag is a custom error returned when a user attempts to set duplicate tags on a bucket.
+	ErrBucketDuplicateTag = miniogo.ErrorResponse{
+		Code:       "InvalidTag",
+		StatusCode: http.StatusBadRequest,
+		Message:    "There are duplicate tag keys in your request.",
+	}
+
 	// ErrNoUplinkProject is a custom error that indicates there was no
 	// `*uplink.Project` in the context for the gateway to pick up. This error
 	// may signal that passing credentials down to the object layer is working
@@ -1335,6 +1358,78 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 	return ConvertError(err, bucketName, object)
 }
 
+// GetBucketTagging retrieves tags for a bucket.
+func (layer *gatewayLayer) GetBucketTagging(ctx context.Context, bucketName string) (_ *tags.Tags, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return nil, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	bucketTags, err := bucket.GetBucketTagging(ctx, project, bucketName)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	parsedTags, err := convertToMinioBucketTags(bucketTags)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	return parsedTags, nil
+}
+
+// SetBucketTagging sets tags for a bucket.
+func (layer *gatewayLayer) SetBucketTagging(ctx context.Context, bucketName string, tags *tags.Tags) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return ConvertError(err, bucketName, "")
+	}
+
+	if err := bucket.SetBucketTagging(ctx, project, bucketName, convertToUplinkBucketTags(tags)); err != nil {
+		return ConvertError(err, bucketName, "")
+	}
+
+	return nil
+}
+
+func convertToMinioBucketTags(t []bucket.Tag) (*tags.Tags, error) {
+	if len(t) == 0 {
+		return nil, nil
+	}
+
+	tagMap := make(map[string]string, len(t))
+	for _, tag := range t {
+		tagMap[tag.Key] = tag.Value
+	}
+
+	return tags.MapToBucketTags(tagMap)
+}
+
+func convertToUplinkBucketTags(t *tags.Tags) (bucketTags []bucket.Tag) {
+	if t == nil {
+		return nil
+	}
+	for k, v := range t.ToMap() {
+		bucketTags = append(bucketTags, bucket.Tag{
+			Key:   k,
+			Value: v,
+		})
+	}
+	return bucketTags
+}
+
 // ConvertError translates Storj-specific err associated with object to
 // MinIO/S3-specific error. It returns nil if err is nil.
 func ConvertError(err error, bucketName, object string) error {
@@ -1342,6 +1437,9 @@ func ConvertError(err error, bucketName, object string) error {
 		return convertedErr
 	}
 	if convertedErr := asDeleteObjectsError(err); convertedErr != nil {
+		return convertedErr
+	}
+	if convertedErr := asBucketTaggingError(bucketName, err); convertedErr != nil {
 		return convertedErr
 	}
 
@@ -1376,7 +1474,7 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.IncompleteBody{Bucket: bucketName, Object: object}
 	case errors.Is(err, versioned.ErrFailedPrecondition):
 		return ErrFailedPrecondition
-	case errors.Is(err, versioned.ErrUnimplemented):
+	case errors.Is(err, versioned.ErrUnimplemented), errors.Is(err, bucket.ErrUnimplemented):
 		return minio.NotImplemented{Message: err.Error()}
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
@@ -1432,6 +1530,23 @@ func asDeleteObjectsError(err error) error {
 		return ErrDeleteObjectsNoItems
 	case errors.Is(err, versioned.ErrDeleteObjectsTooManyItems):
 		return ErrDeleteObjectsTooManyItems
+	}
+	return nil
+}
+
+// asBucketTaggingError converts bucket tagging errors. For the most part, minio will already
+// validate tags when parsing the request before the object API layer is called, so these
+// are a fallback incase that doesn't happen.
+func asBucketTaggingError(bucketName string, err error) error {
+	switch {
+	case errors.Is(err, bucket.ErrTagsNotFound):
+		return minio.BucketTaggingNotFound{Bucket: bucketName}
+	case errors.Is(err, bucket.ErrTooManyTags):
+		return ErrBucketTooManyTags
+	case errors.Is(err, bucket.ErrTagKeyInvalid), errors.Is(err, bucket.ErrTagValueInvalid):
+		return ErrBucketInvalidTag
+	case errors.Is(err, bucket.ErrTagKeyDuplicate):
+		return ErrBucketDuplicateTag
 	}
 	return nil
 }

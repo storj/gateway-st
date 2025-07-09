@@ -322,3 +322,13 @@ func (l *singleTenancyLayer) SetObjectRetention(ctx context.Context, bucket, obj
 	err = l.layer.SetObjectRetention(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, versionID, opts)
 	return l.log(err)
 }
+
+func (l *singleTenancyLayer) GetBucketTagging(ctx context.Context, bucketName string) (t *tags.Tags, err error) {
+	t, err = l.layer.GetBucketTagging(WithCredentials(ctx, l.project, l.credentialsInfo), bucketName)
+	return t, l.log(err)
+}
+
+func (l *singleTenancyLayer) SetBucketTagging(ctx context.Context, bucketName string, tags *tags.Tags) (err error) {
+	err = l.layer.SetBucketTagging(WithCredentials(ctx, l.project, l.credentialsInfo), bucketName, tags)
+	return l.log(err)
+}
