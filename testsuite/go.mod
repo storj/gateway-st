@@ -7,6 +7,7 @@ toolchain go1.24.0
 replace storj.io/gateway => ../
 
 require (
+	github.com/aws/aws-sdk-go v1.35.20
 	github.com/minio/minio-go/v7 v7.0.64
 	github.com/stretchr/testify v1.10.0
 	github.com/zeebo/errs v1.4.0
@@ -117,6 +118,7 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/jcmturner/gofork v1.0.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jtolds/monkit-hw/v2 v2.0.0-20250117140252-1a544613ac79 // indirect
