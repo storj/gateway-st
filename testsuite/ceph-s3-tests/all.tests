@@ -558,7 +558,7 @@ s3tests_boto3/functional/test_s3.py::test_multipart_upload_incorrect_etag
 # s3tests_boto3/functional/test_s3.py::test_cors_presigned_put_object_tenant_v2
 # s3tests_boto3/functional/test_s3.py::test_cors_presigned_put_object_tenant
 # s3tests_boto3/functional/test_s3.py::test_cors_presigned_put_object_tenant_with_acl
-# s3tests_boto3/functional/test_s3.py::test_set_bucket_tagging
+s3tests_boto3/functional/test_s3.py::test_set_bucket_tagging
 s3tests_boto3/functional/test_s3.py::test_atomic_read_1mb
 s3tests_boto3/functional/test_s3.py::test_atomic_read_4mb
 s3tests_boto3/functional/test_s3.py::test_atomic_read_8mb
