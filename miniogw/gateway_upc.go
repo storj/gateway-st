@@ -131,7 +131,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 	download, err := versioned.DownloadObject(ctx, project, srcBucket, srcObject, srcVersion, &versioned.DownloadObjectOptions{
 		Offset:         startOffset,
 		Length:         length,
-		ServerSideCopy: true,
+		ServerSideCopy: layer.compatibilityConfig.UploadPartCopy.DiscountEgress,
 	})
 	if err != nil {
 		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)

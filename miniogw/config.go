@@ -19,6 +19,7 @@ type ServerConfig struct {
 type UploadPartCopyConfig struct {
 	Enable              bool     `help:"return 501 (Not Implemented) for UploadPartCopy calls if not enabled" default:"false"`
 	EnabledCombinations []string `help:"combinations ((public project ID):(bucket location),…) where UploadPartCopy is enabled" default:"*:*"`
+	DiscountEgress      bool     `help:"if true, UploadPartCopy calls do not incur egress fees" default:"false"`
 }
 
 // S3CompatibilityConfig is a configuration struct that determines details about
