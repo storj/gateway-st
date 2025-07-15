@@ -35,7 +35,6 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install github.com/storj/ci/check-monkit@latest
 	go install github.com/storj/ci/check-errs@latest
 	go install github.com/storj/ci/check-downgrades@latest
-	go install github.com/storj/ci/storj-release@latest
 
 	# staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -155,7 +154,8 @@ verify: lint cross-vet test ## Execute pre-commit verification
 
 ##@ Release/Private Jenkins/Build
 
-GO_VERSION ?= 1.24.2
+GO_VERSION ?= 1.25rc2
+GO_VERSION_INTEGRATION_TESTS ?= 1.24.2
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 
 ifeq (${BRANCH_NAME},main)
@@ -197,23 +197,14 @@ LDFLAGS := -X storj.io/minio/cmd.Version=2022-04-19T11:13:21Z \
 	-X storj.io/minio/cmd.ShortCommitID=ae15cc41053b
 
 .PHONY: binaries
-binaries: ## Build binaries
-	CGO_ENABLED=0 storj-release \
-		--build-name gateway \
-		--build-tags kqueue \
-		--ldflags "${LDFLAGS}" \
-		--go-version "${GO_VERSION}" \
-		--branch "${BRANCH_NAME}" \
-		--skip-osarches "freebsd/amd64"
-
-	# freebsd/amd64 requires CGO_ENABLED=1: https://github.com/storj/gateway-st/issues/62
-	CGO_ENABLED=1 storj-release \
-		--build-name gateway \
-		--build-tags kqueue \
-		--ldflags "${LDFLAGS}" \
-		--go-version "${GO_VERSION}" \
-		--branch "${BRANCH_NAME}" \
-		--osarches "freebsd/amd64"
+binaries: ${BINARIES} ## Build gateway binaries
+	# TODO(artur): we could use a bit of caching here, but that's not strictly necessary for now
+	docker run --rm \
+		-v $$PWD:/usr/src/gateway \
+		-w /usr/src/gateway \
+		-e GOCACHE=/tmp/go-pkg \
+		-u $$(id -u):$$(id -g) \
+		golang:"${GO_VERSION}" scripts/build_linux.sh "release/${TAG}" "${LDFLAGS}"
 
 .PHONY: push-images
 push-images: ## Push Docker images to Docker Hub
@@ -361,7 +352,7 @@ integration-splunk-tests: ## Run splunk test suite (environment needs to be star
 
 .PHONY: integration-image-build
 integration-image-build:
-	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
+	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION_INTEGRATION_TESTS}
 
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
 	storj-up init minimal,db && \
