@@ -1625,3 +1625,114 @@ func TestListObjectsFastArbitraryPrefixes(t *testing.T) {
 
 	testListObjectsCompatibility(t, s3Compatibility)
 }
+
+func TestListObjectsFastArbitraryDelimiter(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncNull
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		const (
+			slashDelimiter     = "/"
+			arbitraryDelimiter = "###"
+		)
+
+		sat := planet.Satellites[0]
+		up := planet.Uplinks[0]
+
+		project, err := up.OpenProject(ctx, sat)
+		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		// Establish new context with *uplink.Project for the gateway to pick up.
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{Access: up.Access[sat.ID()]})
+
+		layer, err := miniogw.NewStorjGateway(miniogw.S3CompatibilityConfig{
+			MaxKeysLimit: 50,
+			// Reduce the maximum number of exhaustive listing keys to 0 to ensure that
+			// we receive an error whenever exhaustive listing occurs.
+			MaxKeysExhaustiveLimit: 0,
+			FullyCompatibleListing: false,
+		}).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+
+		defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+		bucketName := testrand.BucketName()
+		_, err = project.EnsureBucket(ctxWithProject, bucketName)
+		require.NoError(t, err)
+
+		for _, objectKey := range []string{
+			"abc" + arbitraryDelimiter,
+			"abc" + arbitraryDelimiter + "def",
+			"abc" + arbitraryDelimiter + "def" + arbitraryDelimiter + "ghi",
+			"abc" + slashDelimiter + "def",
+			"xyz" + arbitraryDelimiter + "uvw",
+		} {
+			_, err = createFile(ctxWithProject, project, bucketName, objectKey, testrand.Bytes(16), nil)
+			require.NoError(t, err)
+		}
+
+		objectNames := func(objInfos []minio.ObjectInfo) []string {
+			var names []string
+			for _, info := range objInfos {
+				names = append(names, info.Name)
+			}
+			return names
+		}
+
+		t.Run("Root", func(t *testing.T) {
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "", "", arbitraryDelimiter, 5)
+			require.NoError(t, err)
+
+			require.Equal(t, []string{"abc" + slashDelimiter + "def"}, objectNames(result.Objects))
+			require.Equal(t, []string{
+				"abc" + arbitraryDelimiter,
+				"xyz" + arbitraryDelimiter,
+			}, result.Prefixes)
+			require.Empty(t, result.NextMarker)
+			require.False(t, result.IsTruncated)
+		})
+
+		t.Run("1 level deep", func(t *testing.T) {
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "abc"+arbitraryDelimiter, "", arbitraryDelimiter, 5)
+			require.NoError(t, err)
+
+			require.Equal(t, []string{
+				"abc" + arbitraryDelimiter,
+				"abc" + arbitraryDelimiter + "def",
+			}, objectNames(result.Objects))
+			require.Equal(t, []string{"abc" + arbitraryDelimiter + "def" + arbitraryDelimiter}, result.Prefixes)
+			require.Empty(t, result.NextMarker)
+			require.False(t, result.IsTruncated)
+		})
+
+		t.Run("2 levels deep", func(t *testing.T) {
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "abc"+arbitraryDelimiter+"def"+arbitraryDelimiter, "", arbitraryDelimiter, 5)
+			require.NoError(t, err)
+
+			require.Equal(t, []string{"abc" + arbitraryDelimiter + "def" + arbitraryDelimiter + "ghi"}, objectNames(result.Objects))
+			require.Empty(t, result.Prefixes)
+			require.Empty(t, result.NextMarker)
+			require.False(t, result.IsTruncated)
+		})
+
+		t.Run("Prefix suffixed with partial delimiter", func(t *testing.T) {
+			partialDelimiter := arbitraryDelimiter[:len(arbitraryDelimiter)-1]
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "abc"+partialDelimiter, "", arbitraryDelimiter, 5)
+			require.NoError(t, err)
+
+			require.Equal(t, []string{
+				"abc" + arbitraryDelimiter,
+				"abc" + arbitraryDelimiter + "def",
+			}, objectNames(result.Objects))
+			require.Equal(t, []string{"abc" + arbitraryDelimiter + "def" + arbitraryDelimiter}, result.Prefixes)
+			require.Empty(t, result.NextMarker)
+			require.False(t, result.IsTruncated)
+		})
+	})
+}

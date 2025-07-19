@@ -99,6 +99,7 @@ func (layer *gatewayLayer) listObjectsFast(
 
 	list, more, err := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
 		Prefix:    prefix,
+		Delimiter: delimiter,
 		Cursor:    strings.TrimPrefix(after, prefix),
 		Recursive: recursive,
 		System:    true,
@@ -472,8 +473,9 @@ func (layer *gatewayLayer) listObjectsGeneral(
 	)
 
 	supportedPrefix := prefix == "" || strings.HasSuffix(prefix, "/")
+	supportedDelimiter := delimiter == "" || delimiter == "/"
 
-	if !layer.compatibilityConfig.FullyCompatibleListing && (supportedPrefix || hasEncNullPathCipher(ctx)) && (delimiter == "" || delimiter == "/") {
+	if !layer.compatibilityConfig.FullyCompatibleListing && (hasEncNullPathCipher(ctx) || (supportedPrefix && supportedDelimiter)) {
 		prefixes, objects, token, err = layer.listObjectsFast(
 			ctx,
 			project,
