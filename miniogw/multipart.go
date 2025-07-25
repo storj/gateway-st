@@ -15,6 +15,7 @@ import (
 
 	"storj.io/common/memory"
 	"storj.io/common/sync2"
+	"storj.io/eventkit"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -43,6 +44,18 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 
 	recursive := delimiter == ""
 
+	var fetchedCount int64
+	now := time.Now()
+	defer func() {
+		tags := ctxCredentialsToTags(ctx)
+		tags = append(tags, eventkit.Int64("fetched_count", fetchedCount))
+		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
+		tags = append(tags, eventkit.String("upload ID marker", uploadIDMarker))
+		tags = append(tags, eventkit.Bool("recursive", recursive))
+		tags = append(tags, eventkit.Int64("limit", int64(maxUploads)))
+		ek.Event("ListMultipartUploads", tags...)
+	}()
+
 	list := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
 		Prefix:    prefix,
 		Cursor:    strings.TrimPrefix(keyMarker, prefix),
@@ -61,8 +74,8 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 
 	limit := limitResultsWithAlignment(maxUploads, layer.compatibilityConfig.MaxUploadsLimit)
 
-	for limit > 0 && list.Next() {
-		limit--
+	for fetchedCount < int64(limit) && list.Next() {
+		fetchedCount++
 		object := list.Item()
 
 		if object.IsPrefix {
@@ -229,15 +242,26 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		return minio.ListPartsInfo{}, err
 	}
 
+	var fetchedCount int64
+	now := time.Now()
+	defer func() {
+		tags := ctxCredentialsToTags(ctx)
+		tags = append(tags, eventkit.Int64("fetched_count", fetchedCount))
+		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
+		tags = append(tags, eventkit.String("upload ID", uploadID))
+		tags = append(tags, eventkit.Int64("part number marker", int64(partNumberMarker)))
+		tags = append(tags, eventkit.Int64("limit", int64(maxParts)))
+		ek.Event("ListObjectParts", tags...)
+	}()
+
 	list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{
 		Cursor: uint32(partNumberMarker),
 	})
 
 	parts := make([]minio.PartInfo, 0, maxParts)
 
-	limit := maxParts
-	for (limit > 0 || maxParts == 0) && list.Next() {
-		limit--
+	for (fetchedCount < int64(maxParts) || maxParts == 0) && list.Next() {
+		fetchedCount++
 		part := list.Item()
 		parts = append(parts, minio.PartInfo{
 			PartNumber:   int(part.PartNumber),
