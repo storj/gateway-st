@@ -6,6 +6,7 @@ package miniogw
 import (
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -109,9 +110,9 @@ func (layer *gatewayLayer) CopyObjectPart(
 		tags = append(tags, eventkit.Bool("enabled", enabled))
 		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
 		tags = append(tags, eventkit.String("source bucket", srcBucket))
-		tags = append(tags, eventkit.String("source object", hex.EncodeToString([]byte(srcObject))))
+		tags = append(tags, eventkit.String("source path hash", sha256Hex([]byte(srcObject))))
 		tags = append(tags, eventkit.String("destination bucket", destBucket))
-		tags = append(tags, eventkit.String("destination object", hex.EncodeToString([]byte(destObject))))
+		tags = append(tags, eventkit.String("destination path hash", sha256Hex([]byte(destObject))))
 		tags = append(tags, eventkit.String("upload ID", uploadID))
 		tags = append(tags, eventkit.Int64("part number", int64(partID)))
 		tags = append(tags, eventkit.Int64("start offset", startOffset))
@@ -255,4 +256,9 @@ func sanitizeUUID(s string) (string, error) {
 		return "", err
 	}
 	return ret.String(), nil
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
