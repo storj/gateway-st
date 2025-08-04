@@ -50,7 +50,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		tags := ctxCredentialsToTags(ctx)
 		tags = append(tags, eventkit.Int64("fetched_count", fetchedCount))
 		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
-		tags = append(tags, eventkit.String("upload ID marker", uploadIDMarker))
+		tags = append(tags, eventkit.String("upload_id", uploadIDMarker))
 		tags = append(tags, eventkit.Bool("recursive", recursive))
 		tags = append(tags, eventkit.Int64("limit", int64(maxUploads)))
 		ek.Event("ListMultipartUploads", tags...)
@@ -248,10 +248,10 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		tags := ctxCredentialsToTags(ctx)
 		tags = append(tags, eventkit.Int64("fetched_count", fetchedCount))
 		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
-		tags = append(tags, eventkit.String("upload ID", uploadID))
-		tags = append(tags, eventkit.Int64("part number marker", int64(partNumberMarker)))
+		tags = append(tags, eventkit.String("upload_id", uploadID))
+		tags = append(tags, eventkit.Int64("part_number_marker", int64(partNumberMarker)))
 		tags = append(tags, eventkit.Int64("limit", int64(maxParts)))
-		ek.Event("ListObjectParts", tags...)
+		ek.Event("ListParts", tags...)
 	}()
 
 	list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{

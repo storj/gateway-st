@@ -109,13 +109,13 @@ func (layer *gatewayLayer) CopyObjectPart(
 		tags := ctxCredentialsToTags(ctx)
 		tags = append(tags, eventkit.Bool("enabled", enabled))
 		tags = append(tags, eventkit.Duration("duration", time.Since(now)))
-		tags = append(tags, eventkit.String("source bucket", srcBucket))
-		tags = append(tags, eventkit.String("source path hash", sha256Hex([]byte(srcObject))))
-		tags = append(tags, eventkit.String("destination bucket", destBucket))
-		tags = append(tags, eventkit.String("destination path hash", sha256Hex([]byte(destObject))))
-		tags = append(tags, eventkit.String("upload ID", uploadID))
-		tags = append(tags, eventkit.Int64("part number", int64(partID)))
-		tags = append(tags, eventkit.Int64("start offset", startOffset))
+		tags = append(tags, eventkit.String("source_bucket", srcBucket))
+		tags = append(tags, eventkit.String("source_path_hash", sha256HexString(srcObject)))
+		tags = append(tags, eventkit.String("destination_bucket", destBucket))
+		tags = append(tags, eventkit.String("destination_path_hash", sha256HexString(destObject)))
+		tags = append(tags, eventkit.String("upload_id", uploadID))
+		tags = append(tags, eventkit.Int64("part_number", int64(partID)))
+		tags = append(tags, eventkit.Int64("start_offset", startOffset))
 		tags = append(tags, eventkit.Int64("length", length))
 		ek.Event("UploadPartCopy_naive", tags...)
 	}()
@@ -261,4 +261,8 @@ func sanitizeUUID(s string) (string, error) {
 func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func sha256HexString(s string) string {
+	return sha256Hex([]byte(s))
 }
