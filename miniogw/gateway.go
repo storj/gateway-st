@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -504,7 +505,8 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 	objectInfo := minioVersionedObjectInfo(bucket, "", download.Info())
 	downloadCloser := func() { _ = download.Close() }
 
-	return minio.NewGetObjectReaderFromReader(download, objectInfo, opts, downloadCloser)
+	r := newComplainingReader(download, ctxCredentialsToTags(ctx))
+	return minio.NewGetObjectReaderFromReader(r, objectInfo, opts, downloadCloser)
 }
 
 func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *versioned.DownloadObjectOptions, err error) {
@@ -537,6 +539,29 @@ func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *versioned.Downlo
 		// note: we do not specify ResourceSize here because that would require
 		// an additional stat call to get the ContentLength from metadata.
 		return nil, minio.InvalidRange{OffsetBegin: rs.Start, OffsetEnd: rs.End}
+	}
+}
+
+type complainingReader struct {
+	r    io.Reader
+	tags []eventkit.Tag
+}
+
+func (r *complainingReader) Read(p []byte) (n int, err error) {
+	if n, err = r.r.Read(p); err != nil && !errors.Is(err, io.EOF) {
+		tags := []eventkit.Tag{
+			eventkit.Int64("read", int64(n)),
+			eventkit.String("error", err.Error()),
+		}
+		ek.Event("GetObjectNInfo_Read_errors", slices.Concat(r.tags, tags)...)
+	}
+	return n, err
+}
+
+func newComplainingReader(r io.Reader, tags []eventkit.Tag) *complainingReader {
+	return &complainingReader{
+		r:    r,
+		tags: tags,
 	}
 }
 
