@@ -25,13 +25,12 @@ type UploadPartCopyConfig struct {
 // S3CompatibilityConfig is a configuration struct that determines details about
 // how strict the gateway should be S3-compatible.
 type S3CompatibilityConfig struct {
-	IncludeCustomMetadataListing bool `help:"include custom metadata in S3's ListObjects, ListObjectsV2 and ListMultipartUploads responses" default:"true"`
-	MaxKeysLimit                 int  `help:"MaxKeys parameter limit for S3's ListObjects and ListObjectsV2 responses" default:"1000"`
-	MaxKeysExhaustiveLimit       int  `help:"maximum number of items to list for gateway-side filtering using arbitrary delimiter/prefix" default:"100000"`
-	MaxUploadsLimit              int  `help:"MaxUploads parameter limit for S3's ListMultipartUploads responses" default:"1000"`
-	FullyCompatibleListing       bool `help:"make ListObjects(V2) fully S3-compatible (specifically: always return lexicographically ordered results) but slow" default:"false"`
-	DisableCopyObject            bool `help:"return 501 (Not Implemented) for CopyObject calls" default:"false"`
-	UploadPartCopy               UploadPartCopyConfig
-	MinPartSize                  int64 `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
-	DeleteObjectsConcurrency     int   `help:"how many objects to delete in parallel with DeleteObjects" default:"100"`
+	MaxKeysLimit             int  `help:"MaxKeys parameter limit for S3's ListObjects and ListObjectsV2 responses" default:"1000"`
+	MaxKeysExhaustiveLimit   int  `help:"maximum number of items to list for gateway-side filtering using arbitrary delimiter/prefix" default:"100000"`
+	MaxUploadsLimit          int  `help:"MaxUploads parameter limit for S3's ListMultipartUploads responses" default:"1000"`
+	FullyCompatibleListing   bool `help:"make ListObjects(V2) fully S3-compatible (specifically: always return lexicographically ordered results) but slow" default:"false"`
+	DisableCopyObject        bool `help:"return 501 (Not Implemented) for CopyObject calls" default:"false"`
+	UploadPartCopy           UploadPartCopyConfig
+	MinPartSize              int64 `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
+	DeleteObjectsConcurrency int   `help:"how many objects to delete in parallel with DeleteObjects" default:"100"`
 }

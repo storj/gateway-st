@@ -63,10 +63,9 @@ const (
 )
 
 var defaultS3CompatibilityConfig = miniogw.S3CompatibilityConfig{
-	IncludeCustomMetadataListing: true,
-	MaxKeysLimit:                 maxKeysLimit,
-	MaxKeysExhaustiveLimit:       100000,
-	MaxUploadsLimit:              maxUploadsLimit,
+	MaxKeysLimit:           maxKeysLimit,
+	MaxKeysExhaustiveLimit: 100000,
+	MaxUploadsLimit:        maxUploadsLimit,
 	UploadPartCopy: miniogw.UploadPartCopyConfig{
 		Enable:              true,
 		EnabledCombinations: []string{"*:*"},
@@ -607,7 +606,6 @@ func TestPutObject(t *testing.T) {
 		assert.NotEmpty(t, info.ETag)
 		assert.Equal(t, expectedMetaInfo.ContentType, info.ContentType)
 
-		expectedMetaInfo.UserDefined["s3:etag"] = info.ETag
 		expectedMetaInfo.UserDefined["content-type"] = info.ContentType
 		assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
 
@@ -625,7 +623,6 @@ func TestPutObject(t *testing.T) {
 		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
 
 		assert.Equal(t, info.Size, obj.System.ContentLength)
-		assert.Equal(t, info.ETag, obj.Custom["s3:etag"])
 		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
 		assert.EqualValues(t, info.UserDefined, obj.Custom)
 	})
@@ -753,7 +750,6 @@ func TestPutObjectWithObjectLock(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, expectedMetaInfo.ContentType, info.ContentType)
 
-				expectedMetaInfo.UserDefined["s3:etag"] = info.ETag
 				expectedMetaInfo.UserDefined["content-type"] = info.ContentType
 				assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
 
@@ -1879,9 +1875,8 @@ func TestCopyObjectSameSourceAndDestUpdatesMetadata(t *testing.T) {
 		// for same source and destination works even if the endpoint is disabled
 		// as it's an exceptional case.
 		s3Compatibility := miniogw.S3CompatibilityConfig{
-			DisableCopyObject:            true,
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 maxKeysLimit,
+			DisableCopyObject: true,
+			MaxKeysLimit:      maxKeysLimit,
 		}
 
 		layer, err := miniogw.NewStorjGateway(s3Compatibility).NewGatewayLayer(auth.Credentials{})
@@ -3218,8 +3213,6 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Len(t, obj.Objects, 1)
 		require.Equal(t, testBucket, obj.Objects[0].Bucket)
 		require.Equal(t, testFile, obj.Objects[0].Name)
-
-		expectedMetadata["s3:etag"] = obj.Objects[0].ETag
 
 		require.Equal(t, expectedMetadata, obj.Objects[0].UserDefined)
 	})

@@ -190,8 +190,6 @@ func TestUploadDownload(t *testing.T) {
 				etag = strings.TrimSuffix(etag, `"`)
 
 				require.Equal(t, expectedETag, etag)
-				// returned metadata is not fully processed so lets compare only single entry
-				require.Equal(t, "bar", message.UserMetadata["X-Amz-Meta-Foo"])
 				break
 			}
 

@@ -502,7 +502,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 		return nil, ConvertError(err, bucket, object)
 	}
 
-	objectInfo := minioVersionedObjectInfo(bucket, "", download.Info())
+	objectInfo := minioVersionedObjectInfo(bucket, download.Info())
 	downloadCloser := func() { _ = download.Close() }
 
 	r := newComplainingReader(download, ctxCredentialsToTags(ctx))
@@ -589,7 +589,7 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	return minioVersionedObjectInfo(bucket, "", object), nil
+	return minioVersionedObjectInfo(bucket, object), nil
 }
 
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -683,7 +683,12 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	}
 
 	etag := data.MD5CurrentHexString()
-	opts.UserDefined["s3:etag"] = etag
+	err = upload.SetETag(ctx, []byte(etag))
+	if err != nil {
+		abortErr := upload.Abort()
+		err = errs.Combine(err, abortErr)
+		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+	}
 
 	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
 	if err != nil {
@@ -697,7 +702,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
-	return minioVersionedObjectInfo(bucket, etag, upload.Info()), nil
+	return minioVersionedObjectInfo(bucket, upload.Info()), nil
 }
 
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -753,14 +758,16 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// same source and destination as a way of updating existing metadata
 		// like last modified date/time, as there's no S3 endpoint for
 		// manipulating existing object's metadata.
-		info, err := project.StatObject(ctx, srcBucket, srcObject)
+		info, err := versioned.StatObject(ctx, project, srcBucket, srcObject, nil)
 		if err != nil {
 			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
 
 		upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
 
-		err = project.UpdateObjectMetadata(ctx, srcBucket, srcObject, srcInfo.UserDefined, nil)
+		err = versioned.UpdateObjectMetadata(ctx, project, srcBucket, srcObject, srcInfo.UserDefined, &versioned.UpdateObjectMetadataOptions{
+			ETag: info.ETag,
+		})
 		if err != nil {
 			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
@@ -817,14 +824,16 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// don't have a solution to not override ETag stored in custom metadata
 		upsertObjectMetadata(srcInfo.UserDefined, object.Custom)
 
-		err = project.UpdateObjectMetadata(ctx, destBucket, destObject, srcInfo.UserDefined, nil)
+		err = versioned.UpdateObjectMetadata(ctx, project, destBucket, destObject, srcInfo.UserDefined, &versioned.UpdateObjectMetadataOptions{
+			ETag: object.ETag,
+		})
 		if err != nil {
 			return minio.ObjectInfo{}, ConvertError(err, destBucket, destObject)
 		}
 		object.Custom = uplink.CustomMetadata(srcInfo.UserDefined)
 	}
 
-	return minioVersionedObjectInfo(destBucket, "", object), nil
+	return minioVersionedObjectInfo(destBucket, object), nil
 }
 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
@@ -862,7 +871,7 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		}
 	}
 
-	return minioVersionedObjectInfo(bucket, "", object), nil
+	return minioVersionedObjectInfo(bucket, object), nil
 }
 
 func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deletedObjects []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
@@ -1054,7 +1063,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 		return minio.ObjectInfo{}, err
 	}
 
-	object, err := project.StatObject(ctx, bucket, objectPath)
+	object, err := versioned.StatObject(ctx, project, bucket, objectPath, nil)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
@@ -1062,7 +1071,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
-		return minioObjectInfo(bucket, "", object), nil
+		return minioVersionedObjectInfo(bucket, object), nil
 	}
 
 	newMetadata := object.Custom.Clone()
@@ -1072,12 +1081,14 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 		newMetadata["s3:tags"] = tags
 	}
 
-	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, newMetadata, nil)
+	err = versioned.UpdateObjectMetadata(ctx, project, bucket, objectPath, newMetadata, &versioned.UpdateObjectMetadataOptions{
+		ETag: object.ETag,
+	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	return minioObjectInfo(bucket, "", object), nil
+	return minioVersionedObjectInfo(bucket, object), nil
 }
 
 func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
@@ -1129,7 +1140,7 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 		return minio.ObjectInfo{}, err
 	}
 
-	object, err := project.StatObject(ctx, bucket, objectPath)
+	object, err := versioned.StatObject(ctx, project, bucket, objectPath, nil)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
@@ -1137,18 +1148,20 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok {
-		return minioObjectInfo(bucket, "", object), nil
+		return minioVersionedObjectInfo(bucket, object), nil
 	}
 
 	newMetadata := object.Custom.Clone()
 	delete(newMetadata, "s3:tags")
 
-	err = project.UpdateObjectMetadata(ctx, bucket, objectPath, newMetadata, nil)
+	err = versioned.UpdateObjectMetadata(ctx, project, bucket, objectPath, newMetadata, &versioned.UpdateObjectMetadataOptions{
+		ETag: object.ETag,
+	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	return minioObjectInfo(bucket, "", object), nil
+	return minioVersionedObjectInfo(bucket, object), nil
 }
 
 // GetBucketVersioning retrieves versioning configuration of a bucket.
@@ -1598,7 +1611,9 @@ func upsertObjectMetadata(metadata map[string]string, existingMetadata uplink.Cu
 
 	// if X-Amz-Metadata-Directive header is set to "REPLACE", then
 	// srcInfo.UserDefined will be missing s3:etag, so make sure it's copied.
-	metadata["s3:etag"] = existingMetadata["s3:etag"]
+	if v, ok := existingMetadata["s3:etag"]; ok {
+		metadata["s3:etag"] = v
+	}
 }
 
 // checkBucketError will stat the bucket if the provided error is not nil, in
@@ -1706,7 +1721,7 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	}
 }
 
-func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedObject) minio.ObjectInfo {
+func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) minio.ObjectInfo {
 	if object == nil {
 		object = &versioned.VersionedObject{}
 	}
@@ -1734,7 +1749,7 @@ func minioVersionedObjectInfo(bucket, etag string, object *versioned.VersionedOb
 		object.Custom[strings.ToLower(objectlock.AmzObjectLockLegalHold)] = string(legalHoldStatus)
 	}
 
-	minioObject := minioObjectInfo(bucket, etag, &object.Object)
+	minioObject := minioObjectInfo(bucket, string(object.ETag), &object.Object)
 
 	minioObject.VersionID = encodeVersionID(object.Version)
 	minioObject.DeleteMarker = object.IsDeleteMarker

@@ -409,9 +409,6 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	metadata = metadata.Clone()
-	metadata["s3:etag"] = etag
-
 	if err := verifyIfNoneMatch(opts.IfNoneMatch); err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -419,12 +416,13 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	obj, err := versioned.CommitUpload(ctx, project, bucket, object, uploadID, &metaclient.CommitUploadOptions{
 		CustomMetadata: metadata,
 		IfNoneMatch:    opts.IfNoneMatch,
+		ETag:           []byte(etag),
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	return minioVersionedObjectInfo(bucket, etag, obj), nil
+	return minioVersionedObjectInfo(bucket, obj), nil
 }
 
 func minioMultipartInfo(bucket string, object *uplink.UploadInfo) minio.MultipartInfo {

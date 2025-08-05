@@ -98,13 +98,13 @@ func (layer *gatewayLayer) listObjectsFast(
 	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	list, more, err := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
-		Prefix:    prefix,
-		Delimiter: delimiter,
-		Cursor:    strings.TrimPrefix(after, prefix),
-		Recursive: recursive,
-		System:    true,
-		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
-		Limit:     limit,
+		Prefix:       prefix,
+		Delimiter:    delimiter,
+		Cursor:       strings.TrimPrefix(after, prefix),
+		Recursive:    recursive,
+		System:       true,
+		ETagOrCustom: true,
+		Limit:        limit,
 	})
 	if err != nil {
 		return nil, nil, "", err
@@ -120,7 +120,7 @@ func (layer *gatewayLayer) listObjectsFast(
 		if item.IsPrefix {
 			prefixes = append(prefixes, key)
 		} else {
-			object := minioVersionedObjectInfo(bucket, "", item)
+			object := minioVersionedObjectInfo(bucket, item)
 			object.Name = key
 			objects = append(objects, object)
 		}
@@ -240,7 +240,7 @@ func collapseKey(prefix, delimiter, key string) (commonPrefix string, collapsed 
 // delimiter. If there are more items than the limit, nextContinuationToken will
 // be the last non-truncated item.
 func (layer *gatewayLayer) itemsToPrefixesAndObjects(
-	items []*uplink.Object,
+	items []*versioned.VersionedObject,
 	bucket, prefix, delimiter string,
 	maxKeys int,
 ) (
@@ -274,7 +274,7 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 			if limit == 0 {
 				return prefixes, objects, nextContinuationToken
 			}
-			objects = append(objects, minioObjectInfo(bucket, "", item))
+			objects = append(objects, minioVersionedObjectInfo(bucket, item))
 			nextContinuationToken = item.Key
 			limit--
 			continue
@@ -339,13 +339,6 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 		ek.Event("ListObjects_exhaustive", tags...)
 	}()
 
-	list := project.ListObjects(ctx, bucket, &uplink.ListObjectsOptions{
-		Prefix:    listPrefix,
-		Recursive: delimiter != "/",
-		System:    true,
-		Custom:    layer.compatibilityConfig.IncludeCustomMetadataListing,
-	})
-
 	// Cursor priority: ContinuationToken > StartAfter == Marker
 	after := startAfter
 
@@ -353,57 +346,80 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 		after = continuationToken
 	}
 
-	var items []*uplink.Object
+	var items []*versioned.VersionedObject
 
-	for i := 0; monItrNext(list, exhaustiveListing); i++ {
-		fetchedCount++
-
-		if i == layer.compatibilityConfig.MaxKeysExhaustiveLimit {
-			return nil, nil, "", ErrTooManyItemsToList
+	cursor := ""
+	for {
+		list, more, err := versioned.ListObjects(ctx, project, bucket, &versioned.ListObjectsOptions{
+			Prefix:       listPrefix,
+			Cursor:       cursor,
+			Recursive:    delimiter != "/",
+			System:       true,
+			ETagOrCustom: true,
+			Limit:        layer.compatibilityConfig.MaxKeysLimit,
+		})
+		if err != nil {
+			return nil, nil, "", err
 		}
 
-		item := list.Item()
+		for _, item := range list {
+			if int(fetchedCount) == layer.compatibilityConfig.MaxKeysExhaustiveLimit {
+				return nil, nil, "", ErrTooManyItemsToList
+			}
+			fetchedCount++
 
-		// Skip keys that do not begin with the required prefix.
-		if !strings.HasPrefix(item.Key, prefix) {
-			continue
+			fullKey := listPrefix + item.Key
+
+			// Skip keys that do not begin with the required prefix.
+			if !strings.HasPrefix(fullKey, prefix) {
+				continue
+			}
+
+			key := fullKey
+
+			// The reason we try to collapse the key in the filtering step is that
+			// continuationToken/startAfter could mean the collapsed key. Example:
+			//  p1/a/o
+			//  p1/b/o
+			//  p1/o
+			//  p2/o
+			//
+			//  Prefix:                              p1/
+			//  Delimiter:                           /
+			//  ContinuationToken/StartAfter/Marker: p1/b/
+			//
+			// If we didn't collapse keys (and just filter based on Prefix and
+			// StartAfter), we would end up with the exact same list as before:
+			//  p1/a/o
+			//  p1/b/o
+			//  p1/o
+			//
+			// Instead of:
+			//  p1/o
+			if commonPrefix, ok := collapseKey(prefix, delimiter, fullKey); ok {
+				key = commonPrefix
+			}
+
+			// We don't care about keys before ContinuationToken/StartAfter/Marker.
+			// Skip them.
+			if key <= after {
+				continue
+			}
+
+			item.Key = fullKey
+			items = append(items, item)
 		}
 
-		key := item.Key
+		monLstNext(int64(len(list)), exhaustiveListing)
 
-		// The reason we try to collapse the key in the filtering step is that
-		// continuationToken/startAfter could mean the collapsed key. Example:
-		//  p1/a/o
-		//  p1/b/o
-		//  p1/o
-		//  p2/o
-		//
-		//  Prefix:                              p1/
-		//  Delimiter:                           /
-		//  ContinuationToken/StartAfter/Marker: p1/b/
-		//
-		// If we didn't collapse keys (and just filter based on Prefix and
-		// StartAfter), we would end up with the exact same list as before:
-		//  p1/a/o
-		//  p1/b/o
-		//  p1/o
-		//
-		// Instead of:
-		//  p1/o
-		if commonPrefix, ok := collapseKey(prefix, delimiter, item.Key); ok {
-			key = commonPrefix
+		if !more {
+			break
 		}
 
-		// We don't care about keys before ContinuationToken/StartAfter/Marker.
-		// Skip them.
-		if key <= after {
-			continue
+		if len(list) > 0 {
+			lastKey := list[len(list)-1].Key
+			cursor = strings.TrimPrefix(lastKey, listPrefix)
 		}
-
-		items = append(items, item)
-	}
-	if list.Err() != nil {
-		return nil, nil, "", list.Err()
 	}
 
 	prefixes, objects, nextContinuationToken = layer.itemsToPrefixesAndObjects(items, bucket, prefix, delimiter, maxKeys)
@@ -620,7 +636,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		VersionCursor: version,
 		Recursive:     recursive,
 		System:        true,
-		Custom:        layer.compatibilityConfig.IncludeCustomMetadataListing,
+		ETagOrCustom:  true,
 		Limit:         limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit),
 	})
 	if err != nil {
@@ -652,7 +668,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		if item.IsPrefix {
 			prefixes = append(prefixes, key)
 		} else {
-			object := minioVersionedObjectInfo(bucket, "", item)
+			object := minioVersionedObjectInfo(bucket, item)
 			object.Name = key
 			objects = append(objects, object)
 		}
@@ -716,13 +732,6 @@ func (kind listingKind) String() string {
 	default:
 		return "unknown"
 	}
-}
-
-// monItrNext is a helper function to track the number of items returned
-// by the object iterator.
-func monItrNext(it *uplink.ObjectIterator, kind listingKind) bool {
-	monLstNext(1, kind)
-	return it.Next()
 }
 
 // monLstNext is a helper function to track the number of items returned

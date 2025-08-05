@@ -1238,9 +1238,8 @@ func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc, testListEx
 		// Reconfigure the layer so we can hit MaxKeysLimit and
 		// MaxKeysExhaustiveLimit limits.
 		c := miniogw.S3CompatibilityConfig{
-			IncludeCustomMetadataListing: true,
-			MaxKeysLimit:                 2,
-			MaxKeysExhaustiveLimit:       2,
+			MaxKeysLimit:           2,
+			MaxKeysExhaustiveLimit: 2,
 		}
 
 		l, err := miniogw.NewStorjGateway(c).NewGatewayLayer(auth.Credentials{})
@@ -1604,10 +1603,9 @@ func TestListObjectsFullyCompatible(t *testing.T) {
 	t.Parallel()
 
 	s3Compatibility := miniogw.S3CompatibilityConfig{
-		IncludeCustomMetadataListing: true,
-		MaxKeysLimit:                 50,
-		MaxKeysExhaustiveLimit:       100,
-		FullyCompatibleListing:       true,
+		MaxKeysLimit:           50,
+		MaxKeysExhaustiveLimit: 100,
+		FullyCompatibleListing: true,
 	}
 
 	testListObjectsCompatibility(t, s3Compatibility)
@@ -1619,10 +1617,9 @@ func TestListObjectsFastArbitraryPrefixes(t *testing.T) {
 	t.Parallel()
 
 	s3Compatibility := miniogw.S3CompatibilityConfig{
-		IncludeCustomMetadataListing: true,
-		MaxKeysLimit:                 50,
-		MaxKeysExhaustiveLimit:       0,
-		FullyCompatibleListing:       false,
+		MaxKeysLimit:           50,
+		MaxKeysExhaustiveLimit: 0,
+		FullyCompatibleListing: false,
 	}
 
 	testListObjectsCompatibility(t, s3Compatibility)
