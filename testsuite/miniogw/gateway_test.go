@@ -41,6 +41,7 @@ import (
 	"storj.io/storj/satellite/console"
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
+	"storj.io/storj/satellite/nodeselection"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
 	"storj.io/uplink/private/metaclient"
@@ -78,9 +79,17 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				require.NoError(t, config.Placement.Set(`40:annotation("location","Poland")`))
+				config.Placement = nodeselection.ConfigurablePlacementRule{
+					PlacementRules: `40:annotation("location","Poland")`,
+				}
 				config.Console.Placement.SelfServeEnabled = true
-				config.Console.Placement.SelfServeDetails.SetMap(map[storj.PlacementConstraint]console.PlacementDetail{40: {}})
+				config.Console.Placement.SelfServeDetails.SetMap(map[storj.PlacementConstraint]console.PlacementDetail{
+					40: {
+						ID:     40,
+						IdName: "Poland",
+					},
+				})
+
 			},
 		},
 	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {

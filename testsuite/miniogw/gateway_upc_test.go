@@ -23,6 +23,7 @@ import (
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
 	"storj.io/storj/satellite/console"
+	"storj.io/storj/satellite/nodeselection"
 	"storj.io/uplink"
 )
 
@@ -255,12 +256,23 @@ func testCopyObjectPart(t *testing.T, enabledCombinations []string, projectID, b
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				require.NoError(t, config.Placement.Set(`39:annotation("location","New Zealand");40:annotation("location","Poland");41:annotation("location","United States of America")`))
+				config.Placement = nodeselection.ConfigurablePlacementRule{
+					PlacementRules: `39:annotation("location","New Zealand");40:annotation("location","Poland");41:annotation("location","United States of America")`,
+				}
 				config.Console.Placement.SelfServeEnabled = true
 				config.Console.Placement.SelfServeDetails.SetMap(map[storj.PlacementConstraint]console.PlacementDetail{
-					39: {},
-					40: {},
-					41: {},
+					39: {
+						ID:     39,
+						IdName: "New Zealand",
+					},
+					40: {
+						ID:     40,
+						IdName: "Poland",
+					},
+					41: {
+						ID:     41,
+						IdName: "United States of America",
+					},
 				})
 			},
 		},
