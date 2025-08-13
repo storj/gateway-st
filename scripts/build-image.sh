@@ -38,9 +38,10 @@ docker run \
 	-v "$PWD":/go/build \
 	-v "$PKG_CACHE_PATH":/go/pkg \
 	-v "$BUILD_CACHE_PATH":/tmp/.cache/go-build \
+	-e GOCACHE=/tmp/.cache/go-build \
 	-e GOARM=6 -e GOOS=linux -e GOARCH="$GOARCH" -e GOPROXY -e CGO_ENABLED \
 	-w /go/build \
-	--rm storjlabs/golang:"$GO_VERSION" \
+	--rm golang:"$GO_VERSION" \
 	go build -o release/"$BUILD_NUMBER"/gateway_linux_"$GOARCH" \
 		storj.io/gateway
 

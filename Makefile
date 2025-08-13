@@ -154,8 +154,7 @@ verify: lint cross-vet test ## Execute pre-commit verification
 
 ##@ Release/Private Jenkins/Build
 
-GO_VERSION ?= 1.25rc2
-GO_VERSION_INTEGRATION_TESTS ?= 1.24.2
+GO_VERSION ?= 1.25.0
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 
 ifeq (${BRANCH_NAME},main)
@@ -352,7 +351,7 @@ integration-splunk-tests: ## Run splunk test suite (environment needs to be star
 
 .PHONY: integration-image-build
 integration-image-build:
-	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION_INTEGRATION_TESTS}
+	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
 
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
 	storj-up init minimal,db && \
