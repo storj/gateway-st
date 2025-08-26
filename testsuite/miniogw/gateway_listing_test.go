@@ -175,7 +175,7 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOp
 
 		filePaths := []string{
 			"a", "aa", "b", "bb", "c",
-			"a/xa", "a/xaa", "a/xb", "a/xbb", "a/xc",
+			"a/a/xa", "a/xa", "a/xaa", "a/xb", "a/xbb", "a/xc",
 			"b/ya", "b/yaa", "b/yb", "b/ybb", "b/yc",
 			"i", "i/i", "ii", "j", "j/i", "k", "kk", "l",
 			"m/i", "mm", "n/i", "oo",
@@ -327,6 +327,7 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOp
 				prefix:    "a/",
 				delimiter: "/",
 				maxKeys:   maxKeysLimit,
+				prefixes:  []string{"a/a/"},
 				objects:   []string{"xa", "xaa", "xb", "xbb", "xc"},
 			}, {
 				name:      "Prefix non-recursive with mark",
