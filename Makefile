@@ -321,9 +321,8 @@ integration-ceph-tests: ## (environment needs to be started first)
 	-w /build \
 	--name integration-ceph-tests-${BUILD_NUMBER}-$$TEST \
 	--entrypoint /bin/bash \
-	--user "$$(id -u):$$(id -g)" \
-	--rm storjlabs/ci:latest \
-	-c "testsuite/ceph-s3-tests/run.sh"
+	--rm python:3.11-bookworm \
+	-c "umask 0000; testsuite/ceph-s3-tests/run.sh"
 
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)

@@ -54,7 +54,6 @@ require_equal_files_content "$SRC_DIR/backup-testfile-10MiB" "$DST_DIR/backup-te
 # use multipart upload
 duplicity -v9 --s3-endpoint-url="$AWS_ENDPOINT" "$SRC_DIR" \
 	"boto3+s3://duplicity-multipart/" \
-	--s3-use-multiprocessing \
 	--s3-multipart-max-procs 2 \
 	--s3-multipart-chunk-size 2097152
 

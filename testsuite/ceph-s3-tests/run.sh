@@ -3,6 +3,8 @@ set -Eueo pipefail
 
 # use 'make integration-ceph-tests' to run this script
 
+apt-get update && apt-get -yqq install tox
+
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:=$GATEWAY_0_ACCESS_KEY}
