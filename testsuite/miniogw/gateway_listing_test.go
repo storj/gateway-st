@@ -1326,6 +1326,7 @@ func testListObjectsCompatibility(t *testing.T, s3Compatibility miniogw.S3Compat
 		SatelliteCount:   1,
 		StorageNodeCount: 4,
 		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves
 		Reconfigure: testplanet.Reconfigure{
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = storj.EncNull

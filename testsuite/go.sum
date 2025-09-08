@@ -2349,8 +2349,8 @@ rsc.io/binaryregexp v0.2.0/go.mod h1:qTv7/COck+e2FymRvadv62gMdZztPaShugOCi3I+8D8
 rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
 rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
-storj.io/common v0.0.0-20250828184626-2150fbee48ec h1:nZRPBANg/fdX4k8Zv/S4/knSul3yBd4017DfzLRKbNg=
-storj.io/common v0.0.0-20250828184626-2150fbee48ec/go.mod h1:YNr7/ty6CmtpG5C9lEPtPXK3hOymZpueCb9QCNuPMUY=
+storj.io/common v0.0.0-20250905132913-dad2ec895b75 h1:T/0FZByS/sdeDJJqC2z1v4qwNIjDijWi0g+7XcrsJ4o=
+storj.io/common v0.0.0-20250905132913-dad2ec895b75/go.mod h1:YNr7/ty6CmtpG5C9lEPtPXK3hOymZpueCb9QCNuPMUY=
 storj.io/drpc v0.0.35-0.20250513201419-f7819ea69b55 h1:8OE12DvUnB9lfZcHe7IDGsuhjrY9GBAr964PVHmhsro=
 storj.io/drpc v0.0.35-0.20250513201419-f7819ea69b55/go.mod h1:Y9LZaa8esL1PW2IDMqJE7CFSNq7d5bQ3RI7mGPtmKMg=
 storj.io/eventkit v0.0.0-20250410172343-61f26d3de156 h1:5MZ0CyMbG6Pi0rRzUWVG6dvpXjbBYEX2oyXuj+tT+sk=
@@ -2365,7 +2365,7 @@ storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad h1:HkjZ/RDf2MiY7ENNhDW
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad/go.mod h1:ZS8oCmCdx8/cSCbQBeT3BSAgxqoHPclTerizqn5i+Os=
 storj.io/picobuf v0.0.4 h1:qswHDla+YZ2TovGtMnU4astjvrADSIz84FXRn0qgP6o=
 storj.io/picobuf v0.0.4/go.mod h1:hSMxmZc58MS/2qSLy1I0idovlO7+6K47wIGUyRZa6mg=
-storj.io/storj v1.136.4 h1:E4jchW3hMFKsKSE4/h9uH5N9FO7Ze8a/Do7mNiaS584=
-storj.io/storj v1.136.4/go.mod h1:i+lYPvzPlh81TExRqtlMtGYEXHE5Y8tYoBsuN5navq4=
-storj.io/uplink v1.13.2-0.20250818230443-94467580e798 h1:Ol8b/TPj+jWpzygzLIZ5v3PNuVV1pWpFxj4zlomyYYk=
-storj.io/uplink v1.13.2-0.20250818230443-94467580e798/go.mod h1:kflX6f1z3rn8P/KdYCWYNr1b6AaJcxi9Mf9tthzq64w=
+storj.io/storj v1.137.4 h1:tRfqnc4Rqw2T+y6vqw9QXjmaHc6I0+VcTpvbbawLtn8=
+storj.io/storj v1.137.4/go.mod h1:i+lYPvzPlh81TExRqtlMtGYEXHE5Y8tYoBsuN5navq4=
+storj.io/uplink v1.13.2-0.20250910140059-808e9e802e57 h1:jmgExXkldEOU1wzgb5tw98f8o0E4IZ/Fq6uQ/DuiHYQ=
+storj.io/uplink v1.13.2-0.20250910140059-808e9e802e57/go.mod h1:OZ2/zc2dOqJ37r6cQRdj3yz3fsZxK9bYBmWiPnONrCY=

@@ -253,7 +253,10 @@ func TestCopyObjectPartRange(t *testing.T) {
 
 func testCopyObjectPart(t *testing.T, enabledCombinations []string, projectID, bucketLocation string, expectFailure bool) {
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		SatelliteCount:   1,
+		StorageNodeCount: 4,
+		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Placement = nodeselection.ConfigurablePlacementRule{

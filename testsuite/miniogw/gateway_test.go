@@ -898,7 +898,10 @@ func TestSetObjectRetention(t *testing.T) {
 	t.Parallel()
 
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 1, UplinkCount: 1,
+		SatelliteCount:   1,
+		StorageNodeCount: 1,
+		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
@@ -1974,7 +1977,10 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 	t.Parallel()
 
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 1, UplinkCount: 1,
+		SatelliteCount:   1,
+		StorageNodeCount: 1,
+		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
@@ -2071,7 +2077,10 @@ func TestDeleteObjects(t *testing.T) {
 	t.Parallel()
 
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 1, UplinkCount: 1,
+		SatelliteCount:   1,
+		StorageNodeCount: 1,
+		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.UseBucketLevelObjectVersioning = true
@@ -2655,8 +2664,15 @@ func TestPutObjectWithOL(t *testing.T) {
 	t.Parallel()
 
 	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		invalidBucket := "invalid-bucket"
-		require.NoError(t, layer.MakeBucketWithLocation(ctx, invalidBucket, minio.BucketOptions{}))
+		unversionedBucket := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, unversionedBucket, minio.BucketOptions{}))
+
+		versionedBucketWithoutOL := testrand.BucketName()
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, versionedBucketWithoutOL, minio.BucketOptions{}))
+
+		require.NoError(t, layer.SetBucketVersioning(ctx, versionedBucketWithoutOL, &versioning.Versioning{
+			Status: versioning.Enabled,
+		}))
 
 		require.NoError(t, layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
 			LockEnabled: true,
@@ -2672,7 +2688,14 @@ func TestPutObjectWithOL(t *testing.T) {
 		userDefined := map[string]string{}
 		opts := minio.ObjectOptions{UserDefined: userDefined, Retention: retention}
 
-		_, err := layer.PutObject(ctx, invalidBucket, testFile, nil, opts)
+		// FIXME(artur, jeremy): re-enable the check below once
+		// https://review.dev.storj.tools/c/storj/storj/+/18569 is
+		// included in the next satellite release.
+		//
+		// _, err := layer.PutObject(ctx, unversionedBucket, testFile, nil, opts)
+		// require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
+
+		_, err := layer.PutObject(ctx, versionedBucketWithoutOL, testFile, nil, opts)
 		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 
 		_, err = layer.PutObject(ctx, testBucket, testFile, nil, opts)
@@ -3411,7 +3434,9 @@ func TestDeleteObjectWithNoReadOrListPermission(t *testing.T) {
 	t.Parallel()
 
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, UplinkCount: 1,
+		SatelliteCount: 1,
+		UplinkCount:    1,
+		NonParallel:    true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = storj.EncNull
@@ -3871,7 +3896,10 @@ func TestProjectUsageLimit(t *testing.T) {
 	t.Parallel()
 
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		SatelliteCount:   1,
+		StorageNodeCount: 4,
+		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = storj.EncNull
@@ -3951,6 +3979,7 @@ func TestSlowDown(t *testing.T) {
 		SatelliteCount:   1,
 		StorageNodeCount: 0,
 		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.RateLimiter.Rate = 0
@@ -3976,6 +4005,7 @@ func TestSlowDown(t *testing.T) {
 		SatelliteCount:   1,
 		StorageNodeCount: 0,
 		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.RateLimiter.Rate = 1
@@ -4125,7 +4155,10 @@ func runTestWithVersioning(t *testing.T, test func(*testing.T, context.Context, 
 
 func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versioning bool, objectLock bool, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		SatelliteCount:   1,
+		StorageNodeCount: 4,
+		UplinkCount:      1,
+		NonParallel:      true, // we control parallelism ourselves
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
