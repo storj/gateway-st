@@ -131,7 +131,7 @@ func TestUploadDownload(t *testing.T) {
 			}
 
 			{ // restart the gateway with the --website flag and try again - expect success
-				err = stopGateway(gateway, gatewayAddr)
+				err = stopGateway(ctx, gateway, gatewayAddr)
 				require.NoError(t, err)
 				gateway, err = startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
 				require.NoError(t, err)
@@ -257,7 +257,7 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Cli
 	return gateway, nil
 }
 
-func stopGateway(gateway *exec.Cmd, address string) error {
+func stopGateway(ctx context.Context, gateway *exec.Cmd, address string) error {
 	err := gateway.Process.Kill()
 	if err != nil {
 		return err
@@ -266,7 +266,7 @@ func stopGateway(gateway *exec.Cmd, address string) error {
 	start := time.Now()
 	maxStopWait := 5 * time.Second
 	for {
-		if !tryConnect(address) {
+		if !tryConnect(ctx, address) {
 			return nil
 		}
 
@@ -298,8 +298,8 @@ func waitToStart(ctx context.Context, client minioclient.Client, address string,
 }
 
 // tryConnect will try to connect to the process public address.
-func tryConnect(address string) bool {
-	conn, err := net.Dial("tcp", address)
+func tryConnect(ctx context.Context, address string) bool {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
 	if err != nil {
 		return false
 	}

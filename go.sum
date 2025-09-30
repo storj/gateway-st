@@ -669,8 +669,8 @@ github.com/zeebo/goof v0.0.0-20230907150950-e9457bc94477 h1:W/fHn8aWJEBCQcLeeNBo
 github.com/zeebo/goof v0.0.0-20230907150950-e9457bc94477/go.mod h1:nbQ8jtLiWGVGehuiqVKJp/Oc9FnzA56AZ0tG/srGTGY=
 github.com/zeebo/incenc v0.0.0-20180505221441-0d92902eec54 h1:+cwNE5KJ3pika4HuzmDHkDlK5myo0G9Sv+eO7WWxnUQ=
 github.com/zeebo/incenc v0.0.0-20180505221441-0d92902eec54/go.mod h1:EI8LcOBDlSL3POyqwC1eJhOYlMBMidES+613EtmmT5w=
-github.com/zeebo/mwc v0.0.4 h1:9dNXNLtUB4lUXoXgyhy3YrKoV0OD7oRiu907YMS0nl0=
-github.com/zeebo/mwc v0.0.4/go.mod h1:qNHfgp/ZCpQNcJHwKcO5EP3VgaBrW6DPohsK4QfyxxE=
+github.com/zeebo/mwc v0.0.7 h1:0NerGhCww6ZQx+/xCx5iwznftveokvto1KILpYfENZk=
+github.com/zeebo/mwc v0.0.7/go.mod h1:0B32or6moOig1YGuqMoimBpU9QK9uYaGG2bBOuddqtE=
 github.com/zeebo/pcg v1.0.1 h1:lyqfGeWiv4ahac6ttHs+I5hwtH/+1mrhlCtVNQM2kHo=
 github.com/zeebo/pcg v1.0.1/go.mod h1:09F0S9iiKrwn9rlI5yjLkmrug154/YRW6KnnXVDM/l4=
 github.com/zeebo/structs v1.0.3-0.20230601144555-f2db46069602 h1:nMxsvi3pTJapmPpdShLdCO8sbCqd8XkjKYMssSJrfiM=
@@ -962,8 +962,8 @@ honnef.co/go/tools v0.0.1-2019.2.3/go.mod h1:a3bituU0lyd329TUQxRnasdCoJDkEUEAqEt
 rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
 sigs.k8s.io/yaml v1.1.0/go.mod h1:UJmg0vDUVViEyp3mgSv9WPwZCDxu4rQW1olrI1uml+o=
 sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0/go.mod h1:hI742Nqp5OhwiqlzhgfbWU4mW4yO10fP+LoT9WOswdU=
-storj.io/common v0.0.0-20250905132913-dad2ec895b75 h1:T/0FZByS/sdeDJJqC2z1v4qwNIjDijWi0g+7XcrsJ4o=
-storj.io/common v0.0.0-20250905132913-dad2ec895b75/go.mod h1:YNr7/ty6CmtpG5C9lEPtPXK3hOymZpueCb9QCNuPMUY=
+storj.io/common v0.0.0-20250918032746-784a656bec7e h1:wBeNT7CA1Qwnm8jGP+mKp/IW12vhytCGjVSCKeEF6xM=
+storj.io/common v0.0.0-20250918032746-784a656bec7e/go.mod h1:YNr7/ty6CmtpG5C9lEPtPXK3hOymZpueCb9QCNuPMUY=
 storj.io/drpc v0.0.35-0.20250513201419-f7819ea69b55 h1:8OE12DvUnB9lfZcHe7IDGsuhjrY9GBAr964PVHmhsro=
 storj.io/drpc v0.0.35-0.20250513201419-f7819ea69b55/go.mod h1:Y9LZaa8esL1PW2IDMqJE7CFSNq7d5bQ3RI7mGPtmKMg=
 storj.io/eventkit v0.0.0-20250410172343-61f26d3de156 h1:5MZ0CyMbG6Pi0rRzUWVG6dvpXjbBYEX2oyXuj+tT+sk=
@@ -976,5 +976,5 @@ storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad h1:HkjZ/RDf2MiY7ENNhDW
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad/go.mod h1:ZS8oCmCdx8/cSCbQBeT3BSAgxqoHPclTerizqn5i+Os=
 storj.io/picobuf v0.0.4 h1:qswHDla+YZ2TovGtMnU4astjvrADSIz84FXRn0qgP6o=
 storj.io/picobuf v0.0.4/go.mod h1:hSMxmZc58MS/2qSLy1I0idovlO7+6K47wIGUyRZa6mg=
-storj.io/uplink v1.13.2-0.20250910140059-808e9e802e57 h1:jmgExXkldEOU1wzgb5tw98f8o0E4IZ/Fq6uQ/DuiHYQ=
-storj.io/uplink v1.13.2-0.20250910140059-808e9e802e57/go.mod h1:OZ2/zc2dOqJ37r6cQRdj3yz3fsZxK9bYBmWiPnONrCY=
+storj.io/uplink v1.13.2-0.20250930003134-d222f7415a99 h1:aG2X47BzsXXg30nB6k29d1W9jjYyrI4ojidtFWYdIwk=
+storj.io/uplink v1.13.2-0.20250930003134-d222f7415a99/go.mod h1:1nVyw7GKm3ZERMAFtP4/XjQp0cRENlR4W/1CS4NOaZA=
