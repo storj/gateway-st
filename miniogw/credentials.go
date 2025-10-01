@@ -5,6 +5,7 @@ package miniogw
 
 import (
 	"context"
+	"time"
 
 	"storj.io/uplink"
 )
@@ -13,25 +14,28 @@ type credentialsKey struct{}
 
 // Credentials contains credentials used to access the project.
 type Credentials struct {
-	Access          *uplink.Access
-	Project         *uplink.Project
-	PublicProjectID string
+	Access           *uplink.Access
+	Project          *uplink.Project
+	PublicProjectID  string
+	ProjectCreatedAt time.Time
 }
 
 // CredentialsInfo is supplementary information about credentials used
 // to access the project.
 type CredentialsInfo struct {
-	Access          *uplink.Access
-	PublicProjectID string
+	Access           *uplink.Access
+	PublicProjectID  string
+	ProjectCreatedAt time.Time
 }
 
 // WithCredentials injects Credentials into ctx under a specific key.
 // Use GetCredentials to retrieve Credentials from ctx.
 func WithCredentials(ctx context.Context, project *uplink.Project, info CredentialsInfo) context.Context {
 	return context.WithValue(ctx, credentialsKey{}, Credentials{
-		Access:          info.Access,
-		Project:         project,
-		PublicProjectID: info.PublicProjectID,
+		Access:           info.Access,
+		Project:          project,
+		PublicProjectID:  info.PublicProjectID,
+		ProjectCreatedAt: info.ProjectCreatedAt,
 	})
 }
 
