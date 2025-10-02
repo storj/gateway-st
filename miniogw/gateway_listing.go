@@ -42,6 +42,15 @@ var ErrVersionIDMarkerWithoutKeyMarker = func(bucketName string) miniogo.ErrorRe
 	}
 }
 
+// ErrUnsupportedListing is returned when attempting to use ListObjects
+// with an unsupported prefix or delimiter.
+var ErrUnsupportedListing = func(deadline time.Time) miniogo.ErrorResponse {
+	return miniogo.ErrorResponse{
+		Code:    "NotImplemented",
+		Message: "Projects with self-managed encryption created after " + deadline.Format(time.RFC3339) + " only support empty prefixes/delimiters or those ending with '/'.",
+	}
+}
+
 // hasEncNullPathCipher determines if the access grant uses EncNull cipher for path encryption.
 func hasEncNullPathCipher(ctx context.Context) bool {
 	creds, err := credentialsFromContext(ctx)
@@ -63,6 +72,26 @@ func hasEncNullPathCipher(ctx context.Context) bool {
 	}
 
 	return access.EncAccess.Store.GetDefaultPathCipher() == storj.EncNull
+}
+
+func projectCreatedAtFromCredentials(ctx context.Context) time.Time {
+	creds, err := credentialsFromContext(ctx)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return creds.ProjectCreatedAt
+}
+
+func (layer *gatewayLayer) validateListing(ctx context.Context, supportedPrefix, supportedDelimiter bool) error {
+	if !layer.compatibilityConfig.FullyCompatibleListing &&
+		!layer.unsupportedListingDeadline.IsZero() &&
+		(!supportedPrefix || !supportedDelimiter) &&
+		!hasEncNullPathCipher(ctx) &&
+		projectCreatedAtFromCredentials(ctx).After(layer.unsupportedListingDeadline) {
+		return ErrUnsupportedListing(layer.unsupportedListingDeadline)
+	}
+	return nil
 }
 
 func (layer *gatewayLayer) listObjectsFast(
@@ -491,6 +520,19 @@ func (layer *gatewayLayer) listObjectsGeneral(
 	supportedPrefix := prefix == "" || strings.HasSuffix(prefix, "/")
 	supportedDelimiter := delimiter == "" || delimiter == "/"
 
+	exhaustiveListing := func() (prefixes []string, objects []minio.ObjectInfo, token string, err error) {
+		if err = layer.validateListing(ctx, supportedPrefix, supportedDelimiter); err != nil {
+			return nil, nil, "", err
+		}
+
+		return layer.listObjectsExhaustive(
+			ctx,
+			project,
+			bucket, prefix, continuationToken, delimiter,
+			maxKeys,
+			startAfter)
+	}
+
 	if !layer.compatibilityConfig.FullyCompatibleListing && (hasEncNullPathCipher(ctx) || (supportedPrefix && supportedDelimiter)) {
 		prefixes, objects, token, err = layer.listObjectsFast(
 			ctx,
@@ -513,23 +555,13 @@ func (layer *gatewayLayer) listObjectsGeneral(
 		}
 		// Prefix optimization did not work; we need to fall back to exhaustive.
 		if prefixes == nil && objects == nil {
-			prefixes, objects, token, err = layer.listObjectsExhaustive(
-				ctx,
-				project,
-				bucket, prefix, continuationToken, delimiter,
-				maxKeys,
-				startAfter)
+			prefixes, objects, token, err = exhaustiveListing()
 			if err != nil {
 				return minio.ListObjectsV2Info{}, err
 			}
 		}
 	} else {
-		prefixes, objects, token, err = layer.listObjectsExhaustive(
-			ctx,
-			project,
-			bucket, prefix, continuationToken, delimiter,
-			maxKeys,
-			startAfter)
+		prefixes, objects, token, err = exhaustiveListing()
 		if err != nil {
 			return minio.ListObjectsV2Info{}, err
 		}

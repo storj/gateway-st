@@ -1625,6 +1625,141 @@ func TestListObjectsFastArbitraryPrefixes(t *testing.T) {
 	testListObjectsCompatibility(t, s3Compatibility)
 }
 
+func TestListObjectsUnsupportedListingDeadline(t *testing.T) {
+	arbitraryDelimiter := "#"
+	arbitraryPrefix := "prefix"
+	deadline := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	newCompatibilityConfig := func(deadline time.Time) miniogw.S3CompatibilityConfig {
+		return miniogw.S3CompatibilityConfig{
+			MaxKeysLimit:               50,
+			MaxKeysExhaustiveLimit:     100,
+			FullyCompatibleListing:     false,
+			UnsupportedListingDeadline: deadline.Format(time.RFC3339),
+		}
+	}
+
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
+				config.DefaultPathCipher = storj.EncAESGCM
+			},
+		},
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		sat := planet.Satellites[0]
+		up := planet.Uplinks[0]
+
+		project, err := up.OpenProject(ctx, sat)
+		require.NoError(t, err)
+		defer ctx.Check(project.Close)
+
+		bucketName := testrand.BucketName()
+		_, err = project.EnsureBucket(ctx, bucketName)
+		require.NoError(t, err)
+
+		for _, key := range []string{
+			"photos" + arbitraryDelimiter + "2022" + arbitraryDelimiter + "image.jpg",
+			"photos" + arbitraryDelimiter + "2023" + arbitraryDelimiter + "image.jpg",
+			arbitraryPrefix + "/file1.txt",
+			arbitraryPrefix + "/file2.txt",
+		} {
+			_, err := createFile(ctx, project, bucketName, key, []byte("test"), nil)
+			require.NoError(t, err)
+		}
+
+		t.Run("project created before deadline allows arbitrary prefixes and delimiters", func(t *testing.T) {
+			projectCreatedBefore := deadline.Add(-24 * time.Hour)
+			ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
+				Access:           up.Access[sat.ID()],
+				ProjectCreatedAt: projectCreatedBefore,
+			})
+
+			layer, err := miniogw.NewStorjGateway(newCompatibilityConfig(deadline)).NewGatewayLayer(auth.Credentials{})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "photos"+arbitraryDelimiter, "", arbitraryDelimiter, 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Prefixes)
+
+			result, err = layer.ListObjects(ctxWithProject, bucketName, arbitraryPrefix, "", "/", 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Prefixes)
+		})
+
+		t.Run("project created after deadline rejects arbitrary prefixes and delimiters", func(t *testing.T) {
+			projectCreatedAfter := deadline.Add(24 * time.Hour)
+			ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
+				Access:           up.Access[sat.ID()],
+				ProjectCreatedAt: projectCreatedAfter,
+			})
+
+			layer, err := miniogw.NewStorjGateway(newCompatibilityConfig(deadline)).NewGatewayLayer(auth.Credentials{})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+			_, err = layer.ListObjects(ctxWithProject, bucketName, "photos"+arbitraryDelimiter, "", arbitraryDelimiter, 10)
+			require.ErrorIs(t, err, miniogw.ErrUnsupportedListing(deadline))
+
+			// optimizations still work, however.
+			result, err := layer.ListObjects(ctxWithProject, bucketName, arbitraryPrefix, "", "/", 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Prefixes)
+
+			// fully-compatible setting allows any arbitrary prefix and delimiter.
+			fullyCompatibleConfig := newCompatibilityConfig(deadline)
+			fullyCompatibleConfig.FullyCompatibleListing = true
+			fullyCompatibleLayer, err := miniogw.NewStorjGateway(fullyCompatibleConfig).NewGatewayLayer(auth.Credentials{})
+			require.NoError(t, err)
+
+			result, err = fullyCompatibleLayer.ListObjects(ctxWithProject, bucketName, "photos"+arbitraryDelimiter, "", arbitraryDelimiter, 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Prefixes)
+		})
+
+		t.Run("project created after deadline allows standard prefixes and delimiters", func(t *testing.T) {
+			projectCreatedAfter := deadline.Add(24 * time.Hour)
+			ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
+				Access:           up.Access[sat.ID()],
+				ProjectCreatedAt: projectCreatedAfter,
+			})
+
+			layer, err := miniogw.NewStorjGateway(newCompatibilityConfig(deadline)).NewGatewayLayer(auth.Credentials{})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, arbitraryPrefix+"/", "", "/", 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Objects)
+
+			result, err = layer.ListObjects(ctxWithProject, bucketName, "", "", "", 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Objects)
+
+			result, err = layer.ListObjects(ctxWithProject, bucketName, arbitraryPrefix+"/", "", "", 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Objects)
+		})
+
+		t.Run("no deadline allows arbitrary prefixes and delimiters for any project", func(t *testing.T) {
+			projectCreatedAfter := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+			ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
+				Access:           up.Access[sat.ID()],
+				ProjectCreatedAt: projectCreatedAfter,
+			})
+
+			layer, err := miniogw.NewStorjGateway(newCompatibilityConfig(time.Time{})).NewGatewayLayer(auth.Credentials{})
+			require.NoError(t, err)
+			defer func() { require.NoError(t, layer.Shutdown(ctxWithProject)) }()
+
+			result, err := layer.ListObjects(ctxWithProject, bucketName, "photos"+arbitraryDelimiter, "", arbitraryDelimiter, 10)
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Prefixes)
+		})
+	})
+}
+
 func TestListObjectsFastArbitraryDelimiter(t *testing.T) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, UplinkCount: 1,

@@ -259,9 +259,18 @@ func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLay
 		return nil, errs.New("failed to parse UploadPartCopy enabled combinations: %w", err)
 	}
 
+	var unsupportedListingDeadline time.Time
+	if gateway.compatibilityConfig.UnsupportedListingDeadline != "" {
+		unsupportedListingDeadline, err = time.Parse(time.RFC3339, gateway.compatibilityConfig.UnsupportedListingDeadline)
+		if err != nil {
+			return nil, errs.New("failed to parse UnsupportedListingDeadline: %w", err)
+		}
+	}
+
 	return &gatewayLayer{
-		compatibilityConfig:  gateway.compatibilityConfig,
-		copyObjectPartConfig: copConfig,
+		compatibilityConfig:        gateway.compatibilityConfig,
+		copyObjectPartConfig:       copConfig,
+		unsupportedListingDeadline: unsupportedListingDeadline,
 	}, nil
 }
 
@@ -273,8 +282,9 @@ func (gateway *Gateway) Production() bool {
 type gatewayLayer struct {
 	minio.GatewayUnsupported
 
-	compatibilityConfig  S3CompatibilityConfig
-	copyObjectPartConfig copyObjectPartConfig
+	compatibilityConfig        S3CompatibilityConfig
+	copyObjectPartConfig       copyObjectPartConfig
+	unsupportedListingDeadline time.Time
 }
 
 // Shutdown is a no-op.
