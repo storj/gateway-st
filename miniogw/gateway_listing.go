@@ -185,13 +185,13 @@ func (layer *gatewayLayer) listObjectsSingle(
 	limit := limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit)
 
 	if after == "" {
-		object, err := project.StatObject(ctx, bucket, prefix)
+		object, err := versioned.StatObject(ctx, project, bucket, prefix, nil)
 		if err != nil {
 			if !errors.Is(err, uplink.ErrObjectNotFound) {
 				return nil, nil, "", err
 			}
 		} else {
-			objects = append(objects, minioObjectInfo(bucket, "", object))
+			objects = append(objects, minioVersionedObjectInfo(bucket, object))
 
 			if limit == 1 {
 				return prefixes, objects, object.Key, nil

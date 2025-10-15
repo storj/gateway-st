@@ -610,7 +610,7 @@ func TestPutObject(t *testing.T) {
 		assert.Equal(t, expectedMetaInfo.UserDefined, info.UserDefined)
 
 		// Check that the object is uploaded using the Uplink API
-		obj, err := project.StatObject(ctx, testBucketInfo.Name, testFile)
+		obj, err := versioned.StatObject(ctx, project, testBucketInfo.Name, testFile, nil)
 		require.NoError(t, err)
 		assert.Equal(t, testFile, obj.Key)
 		assert.False(t, obj.IsPrefix)
@@ -623,6 +623,7 @@ func TestPutObject(t *testing.T) {
 		assert.WithinDuration(t, info.ModTime, obj.System.Created, 1*time.Second)
 
 		assert.Equal(t, info.Size, obj.System.ContentLength)
+		assert.Equal(t, info.ETag, string(obj.ETag))
 		assert.Equal(t, info.ContentType, obj.Custom["content-type"])
 		assert.EqualValues(t, info.UserDefined, obj.Custom)
 	})
@@ -759,6 +760,7 @@ func TestPutObjectWithObjectLock(t *testing.T) {
 				// Check that the object is uploaded using the Uplink API
 				obj, err := versioned.StatObject(ctx, project, testBucket, testFile, version)
 				require.NoError(t, err)
+				assert.Equal(t, info.ETag, string(obj.ETag))
 				assert.Equal(t, testCase.expectedRetention, obj.Retention)
 				assert.Equal(t, &testCase.legalHold, obj.LegalHold)
 
@@ -3205,7 +3207,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			"s3:tags":      "key1=value1&key2=value2",
 		}
 
-		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{})
+		completeInfo, err := layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		obj, err := layer.ListObjects(ctx, testBucket, testFile, "", "", 2)
@@ -3214,6 +3216,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Equal(t, testBucket, obj.Objects[0].Bucket)
 		require.Equal(t, testFile, obj.Objects[0].Name)
 
+		require.Equal(t, completeInfo.ETag, obj.Objects[0].ETag)
 		require.Equal(t, expectedMetadata, obj.Objects[0].UserDefined)
 	})
 }
