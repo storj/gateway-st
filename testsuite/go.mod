@@ -1,6 +1,6 @@
 module storj.io/gateway/testsuite
 
-go 1.24.7
+go 1.25.1
 
 replace storj.io/gateway => ../
 
@@ -10,11 +10,11 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.27.0
-	storj.io/common v0.0.0-20251013092346-e3ba329f90e1
+	storj.io/common v0.0.0-20251028153705-6cc45d003319
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20250710234239-80320feaf0d2
-	storj.io/storj v1.139.8
-	storj.io/uplink v1.13.2-0.20250930003134-d222f7415a99
+	storj.io/minio v0.0.0-20251029162921-2ee0a8fbedda
+	storj.io/storj v1.140.7
+	storj.io/uplink v1.13.2-0.20251023093727-3f5761e4ff21
 )
 
 require (
@@ -190,7 +190,7 @@ require (
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
-	github.com/spacemonkeygo/monkit/v3 v3.0.24 // indirect
+	github.com/spacemonkeygo/monkit/v3 v3.0.25-0.20251022131615-eb24eb109368 // indirect
 	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/spacemonkeygo/tlshowdy v0.0.0-20160207005338-8fa2cec1d7cd // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect

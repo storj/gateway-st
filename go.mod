@@ -1,23 +1,21 @@
 module storj.io/gateway
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.1
 
 require (
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
-	github.com/spacemonkeygo/monkit/v3 v3.0.23
+	github.com/spacemonkeygo/monkit/v3 v3.0.25-0.20251022131615-eb24eb109368
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.9.0
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.32.0
-	storj.io/common v0.0.0-20251013092346-e3ba329f90e1
+	storj.io/common v0.0.0-20251028153705-6cc45d003319
 	storj.io/eventkit v0.0.0-20250410172343-61f26d3de156
-	storj.io/minio v0.0.0-20250710234239-80320feaf0d2
-	storj.io/uplink v1.13.2-0.20250930003134-d222f7415a99
+	storj.io/minio v0.0.0-20251029162921-2ee0a8fbedda
+	storj.io/uplink v1.13.2-0.20251023093727-3f5761e4ff21
 )
 
 require (
@@ -185,7 +183,7 @@ require (
 	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/net v0.30.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
