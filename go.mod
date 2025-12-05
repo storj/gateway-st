@@ -1,8 +1,10 @@
 module storj.io/gateway
 
-go 1.25.1
+go 1.25.3
 
 require (
+	github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f
+	github.com/gorilla/mux v1.8.0
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
 	github.com/spacemonkeygo/monkit/v3 v3.0.25-0.20251022131615-eb24eb109368
@@ -73,7 +75,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.13.0 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
-	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/go-msgpack v1.1.5 // indirect
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
