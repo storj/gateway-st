@@ -272,3 +272,27 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeSuccessResponseHeadersOnly(w)
 }
+
+// GetBucketAccelerateHandler is the HTTP handler for the GetBucketAccelerate operation,
+// which returns a bucket's Transfer Acceleration configuration.
+//
+// This is a dummy handler. It always returns an empty Transfer Acceleration configuration
+// because we do not support placing them on buckets.
+func (api *API) GetBucketAccelerateHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketAccelerate")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	const accelerateDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><AccelerateConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`
+	cmd.WriteSuccessResponseXML(w, []byte(accelerateDefaultConfig))
+}
