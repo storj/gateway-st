@@ -296,3 +296,41 @@ func (api *API) GetBucketAccelerateHandler(w http.ResponseWriter, r *http.Reques
 	const accelerateDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><AccelerateConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`
 	cmd.WriteSuccessResponseXML(w, []byte(accelerateDefaultConfig))
 }
+
+// GetBucketAclHandler is the HTTP handler for the GetBucketAcl operation,
+// which returns a bucket's access control list.
+//
+// This is a dummy handler. It always returns a default access control list
+// because we do not support placing them on buckets.
+func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketAcl")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	acl := &accessControlPolicy{}
+	acl.AccessControlList.Grants = append(acl.AccessControlList.Grants, grant{
+		Grantee: grantee{
+			XMLNS:  "http://www.w3.org/2001/XMLSchema-instance",
+			XMLXSI: "CanonicalUser",
+			Type:   "CanonicalUser",
+		},
+		Permission: "FULL_CONTROL",
+	})
+
+	if err := xml.NewEncoder(w).Encode(acl); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	w.(http.Flusher).Flush()
+}
