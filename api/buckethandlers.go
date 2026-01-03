@@ -31,6 +31,7 @@ import (
 
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 )
 
 // PutBucketHandler is the HTTP handler for the PutBucket operation, which creates a bucket.
@@ -146,4 +147,37 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.(http.Flusher).Flush()
+}
+
+// PutBucketObjectLockConfigHandler is the HTTP handler for the PutBucketObjectLockConfig operation,
+// which places an Object Lock configuration on a bucket.
+func (api *API) PutBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutBucketObjectLockConfig")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	body, err := vr.Reader()
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	config, err := objectlock.ParseObjectLockConfig(body)
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if err = api.objectAPI.SetObjectLockConfig(ctx, bucketName, config); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
 }
