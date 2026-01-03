@@ -30,10 +30,15 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
+	"storj.io/common/memory"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
+	"storj.io/minio/pkg/bucket/versioning"
 )
+
+// maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
+const maxPutBucketVersioningBodySize = int64(memory.MiB)
 
 // PutBucketHandler is the HTTP handler for the PutBucket operation, which creates a bucket.
 func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +214,39 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err = api.objectAPI.SetBucketTagging(ctx, bucketName, tags); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
+}
+
+// PutBucketVersioningHandler is the HTTP handler for the PutBucketVersioning operation,
+// which sets a bucket's object versioning configuration.
+func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutBucketVersioning")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	body, err := vr.Reader()
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	v, err := versioning.ParseConfig(io.LimitReader(body, maxPutBucketVersioningBodySize))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if err = api.objectAPI.SetBucketVersioning(ctx, bucketName, v); err != nil {
 		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
 		return
 	}
