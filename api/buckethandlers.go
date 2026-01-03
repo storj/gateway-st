@@ -253,3 +253,22 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 	writeSuccessResponseHeadersOnly(w)
 }
+
+// HeadBucketHandler is the HTTP handler for the HeadBucket operation, which checks if a bucket can be accessed.
+func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "HeadBucket")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		writeErrorResponseHeadersOnly(w, cmd.ToAPIError(ctx, err))
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
+}
