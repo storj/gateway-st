@@ -22,6 +22,8 @@ package api
 
 import (
 	"encoding/xml"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -89,4 +91,59 @@ func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSuccessResponseHeadersOnly(w)
+}
+
+// PutBucketAclHandler is the HTTP handler for the PutBucketAcl operation,
+// which sets a bucket's access control list.
+func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutBucketAcl")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	body, err := vr.Reader()
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if _, err = api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	aclHeader := r.Header.Get(xhttp.AmzACL)
+	if aclHeader == "" {
+		acl := &accessControlPolicy{}
+		if err = xmlDecoder(body, acl, r.ContentLength); err != nil {
+			if errors.Is(err, io.EOF) {
+				writeErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrMissingSecurityHeader), r.URL)
+				return
+			}
+			writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+			return
+		}
+
+		if len(acl.AccessControlList.Grants) == 0 {
+			writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, cmd.NotImplemented{}), r.URL)
+			return
+		}
+
+		if acl.AccessControlList.Grants[0].Permission != "FULL_CONTROL" {
+			writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, cmd.NotImplemented{}), r.URL)
+			return
+		}
+	}
+
+	if aclHeader != "" && aclHeader != "private" {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, cmd.NotImplemented{}), r.URL)
+		return
+	}
+
+	w.(http.Flusher).Flush()
 }

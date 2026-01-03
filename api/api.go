@@ -75,6 +75,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 	for _, subrouter := range subrouters {
 		// Bucket-level operations
+		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
 		subrouter.Methods(http.MethodPut).HandlerFunc(api.PutBucketHandler)
 	}
 }
