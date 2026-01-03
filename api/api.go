@@ -77,6 +77,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
 		subrouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutBucketObjectLockConfigHandler)
+		subrouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler)
 		subrouter.Methods(http.MethodPut).HandlerFunc(api.PutBucketHandler)
 	}
 }

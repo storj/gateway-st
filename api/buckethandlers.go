@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
@@ -175,6 +176,39 @@ func (api *API) PutBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.
 	}
 
 	if err = api.objectAPI.SetObjectLockConfig(ctx, bucketName, config); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
+}
+
+// PutBucketTaggingHandler is the HTTP handler for the PutBucketTagging operation,
+// which places a set of tags on a bucket.
+func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutBucketTagging")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	body, err := vr.Reader()
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	tags, err := tags.ParseBucketXML(io.LimitReader(body, r.ContentLength))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if err = api.objectAPI.SetBucketTagging(ctx, bucketName, tags); err != nil {
 		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
 		return
 	}
