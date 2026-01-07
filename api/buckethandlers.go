@@ -334,3 +334,25 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.(http.Flusher).Flush()
 }
+
+// GetBucketCorsHandler is the HTTP handler for the GetBucketCors operation,
+// which returns a bucket's Cross-Origin Resource Sharing (CORS) configuration.
+//
+// This is a dummy handler. It always returns a NoSuchCORSConfiguration error.
+func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketCors")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, true)
+		return
+	}
+
+	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchCORSConfiguration), r.URL, false)
+}

@@ -85,6 +85,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 		subrouter.Methods(http.MethodGet).Queries("accelerate", "").HandlerFunc(api.GetBucketAccelerateHandler)
 		subrouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetBucketAclHandler)
+		subrouter.Methods(http.MethodGet).Queries("cors", "").HandlerFunc(api.GetBucketCorsHandler)
 	}
 }
 
