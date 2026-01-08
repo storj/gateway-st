@@ -356,3 +356,25 @@ func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 
 	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchCORSConfiguration), r.URL, false)
 }
+
+// GetBucketLocationHandler is the HTTP handler for the GetBucketLocation operation,
+// which returns the location that a bucket resides in.
+//
+// This is a dummy handler. It always returns an empty Location response.
+func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketLocation")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	cmd.WriteSuccessResponseXML(w, cmd.EncodeResponse(cmd.LocationResponse{}))
+}
