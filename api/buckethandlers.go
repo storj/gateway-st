@@ -378,3 +378,26 @@ func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request)
 
 	cmd.WriteSuccessResponseXML(w, cmd.EncodeResponse(cmd.LocationResponse{}))
 }
+
+// GetBucketLoggingHandler is the HTTP handler for the GetBucketLogging operation,
+// which returns the logging status of a bucket.
+//
+// This is a dummy handler. It always returns an empty Location response.
+func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketLogging")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	const loggingDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><!--<LoggingEnabled><TargetBucket>myLogsBucket</TargetBucket><TargetPrefix>add/this/prefix/to/my/log/files/access_log-</TargetPrefix></LoggingEnabled>--></BucketLoggingStatus>`
+	cmd.WriteSuccessResponseXML(w, []byte(loggingDefaultConfig))
+}
