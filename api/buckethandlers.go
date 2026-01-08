@@ -428,3 +428,30 @@ func (api *API) GetBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.
 
 	cmd.WriteSuccessResponseXML(w, configData)
 }
+
+// GetBucketPolicyStatusHandler is the HTTP handler for the GetBucketPolicyStatus operation,
+// which returns whether a bucket is public.
+//
+// This is a dummy handler. It always returns a result indicating that a bucket is not public.
+func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketPolicyStatus")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	encodedSuccessResponse := cmd.EncodeResponse(cmd.PolicyStatus{
+		// Our buckets are never public.
+		IsPublic: "FALSE",
+	})
+
+	cmd.WriteSuccessResponseXML(w, encodedSuccessResponse)
+}
