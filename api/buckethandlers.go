@@ -455,3 +455,26 @@ func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Requ
 
 	cmd.WriteSuccessResponseXML(w, encodedSuccessResponse)
 }
+
+// GetBucketRequestPaymentHandler is the HTTP handler for the GetBucketRequestPayment operation,
+// which returns a bucket's Requester Pays configuration.
+//
+// This is a dummy handler. It always returns an empty Requester Pays configuration.
+func (api *API) GetBucketRequestPaymentHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketRequestPayment")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	const requestPaymentDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><RequestPaymentConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Payer>BucketOwner</Payer></RequestPaymentConfiguration>`
+	cmd.WriteSuccessResponseXML(w, []byte(requestPaymentDefaultConfig))
+}
