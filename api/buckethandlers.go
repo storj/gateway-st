@@ -532,3 +532,20 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 	cmd.WriteSuccessResponseXML(w, configData)
 }
+
+// GetBucketWebsiteHandler is the HTTP handler for the GetBucketWebsite operation,
+// which returns a bucket's website configuration.
+//
+// This is a dummy handler. It always returns a NoSuchWebsiteConfiguration error.
+func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketWebsite")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchWebsiteConfiguration), r.URL, false)
+}
