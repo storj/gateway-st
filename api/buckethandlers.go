@@ -478,3 +478,30 @@ func (api *API) GetBucketRequestPaymentHandler(w http.ResponseWriter, r *http.Re
 	const requestPaymentDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><RequestPaymentConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Payer>BucketOwner</Payer></RequestPaymentConfiguration>`
 	cmd.WriteSuccessResponseXML(w, []byte(requestPaymentDefaultConfig))
 }
+
+// GetBucketTaggingHandler is the HTTP handler for the GetBucketTagging operation,
+// which returns the set of tags associated with a bucket.
+func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketTagging")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	tags, err := api.objectAPI.GetBucketTagging(ctx, bucketName)
+	if err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	responseBytes, err := xml.Marshal(tags)
+	if err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	cmd.WriteSuccessResponseXML(w, responseBytes)
+}

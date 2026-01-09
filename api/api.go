@@ -91,6 +91,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		subrouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetBucketObjectLockConfigHandler)
 		subrouter.Methods(http.MethodGet).Queries("policyStatus", "").HandlerFunc(api.GetBucketPolicyStatusHandler)
 		subrouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler)
+		subrouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler)
 	}
 }
 
