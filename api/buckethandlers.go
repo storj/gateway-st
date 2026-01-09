@@ -505,3 +505,30 @@ func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	cmd.WriteSuccessResponseXML(w, responseBytes)
 }
+
+// GetBucketVersioningHandler is the HTTP handler for the GetBucketVersioning operation,
+// which returns a bucket's versioning configuration.
+func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketVersioning")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	config, err := api.objectAPI.GetBucketVersioning(ctx, bucketName)
+	if err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	configData, err := xml.Marshal(config)
+	if err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	cmd.WriteSuccessResponseXML(w, configData)
+}
