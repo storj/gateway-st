@@ -35,7 +35,11 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
+	"storj.io/minio/pkg/event"
 )
+
+// maxPutBucketNotificationConfigBodySize is the maximum size of the PutBucketNotificationConfiguration request body.
+const maxPutBucketNotificationConfigBodySize = int64(memory.MiB)
 
 // maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
 const maxPutBucketVersioningBodySize = int64(memory.MiB)
@@ -153,6 +157,39 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.(http.Flusher).Flush()
+}
+
+// PutBucketNotificationConfigHandler is the HTTP handler for the PutBucketNotificationConfig operation,
+// which sets a bucket's notification configuration.
+func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutBucketNotificationConfig")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	body, err := vr.Reader()
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	config, err := event.ParseConfig(io.LimitReader(body, maxPutBucketNotificationConfigBodySize), "", nil)
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	if err = api.objectAPI.SetBucketNotificationConfig(ctx, bucketName, config); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
 }
 
 // PutBucketObjectLockConfigHandler is the HTTP handler for the PutBucketObjectLockConfig operation,
@@ -400,6 +437,33 @@ func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	const loggingDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><!--<LoggingEnabled><TargetBucket>myLogsBucket</TargetBucket><TargetPrefix>add/this/prefix/to/my/log/files/access_log-</TargetPrefix></LoggingEnabled>--></BucketLoggingStatus>`
 	cmd.WriteSuccessResponseXML(w, []byte(loggingDefaultConfig))
+}
+
+// GetBucketNotificationConfigHandler is the HTTP handler for the GetBucketNotificationConfig operation,
+// which returns a bucket's notification configuration.
+func (api *API) GetBucketNotificationConfigHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketNotificationConfig")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	config, err := api.objectAPI.GetBucketNotificationConfig(ctx, bucketName)
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	configData, err := xml.Marshal(config)
+	if err != nil {
+		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		return
+	}
+
+	cmd.WriteSuccessResponseXML(w, configData)
 }
 
 // GetBucketObjectLockConfigHandler is the HTTP handler for the GetBucketObjectLockConfig operation,
