@@ -32,6 +32,7 @@ import (
 	"storj.io/minio/pkg/auth"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
+	"storj.io/minio/pkg/event"
 	"storj.io/minio/pkg/hash"
 	"storj.io/minio/pkg/madmin"
 	"storj.io/uplink"
@@ -1476,6 +1477,167 @@ func convertToUplinkBucketTags(t *tags.Tags) (bucketTags []bucket.Tag) {
 		})
 	}
 	return bucketTags
+}
+
+// IsNotificationSupported returns whether bucket notification is supported.
+func (layer *gatewayLayer) IsNotificationSupported() bool {
+	return true
+}
+
+// GetBucketNotificationConfig retrieves notification configuration for a bucket.
+func (layer *gatewayLayer) GetBucketNotificationConfig(ctx context.Context, bucketName string) (_ *event.Config, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return nil, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	config, err := bucket.GetBucketNotificationConfiguration(ctx, project, bucketName)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+
+	// Convert from metaclient to MinIO event.Config
+	result, err := convertToMinioEventConfig(config)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+	return result, nil
+}
+
+// SetBucketNotificationConfig sets notification configuration for a bucket.
+func (layer *gatewayLayer) SetBucketNotificationConfig(ctx context.Context, bucketName string, config *event.Config) (err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	if config != nil {
+		// Validate that only Google Pub/Sub (Topic) destinations are used
+		// Reject SQS queues and Lambda functions
+		if len(config.QueueList) > 0 || len(config.LambdaList) > 0 {
+			return minio.NotImplemented{
+				Message: "SQS queues and Lambda functions are not supported. Only Google Pub/Sub topic destinations are allowed.",
+			}
+		}
+		// Only a single Topic destination is supported
+		if len(config.TopicList) > 1 {
+			return minio.InvalidArgument{
+				Bucket: bucketName,
+				Err:    errs.New("only a single topic destination is supported per bucket"),
+			}
+		}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return ConvertError(err, bucketName, "")
+	}
+
+	// Convert from MinIO event.Config to metaclient
+	uplinkConfig := convertFromMinioEventConfig(config)
+
+	if err := bucket.SetBucketNotificationConfiguration(ctx, project, bucketName, uplinkConfig); err != nil {
+		return ConvertError(err, bucketName, "")
+	}
+
+	return nil
+}
+
+func convertToMinioEventConfig(config *metaclient.BucketNotificationConfiguration) (*event.Config, error) {
+	if config == nil {
+		return &event.Config{}, nil
+	}
+
+	// Convert events to MinIO event.Name
+	var events []event.Name
+	for _, e := range config.Events {
+		name, err := event.ParseName(e)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, name)
+	}
+
+	// Create filter rules
+	var filterRules []event.FilterRule
+	if config.FilterRule.Prefix != "" {
+		filterRules = append(filterRules, event.FilterRule{
+			Name:  "prefix",
+			Value: config.FilterRule.Prefix,
+		})
+	}
+	if config.FilterRule.Suffix != "" {
+		filterRules = append(filterRules, event.FilterRule{
+			Name:  "suffix",
+			Value: config.FilterRule.Suffix,
+		})
+	}
+
+	topic := event.Topic{}
+	topic.ID = config.ID
+	topic.Events = events
+	topic.Filter = event.S3Key{
+		RuleList: event.FilterRuleList{
+			Rules: filterRules,
+		},
+	}
+	// Create ARN from topic name
+	// TopicName is expected to be in Google Pub/Sub format like
+	// "projects/PROJECT_ID/topics/TOPIC_ID" or "@log" for logging
+	topic.ARN = event.ARN{
+		ServiceType: "sns",
+		TargetID: event.TargetID{
+			Name: config.TopicName,
+		},
+	}
+
+	return &event.Config{
+		TopicList: []event.Topic{topic},
+	}, nil
+}
+
+func convertFromMinioEventConfig(config *event.Config) *metaclient.BucketNotificationConfiguration {
+	if config == nil || len(config.TopicList) == 0 {
+		// Empty config means delete
+		return nil
+	}
+
+	// Take the first topic configuration. Only one is supported.
+	topic := config.TopicList[0]
+
+	// Convert events from MinIO event.Name to strings
+	events := make([]string, len(topic.Events))
+	for i, e := range topic.Events {
+		events[i] = e.String()
+	}
+
+	// Extract filter rules from RuleList
+	var prefix, suffix string
+	for _, rule := range topic.Filter.RuleList.Rules {
+		switch rule.Name {
+		case "prefix":
+			prefix = rule.Value
+		case "suffix":
+			suffix = rule.Value
+		}
+	}
+
+	return &metaclient.BucketNotificationConfiguration{
+		ID:        topic.ID,
+		TopicName: topic.ARN.TargetID.Name,
+		Events:    events,
+		FilterRule: metaclient.FilterRule{
+			Prefix: prefix,
+			Suffix: suffix,
+		},
+	}
 }
 
 // ConvertError translates Storj-specific err associated with object to

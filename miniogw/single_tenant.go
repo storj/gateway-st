@@ -20,6 +20,7 @@ import (
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/policy"
 	"storj.io/minio/pkg/bucket/versioning"
+	"storj.io/minio/pkg/event"
 	"storj.io/uplink"
 )
 
@@ -149,6 +150,19 @@ func (l *singleTenancyLayer) GetObjectLockConfig(ctx context.Context, bucket str
 
 func (l *singleTenancyLayer) SetObjectLockConfig(ctx context.Context, bucket string, objectLockConfig *objectlock.Config) (err error) {
 	return l.log(l.layer.SetObjectLockConfig(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, objectLockConfig))
+}
+
+func (l *singleTenancyLayer) IsNotificationSupported() bool {
+	return l.layer.IsNotificationSupported()
+}
+
+func (l *singleTenancyLayer) GetBucketNotificationConfig(ctx context.Context, bucket string) (config *event.Config, err error) {
+	config, err = l.layer.GetBucketNotificationConfig(WithCredentials(ctx, l.project, l.credentialsInfo), bucket)
+	return config, l.log(err)
+}
+
+func (l *singleTenancyLayer) SetBucketNotificationConfig(ctx context.Context, bucket string, config *event.Config) (err error) {
+	return l.log(l.layer.SetBucketNotificationConfig(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, config))
 }
 
 func (l *singleTenancyLayer) GetObjectLegalHold(ctx context.Context, bucketName, object, version string) (_ *objectlock.ObjectLegalHold, err error) {
