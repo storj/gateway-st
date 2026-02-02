@@ -54,10 +54,7 @@ func TestBucketNotificationConfig(t *testing.T) {
 		}
 
 		topic.ARN = event.ARN{
-			ServiceType: "sns",
-			TargetID: event.TargetID{
-				Name: "@log",
-			},
+			ResourceID: "@log",
 		}
 
 		config = &event.Config{
@@ -77,8 +74,7 @@ func TestBucketNotificationConfig(t *testing.T) {
 		require.Len(t, retrievedTopic.Filter.RuleList.Rules, 2)
 		assert.Contains(t, retrievedTopic.Filter.RuleList.Rules, event.FilterRule{Name: "prefix", Value: "uploads/"})
 		assert.Contains(t, retrievedTopic.Filter.RuleList.Rules, event.FilterRule{Name: "suffix", Value: ".jpg"})
-		assert.Equal(t, "sns", retrievedTopic.ARN.ServiceType)
-		assert.Equal(t, "@log", retrievedTopic.ARN.TargetID.Name)
+		assert.Equal(t, "@log", retrievedTopic.ARN.ResourceID)
 
 		// Test deleting the configuration by setting nil
 		err = layer.SetBucketNotificationConfig(ctx, testBucket, nil)
@@ -176,10 +172,7 @@ func TestBucketNotificationConfig_MultipleEvents(t *testing.T) {
 			},
 		}
 		topic.ARN = event.ARN{
-			ServiceType: "sns",
-			TargetID: event.TargetID{
-				Name: "@log",
-			},
+			ResourceID: "@log",
 		}
 
 		config := &event.Config{
@@ -201,8 +194,7 @@ func TestBucketNotificationConfig_MultipleEvents(t *testing.T) {
 		assert.Contains(t, retrievedTopic.Events, event.ObjectRemovedDelete)
 		require.Len(t, retrievedTopic.Filter.RuleList.Rules, 1)
 		assert.Contains(t, retrievedTopic.Filter.RuleList.Rules, event.FilterRule{Name: "prefix", Value: "data/"})
-		assert.Equal(t, "sns", retrievedTopic.ARN.ServiceType)
-		assert.Equal(t, "@log", retrievedTopic.ARN.TargetID.Name)
+		assert.Equal(t, "@log", retrievedTopic.ARN.ResourceID)
 
 	})
 }

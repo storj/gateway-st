@@ -178,7 +178,7 @@ func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	config, err := event.ParseConfig(io.LimitReader(body, maxPutBucketNotificationConfigBodySize), "", nil)
+	config, err := event.ParseConfig(io.LimitReader(body, maxPutBucketNotificationConfigBodySize))
 	if err != nil {
 		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
 		return

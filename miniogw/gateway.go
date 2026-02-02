@@ -1555,6 +1555,19 @@ func convertToMinioEventConfig(config *metaclient.BucketNotificationConfiguratio
 		return &event.Config{}, nil
 	}
 
+	// Parse topic name in Google Pub/Sub format: projects/PROJECT_ID/topics/TOPIC_ID
+	arn := event.ARN{}
+	if config.TopicName == "@log" {
+		arn.ResourceID = config.TopicName
+	} else {
+		parts := strings.Split(config.TopicName, "/")
+		if len(parts) != 4 || parts[0] != "projects" || parts[2] != "topics" {
+			return nil, errs.New("invalid GCP Pub/Sub topic name format: %q, expected projects/PROJECT_ID/topics/TOPIC_ID", config.TopicName)
+		}
+		arn.AccountID = parts[1]
+		arn.ResourceID = parts[3]
+	}
+
 	// Convert events to MinIO event.Name
 	var events []event.Name
 	for _, e := range config.Events {
@@ -1582,19 +1595,11 @@ func convertToMinioEventConfig(config *metaclient.BucketNotificationConfiguratio
 
 	topic := event.Topic{}
 	topic.ID = config.ID
+	topic.ARN = arn
 	topic.Events = events
 	topic.Filter = event.S3Key{
 		RuleList: event.FilterRuleList{
 			Rules: filterRules,
-		},
-	}
-	// Create ARN from topic name
-	// TopicName is expected to be in Google Pub/Sub format like
-	// "projects/PROJECT_ID/topics/TOPIC_ID" or "@log" for logging
-	topic.ARN = event.ARN{
-		ServiceType: "sns",
-		TargetID: event.TargetID{
-			Name: config.TopicName,
 		},
 	}
 
@@ -1611,6 +1616,13 @@ func convertFromMinioEventConfig(config *event.Config) *metaclient.BucketNotific
 
 	// Take the first topic configuration. Only one is supported.
 	topic := config.TopicList[0]
+	var topicName string
+	switch topic.ARN.ResourceID {
+	case "@log":
+		topicName = topic.ARN.ResourceID
+	default:
+		topicName = "projects/" + topic.ARN.AccountID + "/topics/" + topic.ARN.ResourceID
+	}
 
 	// Convert events from MinIO event.Name to strings
 	events := make([]string, len(topic.Events))
@@ -1631,7 +1643,7 @@ func convertFromMinioEventConfig(config *event.Config) *metaclient.BucketNotific
 
 	return &metaclient.BucketNotificationConfiguration{
 		ID:        topic.ID,
-		TopicName: topic.ARN.TargetID.Name,
+		TopicName: topicName,
 		Events:    events,
 		FilterRule: metaclient.FilterRule{
 			Prefix: prefix,

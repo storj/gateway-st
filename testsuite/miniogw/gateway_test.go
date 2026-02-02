@@ -108,7 +108,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		bucketsDB := planet.Satellites[0].API.DB.Buckets()
 
 		// change the default_placement of the project
-		err = planet.Satellites[0].API.DB.Console().Projects().UpdateDefaultPlacement(ctx, projectID, storj.EU)
+		err = planet.Satellites[0].API.DB.Console().Projects().UpdateDefaultPlacement(ctx, projectID, storj.PlacementConstraint(1))
 		require.NoError(t, err)
 
 		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{
@@ -123,7 +123,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		// check if placement is set to project default
 		placement, err := bucketsDB.GetBucketPlacement(ctx, []byte(testBucket), projectID)
 		require.NoError(t, err)
-		require.Equal(t, storj.EU, placement)
+		require.Equal(t, storj.PlacementConstraint(1), placement)
 
 		// delete the bucket
 		err = layer.DeleteBucket(ctx, testBucket, true)
