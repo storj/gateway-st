@@ -302,18 +302,16 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucketInfo, err := api.GetBucketInfoWithLocation(ctx, bucketName)
-	if err != nil {
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
 		writeErrorResponseHeadersOnly(w, cmd.ToAPIError(ctx, err))
 		return
 	}
 
-	// Set the bucket region header
-	if bucketInfo.Location != "" {
-		w.Header().Set(xhttp.AmzBucketRegion, bucketInfo.Location)
-	} else {
-		// Default to us-east-1 if location is not available
-		w.Header().Set(xhttp.AmzBucketRegion, "us-east-1")
+	// Try to get bucket location if the objectAPI supports it
+	if locationGetter, ok := api.objectAPI.(BucketLocationGetter); ok {
+		if location, err := locationGetter.GetBucketLocation(ctx, bucketName); err == nil && location != "" {
+			w.Header().Set(xhttp.AmzBucketRegion, location)
+		}
 	}
 
 	writeSuccessResponseHeadersOnly(w)

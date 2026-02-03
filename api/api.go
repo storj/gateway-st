@@ -54,31 +54,6 @@ type BucketLocationGetter interface {
 	GetBucketLocation(ctx context.Context, bucketName string) (string, error)
 }
 
-// GetBucketInfoWithLocation fetches bucket info along with its location.
-func (api *API) GetBucketInfoWithLocation(ctx context.Context, bucketName string) (BucketInfo, error) {
-	// Get basic bucket info
-	minioInfo, err := api.objectAPI.GetBucketInfo(ctx, bucketName)
-	if err != nil {
-		return BucketInfo{}, err
-	}
-
-	// Try to get location if the objectAPI supports it
-	location := ""
-	if locationGetter, ok := api.objectAPI.(BucketLocationGetter); ok {
-		loc, err := locationGetter.GetBucketLocation(ctx, bucketName)
-		if err == nil {
-			location = loc
-		}
-		// If error, leave location empty - will default to us-east-1
-	}
-
-	return BucketInfo{
-		Name:     minioInfo.Name,
-		Created:  minioInfo.Created,
-		Location: location,
-	}, nil
-}
-
 // New constructs a new S3-compatible HTTP API.
 func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config) *API {
 	v2v4 := awsig.NewV2V4(credsProvider, awsig.V4Config{

@@ -335,14 +335,14 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 		return minio.BucketInfo{}, err
 	}
 
-	bucketObj, err := project.StatBucket(ctx, bucketName)
+	bucket, err := project.StatBucket(ctx, bucketName)
 	if err != nil {
 		return minio.BucketInfo{}, ConvertError(err, bucketName, "")
 	}
 
 	return minio.BucketInfo{
-		Name:    bucketObj.Name,
-		Created: bucketObj.Created,
+		Name:    bucket.Name,
+		Created: bucket.Created,
 	}, nil
 }
 
