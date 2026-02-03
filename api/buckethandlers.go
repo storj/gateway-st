@@ -302,15 +302,23 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		writeErrorResponseHeadersOnly(w, cmd.ToAPIError(ctx, err))
-		return
-	}
-
-	// Try to get bucket location if the objectAPI supports it
+	// TODO: Add GetBucketLocation to the object layer interface in storj/minio
+	// instead of using type assertion. This would allow us to make a single call
+	// instead of two separate calls (GetBucketInfo + GetBucketLocation).
 	if locationGetter, ok := api.objectAPI.(BucketLocationGetter); ok {
-		if location, err := locationGetter.GetBucketLocation(ctx, bucketName); err == nil && location != "" {
+		location, err := locationGetter.GetBucketLocation(ctx, bucketName)
+		if err != nil {
+			writeErrorResponseHeadersOnly(w, cmd.ToAPIError(ctx, err))
+			return
+		}
+		if location != "" {
 			w.Header().Set(xhttp.AmzBucketRegion, location)
+		}
+	} else {
+		// Fallback to GetBucketInfo if GetBucketLocation is not available
+		if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+			writeErrorResponseHeadersOnly(w, cmd.ToAPIError(ctx, err))
+			return
 		}
 	}
 
