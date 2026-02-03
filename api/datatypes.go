@@ -22,9 +22,18 @@ package api
 
 import (
 	"encoding/xml"
+	"time"
 
 	"storj.io/minio/cmd"
 )
+
+// BucketInfo represents bucket metadata.
+// This struct extends the MinIO BucketInfo to include location/region information.
+type BucketInfo struct {
+	Name     string
+	Created  time.Time
+	Location string
+}
 
 type grantee struct {
 	XMLNS       string `xml:"xmlns:xsi,attr"`
