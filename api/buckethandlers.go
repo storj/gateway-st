@@ -307,6 +307,9 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set the bucket region header. Storj is a global service, so we use the default AWS region.
+	w.Header().Set(xhttp.AmzBucketRegion, "us-east-1")
+
 	writeSuccessResponseHeadersOnly(w)
 }
 
