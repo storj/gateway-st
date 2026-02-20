@@ -10,11 +10,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.27.0
-	storj.io/common v0.0.0-20260130132429-0e905b8ee485
+	storj.io/common v0.0.0-20260212175235-9580cc9c5777
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20260129101855-14915b3faa6d
-	storj.io/storj v1.146.7
-	storj.io/uplink v1.13.2-0.20260129095714-a3543955ce4c
+	storj.io/storj v1.147.5
+	storj.io/uplink v1.13.2-0.20260219133327-2d6495419a92
 )
 
 require (
@@ -84,12 +84,12 @@ require (
 	github.com/go-ldap/ldap/v3 v3.2.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-oauth2/oauth2/v4 v4.4.2 // indirect
+	github.com/go-oauth2/oauth2/v4 v4.5.4 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt v3.2.1+incompatible // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/gomodule/redigo v1.8.3 // indirect

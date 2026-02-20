@@ -903,8 +903,6 @@ func TestSetObjectRetention(t *testing.T) {
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
-				config.Metainfo.UseBucketLevelObjectVersioning = true
-				config.Metainfo.ObjectLockEnabled = true
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = storj.EncNull
@@ -1981,8 +1979,6 @@ func TestDeleteObjectWithObjectLock(t *testing.T) {
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
-				config.Metainfo.UseBucketLevelObjectVersioning = true
-				config.Metainfo.ObjectLockEnabled = true
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
 				config.DefaultPathCipher = storj.EncNull
@@ -2080,8 +2076,6 @@ func TestDeleteObjects(t *testing.T) {
 		NonParallel:      true, // we control parallelism ourselves in this test
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				config.Metainfo.UseBucketLevelObjectVersioning = true
-				config.Metainfo.ObjectLockEnabled = true
 				config.Metainfo.DeleteObjectsEnabled = true
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
@@ -4158,8 +4152,6 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versionin
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
 				config.Metainfo.MaxSegmentSize = segmentSize
-				config.Metainfo.UseBucketLevelObjectVersioning = versioning
-				config.Metainfo.ObjectLockEnabled = objectLock && versioning
 				config.Metainfo.DeleteObjectsEnabled = false
 			},
 			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
