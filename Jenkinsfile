@@ -156,6 +156,9 @@ pipeline {
                         sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
 
                         checkout scm
+
+                        // install storj-up dependency
+                        sh 'go install storj.io/storj-up@main'
                     }
                 }
 

@@ -40,7 +40,10 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
 	# golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
+
+	# storj-up:
+	go install storj.io/storj-up@main
 
 	# shellcheck (TODO(artur): Windows)
 ifneq ($(shell which apt-get),)
@@ -340,7 +343,6 @@ integration-mint-tests: ## Run mint test suite (environment needs to be started 
 
 .PHONY: integration-image-build
 integration-image-build:
-	go install storj.io/storj-up@main
 	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
 
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
