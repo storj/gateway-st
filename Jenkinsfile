@@ -156,9 +156,6 @@ pipeline {
                         sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
 
                         checkout scm
-
-                        // install storj-up dependency
-                        sh 'go install storj.io/storj-up@main'
                     }
                 }
 
@@ -172,11 +169,6 @@ pipeline {
                     steps {
                         script {
                             def tests = [:]
-                            tests['splunk-tests'] = {
-                                stage('splunk-tests') {
-                                    sh 'make integration-splunk-tests'
-                                }
-                            }
                             tests['ceph-tests'] = {
                                 stage('ceph-tests') {
                                     sh 'make integration-ceph-tests'
