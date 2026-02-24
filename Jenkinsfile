@@ -150,7 +150,7 @@ pipeline {
                         checkout scm
 
                         // install storj-up dependency
-                        sh 'go install storj.io/storj-up@main'
+                        sh 'make integration-env-deps'
                     }
                 }
 

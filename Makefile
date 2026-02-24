@@ -23,6 +23,8 @@ help:
 
 ##@ Local development/Public Jenkins/Helpers
 
+STORJ_UP_VERSION ?= v1.2.11
+
 .PHONY: install-dev-dependencies
 install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are installed
 	# Storj-specific:
@@ -37,7 +39,7 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install github.com/storj/ci/check-downgrades@latest
 	go install github.com/storj/ci/use-ports@latest
 	go install github.com/storj/ci/xunit@latest
-	go install storj.io/storj-up@main
+	go install storj.io/storj-up@${STORJ_UP_VERSION}
 
 	# staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -303,11 +305,9 @@ clean-images:
 
 ##@ Local development/Public Jenkins/Integration Test
 
-BUILD_NUMBER ?= ${TAG}
-BUILD_NUMBER := $(if $(BUILD_NUMBER),$(BUILD_NUMBER),local)
+BUILD_NUMBER ?= $(or $(TAG),local)
 INTEGRATION_COMPOSE_PROJECT ?= integration-${BUILD_NUMBER}
 INTEGRATION_BUILD_DIR ?= .build
-STORJ_UP_VERSION ?= main
 
 .PHONY: integration-run
 integration-run: integration-env-start integration-all-tests ## Start the integration environment and run all tests
