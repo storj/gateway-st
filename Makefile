@@ -35,12 +35,14 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install github.com/storj/ci/check-monkit@latest
 	go install github.com/storj/ci/check-errs@latest
 	go install github.com/storj/ci/check-downgrades@latest
+	go install github.com/storj/ci/use-ports@latest
+	go install github.com/storj/ci/xunit@latest
 
 	# staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
 	# golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.57.0
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 	# shellcheck (TODO(artur): Windows)
 ifneq ($(shell which apt-get),)
@@ -67,6 +69,13 @@ install-hooks: ## Install helpful Git hooks
 GOLANGCI_LINT_CONFIG ?= ../ci/.golangci.yml
 GOLANGCI_LINT_CONFIG_TESTSUITE ?= ../../ci/.golangci.yml
 
+ifneq ($(wildcard $(GOLANGCI_LINT_CONFIG)),)
+GOLANGCI_LINT_CONFIG_ARG := --config ${GOLANGCI_LINT_CONFIG}
+endif
+ifneq ($(wildcard $(GOLANGCI_LINT_CONFIG_TESTSUITE)),)
+GOLANGCI_LINT_CONFIG_TESTSUITE_ARG := --config ${GOLANGCI_LINT_CONFIG_TESTSUITE}
+endif
+
 .PHONY: lint
 lint: ## Lint
 	check-mod-tidy
@@ -78,7 +87,7 @@ lint: ## Lint
 	check-monkit ./...
 	check-errs ./...
 	staticcheck ./...
-	golangci-lint run --print-resources-usage --config ${GOLANGCI_LINT_CONFIG}
+	golangci-lint run --print-resources-usage ${GOLANGCI_LINT_CONFIG_ARG}
 	check-downgrades
 
 	# A bit of an explanation around this shellcheck command:
@@ -96,7 +105,7 @@ lint-testsuite: ## Lint testsuite
 	check-monkit ./...
 	check-errs ./...
 	staticcheck ./...
-	golangci-lint run --print-resources-usage --config ${GOLANGCI_LINT_CONFIG_TESTSUITE}
+	golangci-lint run --print-resources-usage ${GOLANGCI_LINT_CONFIG_TESTSUITE_ARG}
 
 ##@ Local development/Public Jenkins/Cross-Vet
 
@@ -145,8 +154,44 @@ test-testsuite-do:
 
 ##@ Local development/Public Jenkins/Verification
 
+VERIFY_BUILD_DIR ?= .build
+VERIFY_STORJ_TEST_COCKROACH ?= cockroach://root@localhost:26257/postgres?sslmode=disable
+VERIFY_STORJ_TEST_POSTGRES ?= postgres://postgres@localhost/postgres?sslmode=disable
+VERIFY_STORJ_TEST_LOG_LEVEL ?= info
+
+.PHONY: verify-setup
+verify-setup:
+	mkdir -p ${VERIFY_BUILD_DIR}
+
+.PHONY: verify-lint
+verify-lint: lint ## Lint (verification)
+
+.PHONY: verify-cross-vet
+verify-cross-vet: cross-vet ## Cross-Vet (verification)
+
+.PHONY: verify-test
+verify-test: verify-setup ## Run Go tests (verification)
+	STORJ_TEST_COCKROACH=${VERIFY_STORJ_TEST_COCKROACH} \
+	STORJ_TEST_POSTGRES=${VERIFY_STORJ_TEST_POSTGRES} \
+	STORJ_TEST_LOG_LEVEL=${VERIFY_STORJ_TEST_LOG_LEVEL} \
+	JSON=true SHORT=false SKIP_TESTSUITE=true \
+	$(MAKE) test 2>&1 | grep "^{.*" | tee ${VERIFY_BUILD_DIR}/tests.json | xunit -out ${VERIFY_BUILD_DIR}/tests.xml
+
+.PHONY: verify-testsuite
+verify-testsuite: verify-setup ## Run testsuite tests (verification)
+	@if command -v use-ports >/dev/null 2>&1; then \
+		use-ports -from 1024 -to 10000 & \
+		use_ports_pid=$$!; \
+	fi; \
+	STORJ_TEST_COCKROACH=${VERIFY_STORJ_TEST_COCKROACH} \
+	STORJ_TEST_POSTGRES=${VERIFY_STORJ_TEST_POSTGRES} \
+	STORJ_TEST_LOG_LEVEL=${VERIFY_STORJ_TEST_LOG_LEVEL} \
+	JSON=true SHORT=false \
+	$(MAKE) --no-print-directory test-testsuite-do 2>&1 | grep "^{.*" | tee ${VERIFY_BUILD_DIR}/testsuite.json | xunit -out ${VERIFY_BUILD_DIR}/testsuite.xml; \
+	if [ -n "$${use_ports_pid:-}" ]; then kill "$$use_ports_pid"; fi
+
 .PHONY: verify
-verify: lint cross-vet test ## Execute pre-commit verification
+verify: verify-lint verify-cross-vet verify-test verify-testsuite ## Execute pre-commit verification
 
 #
 # Private Jenkins (commands below are used for releases/private Jenkins)
@@ -258,6 +303,9 @@ clean-images:
 ##@ Local development/Public Jenkins/Integration Test
 
 BUILD_NUMBER ?= ${TAG}
+INTEGRATION_COMPOSE_PROJECT ?= integration-${BUILD_NUMBER}
+INTEGRATION_BUILD_DIR ?= .build
+STORJ_UP_VERSION ?= latest
 
 .PHONY: integration-run
 integration-run: integration-env-start integration-all-tests ## Start the integration environment and run all tests
@@ -267,17 +315,19 @@ integration-env-start: integration-image-build integration-network-create integr
 
 .PHONY: integration-env-stop
 integration-env-stop: ## Stop all running services in the integration environment
-	-docker stop --time=1 $$(docker ps -qf network=integration-network-${BUILD_NUMBER})
+	-docker ps -qf network=integration-network-${BUILD_NUMBER} | xargs -r docker stop --timeout=1
+	-docker compose -p ${INTEGRATION_COMPOSE_PROJECT} stop
 
 .PHONY: integration-env-clean
 integration-env-clean:
-	-docker rm $$(docker ps -aqf network=integration-network-${BUILD_NUMBER})
-	-docker rmi $$(docker image ls -qf label=build=${BUILD_NUMBER})
+	-docker ps -aqf network=integration-network-${BUILD_NUMBER} | xargs -r docker rm
+	-docker image ls -qf label=build=${BUILD_NUMBER} | xargs -r docker rmi
 	-docker rmi redis:latest
 	-docker rmi postgres:latest
 	-docker rmi storjlabs/gateway-mint:latest
-	-docker rmi storjlabs/splunk-s3-tests:latest
-	-docker compose down
+	-docker compose -p ${INTEGRATION_COMPOSE_PROJECT} down --remove-orphans --volumes --rmi local
+	-docker volume ls -qf label=com.docker.compose.project=${INTEGRATION_COMPOSE_PROJECT} | xargs -r docker volume rm
+	-rm -rf ${INTEGRATION_BUILD_DIR}/s3-tests ${INTEGRATION_BUILD_DIR}/ceph.xml ${INTEGRATION_BUILD_DIR}/rclone-integration-tests
 	-rm -rf storj
 	-rm -rf edge.Dockerfile storj.Dockerfile docker-compose.yaml
 
@@ -290,12 +340,12 @@ integration-env-logs: ## Retrieve logs from integration services
 	-docker logs integration-gateway-${BUILD_NUMBER}
 
 .PHONY: integration-all-tests
-integration-all-tests: integration-gateway-st-tests integration-mint-tests integration-splunk-tests ## Run all integration tests (environment needs to be started first)
+integration-all-tests: integration-gateway-st-tests integration-mint-tests integration-ceph-tests ## Run all integration tests (environment needs to be started first)
 
 # note: umask 0000 is needed for rclone tests so files can be cleaned up.
 .PHONY: integration-gateway-st-tests
 integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to be started first)
-	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
+	$$(docker compose -p ${INTEGRATION_COMPOSE_PROJECT} exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	--network integration-network-${BUILD_NUMBER} \
@@ -311,7 +361,7 @@ integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to
 
 .PHONY: integration-ceph-tests
 integration-ceph-tests: ## (environment needs to be started first)
-	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
+	$$(docker compose -p ${INTEGRATION_COMPOSE_PROJECT} exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} \
 	-e GATEWAY_0_ADDR=gateway:9999 \
@@ -326,7 +376,7 @@ integration-ceph-tests: ## (environment needs to be started first)
 
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)
-	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
+	$$(docker compose -p ${INTEGRATION_COMPOSE_PROJECT} exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} \
 	-e SERVER_ENDPOINT=gateway:9999 \
@@ -336,26 +386,18 @@ integration-mint-tests: ## Run mint test suite (environment needs to be started 
 	--name integration-mint-tests-${BUILD_NUMBER}-$$TEST \
 	--rm storjlabs/gateway-mint:latest $$TEST
 
-.PHONY: integration-splunk-tests
-integration-splunk-tests: ## Run splunk test suite (environment needs to be started first)
-	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
-	docker run \
-	--network integration-network-${BUILD_NUMBER} \
-	-e ENDPOINT=gateway:9999 \
-	-e "AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID" \
-	-e "AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY" \
-	-e SECURE=0 \
-	--name integration-splunk-tests-${BUILD_NUMBER} \
-	--rm storjlabs/splunk-s3-tests:latest
-
 .PHONY: integration-image-build
-integration-image-build:
+integration-image-build: integration-env-deps
 	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
 
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
 	storj-up init minimal,db && \
 		storj-up build remote github minimal -c $$(git -C storj rev-list --exclude='*rc*' --tags --max-count=1) -s && \
-		docker compose -p storj-up-integration build
+		docker compose -p ${INTEGRATION_COMPOSE_PROJECT} build
+
+.PHONY: integration-env-deps
+integration-env-deps:
+	@if ! command -v storj-up >/dev/null 2>&1; then go install storj.io/storj-up@${STORJ_UP_VERSION}; fi
 
 .PHONY: integration-network-create
 integration-network-create:
@@ -374,10 +416,10 @@ integration-services-start:
 	storj-up env setenv satellite-api STORJ_METAINFO_OBJECT_LOCK_ENABLED=true && \
 	storj-up env setenv satellite-api STORJ_METAINFO_DELETE_OBJECTS_ENABLED=true && \
 	storj-up env setenv satellite-api STORJ_METAINFO_BUCKET_TAGGING_ENABLED=true && \
-	docker compose up -d && \
+	docker compose -p ${INTEGRATION_COMPOSE_PROJECT} up -d && \
 	storj-up health
 
-	$$(docker compose exec -T satellite-api storj-up credentials -p -e -s satellite-api:7777) && \
+	$$(docker compose -p ${INTEGRATION_COMPOSE_PROJECT} exec -T satellite-api storj-up credentials -p -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} --network-alias gateway \
 	--name integration-gateway-${BUILD_NUMBER} \

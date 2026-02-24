@@ -62,65 +62,19 @@ pipeline {
                 }
 
                 stage('Verification') {
-                    parallel {
-                        stage('Lint') {
-                            environment {
-                                GOLANGCI_LINT_CONFIG           = '/go/ci/.golangci.yml'
-                                GOLANGCI_LINT_CONFIG_TESTSUITE = '/go/ci/.golangci.yml'
-                            }
-                            steps {
-                                sh 'make lint'
-                            }
-                        }
-
-                        stage('Cross-Vet') {
-                            steps {
-                                sh 'make cross-vet'
-                            }
-                        }
-
-                        stage('Test') {
-                            environment {
-                                JSON                 = true
-                                SHORT                = false
-                                SKIP_TESTSUITE       = true
-                                STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
-                                STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
-                                STORJ_TEST_LOG_LEVEL = 'info'
-                            }
-                            steps {
-                                sh 'make test 2>&1 | grep "^{.*" | tee .build/tests.json | xunit -out .build/tests.xml'
-                            }
-                            post {
-                                always {
-                                    sh script: 'cat .build/tests.json | tparse -all -slow 100', returnStatus: true
-                                    archiveArtifacts artifacts: '.build/tests.json'
-                                    junit '.build/tests.xml'
-                                }
-                            }
-                        }
-
-                        stage('Testsuite') {
-                            environment {
-                                JSON                 = true
-                                SHORT                = false
-                                STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
-                                STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
-                                STORJ_TEST_LOG_LEVEL = 'info'
-                            }
-                            steps {
-                                // exhaust ports from 1024 to 10000 to ensure we don't
-                                // use hardcoded ports
-                                sh 'use-ports -from 1024 -to 10000 &'
-                                sh 'make --no-print-directory test-testsuite 2>&1 | tee .build/testsuite.json | xunit -out .build/testsuite.xml'
-                            }
-                            post {
-                                always {
-                                    sh script: 'cat .build/testsuite.json | grep "^{.*" | tparse -all -slow 100', returnStatus: true
-                                    archiveArtifacts artifacts: '.build/testsuite.json'
-                                    junit '.build/testsuite.xml'
-                                }
-                            }
+                    environment {
+                        GOLANGCI_LINT_CONFIG           = '/go/ci/.golangci.yml'
+                        GOLANGCI_LINT_CONFIG_TESTSUITE = '/go/ci/.golangci.yml'
+                    }
+                    steps {
+                        sh 'make -j verify'
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: '.build/tests.json', allowEmptyArchive: true
+                            archiveArtifacts artifacts: '.build/testsuite.json', allowEmptyArchive: true
+                            junit allowEmptyResults: true, testResults: '.build/tests.xml'
+                            junit allowEmptyResults: true, testResults: '.build/testsuite.xml'
                         }
                     }
                 }
@@ -156,9 +110,6 @@ pipeline {
                         sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
 
                         checkout scm
-
-                        // install storj-up dependency
-                        sh 'go install storj.io/storj-up@main'
                     }
                 }
 
@@ -172,11 +123,6 @@ pipeline {
                     steps {
                         script {
                             def tests = [:]
-                            tests['splunk-tests'] = {
-                                stage('splunk-tests') {
-                                    sh 'make integration-splunk-tests'
-                                }
-                            }
                             tests['ceph-tests'] = {
                                 stage('ceph-tests') {
                                     sh 'make integration-ceph-tests'

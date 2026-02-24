@@ -3,7 +3,9 @@ set -Eueo pipefail
 
 # use 'make integration-ceph-tests' to run this script
 
-apt-get update && apt-get -yqq install tox
+apt-get update && apt-get -yqq install --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+python3 -m pip install --no-cache-dir --upgrade pip tox
 
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -17,10 +19,11 @@ BUILD_DIR="$SCRIPTDIR/../../.build"
 mkdir -p "$BUILD_DIR"
 
 rm -rf "$BUILD_DIR/s3-tests/"
+trap 'rm -rf "$BUILD_DIR/s3-tests"' EXIT
 
 pushd "$BUILD_DIR"
     # note: tests are pegged at a specific revision to avoid upstream breaking the builds (e.g. config file changes)
-    git clone https://github.com/ceph/s3-tests && \
+    git clone --filter blob:none https://github.com/ceph/s3-tests && \
         cd s3-tests && \
         git reset --hard a84d1c397b47f60047182116053798789ee47f28
 
