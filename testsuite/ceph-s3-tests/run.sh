@@ -3,9 +3,8 @@ set -Eueo pipefail
 
 # use 'make integration-ceph-tests' to run this script
 
-apt-get update && apt-get -yqq install --no-install-recommends git \
+apt-get update && apt-get -yqq install --no-install-recommends git tox \
     && rm -rf /var/lib/apt/lists/*
-python3 -m pip install --no-cache-dir --upgrade pip tox
 
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 

@@ -62,19 +62,57 @@ pipeline {
                 }
 
                 stage('Verification') {
-                    environment {
-                        GOLANGCI_LINT_CONFIG           = '/go/ci/.golangci.yml'
-                        GOLANGCI_LINT_CONFIG_TESTSUITE = '/go/ci/.golangci.yml'
-                    }
-                    steps {
-                        sh 'make -j verify'
-                    }
-                    post {
-                        always {
-                            archiveArtifacts artifacts: '.build/tests.json', allowEmptyArchive: true
-                            archiveArtifacts artifacts: '.build/testsuite.json', allowEmptyArchive: true
-                            junit allowEmptyResults: true, testResults: '.build/tests.xml'
-                            junit allowEmptyResults: true, testResults: '.build/testsuite.xml'
+                    parallel {
+                        stage('Lint') {
+                            environment {
+                                GOLANGCI_LINT_CONFIG           = '/go/ci/.golangci.yml'
+                                GOLANGCI_LINT_CONFIG_TESTSUITE = '/go/ci/.golangci.yml'
+                            }
+                            steps {
+                                sh 'make verify-lint'
+                            }
+                        }
+
+                        stage('Cross-Vet') {
+                            steps {
+                                sh 'make verify-cross-vet'
+                            }
+                        }
+
+                        stage('Test') {
+                            environment {
+                                STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
+                                STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
+                                STORJ_TEST_LOG_LEVEL = 'info'
+                            }
+                            steps {
+                                sh 'make verify-test'
+                            }
+                            post {
+                                always {
+                                    sh script: 'cat .build/tests.json | tparse -all -slow 100', returnStatus: true
+                                    archiveArtifacts artifacts: '.build/tests.json'
+                                    junit '.build/tests.xml'
+                                }
+                            }
+                        }
+
+                        stage('Testsuite') {
+                            environment {
+                                STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
+                                STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
+                                STORJ_TEST_LOG_LEVEL = 'info'
+                            }
+                            steps {
+                                sh 'make verify-testsuite'
+                            }
+                            post {
+                                always {
+                                    sh script: 'cat .build/testsuite.json | tparse -all -slow 100', returnStatus: true
+                                    archiveArtifacts artifacts: '.build/testsuite.json'
+                                    junit '.build/testsuite.xml'
+                                }
+                            }
                         }
                     }
                 }
@@ -110,6 +148,9 @@ pipeline {
                         sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
 
                         checkout scm
+
+                        // install storj-up dependency
+                        sh 'go install storj.io/storj-up@main'
                     }
                 }
 

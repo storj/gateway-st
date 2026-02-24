@@ -37,12 +37,13 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install github.com/storj/ci/check-downgrades@latest
 	go install github.com/storj/ci/use-ports@latest
 	go install github.com/storj/ci/xunit@latest
+	go install storj.io/storj-up@main
 
 	# staticcheck:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
 	# golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
 
 	# shellcheck (TODO(artur): Windows)
 ifneq ($(shell which apt-get),)
@@ -303,9 +304,10 @@ clean-images:
 ##@ Local development/Public Jenkins/Integration Test
 
 BUILD_NUMBER ?= ${TAG}
+BUILD_NUMBER := $(if $(BUILD_NUMBER),$(BUILD_NUMBER),local)
 INTEGRATION_COMPOSE_PROJECT ?= integration-${BUILD_NUMBER}
 INTEGRATION_BUILD_DIR ?= .build
-STORJ_UP_VERSION ?= latest
+STORJ_UP_VERSION ?= main
 
 .PHONY: integration-run
 integration-run: integration-env-start integration-all-tests ## Start the integration environment and run all tests
@@ -327,7 +329,7 @@ integration-env-clean:
 	-docker rmi storjlabs/gateway-mint:latest
 	-docker compose -p ${INTEGRATION_COMPOSE_PROJECT} down --remove-orphans --volumes --rmi local
 	-docker volume ls -qf label=com.docker.compose.project=${INTEGRATION_COMPOSE_PROJECT} | xargs -r docker volume rm
-	-rm -rf ${INTEGRATION_BUILD_DIR}/s3-tests ${INTEGRATION_BUILD_DIR}/ceph.xml ${INTEGRATION_BUILD_DIR}/rclone-integration-tests
+	-rm -rf ${INTEGRATION_BUILD_DIR}/ceph.xml ${INTEGRATION_BUILD_DIR}/rclone-integration-tests
 	-rm -rf storj
 	-rm -rf edge.Dockerfile storj.Dockerfile docker-compose.yaml
 
