@@ -3,8 +3,7 @@ set -Eueo pipefail
 
 # use 'make integration-ceph-tests' to run this script
 
-apt-get update && apt-get -yqq install --no-install-recommends git tox \
-    && rm -rf /var/lib/apt/lists/*
+apt update -y && apt install -y git tox
 
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 

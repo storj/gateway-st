@@ -23,7 +23,7 @@ help:
 
 ##@ Local development/Public Jenkins/Helpers
 
-STORJ_UP_VERSION ?= v1.2.11
+STORJ_UP_VERSION ?= main
 
 .PHONY: install-dev-dependencies
 install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are installed
@@ -306,7 +306,7 @@ clean-images:
 ##@ Local development/Public Jenkins/Integration Test
 
 BUILD_NUMBER ?= $(or $(TAG),local)
-INTEGRATION_COMPOSE_PROJECT ?= integration-${BUILD_NUMBER}
+INTEGRATION_COMPOSE_PROJECT ?= integration-$(subst .,-,${BUILD_NUMBER})
 INTEGRATION_BUILD_DIR ?= .build
 
 .PHONY: integration-run
@@ -395,11 +395,14 @@ integration-image-build: integration-env-deps
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
 	storj-up init minimal,db && \
 		storj-up build remote github minimal -c $$(git -C storj rev-list --exclude='*rc*' --tags --max-count=1) -s && \
-		docker compose -p ${INTEGRATION_COMPOSE_PROJECT} build
+		storjup_tag=$$(awk -F: '/storjup\/spanner-emulator/ {print $$3; exit}' docker-compose.yaml) && \
+		docker compose -p ${INTEGRATION_COMPOSE_PROJECT} build \
+			--build-arg BUILD_TAG=$${storjup_tag:-latest} \
+			--build-arg BASE_TAG=$${storjup_tag:-latest}
 
 .PHONY: integration-env-deps
 integration-env-deps:
-	@if ! command -v storj-up >/dev/null 2>&1; then go install storj.io/storj-up@${STORJ_UP_VERSION}; fi
+	go install storj.io/storj-up@${STORJ_UP_VERSION}
 
 .PHONY: integration-network-create
 integration-network-create:
