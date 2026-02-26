@@ -395,10 +395,54 @@ integration-image-build: integration-env-deps
 	git clone --filter blob:none --no-checkout https://github.com/storj/storj
 	storj-up init minimal,db && \
 		storj-up build remote github minimal -c $$(git -C storj rev-list --exclude='*rc*' --tags --max-count=1) -s && \
-		storjup_tag=$$(awk -F: '/storjup\/spanner-emulator/ {print $$3; exit}' docker-compose.yaml) && \
+		storjup_dir=$$(go list -m -f '{{.Dir}}' storj.io/storj-up@${STORJ_UP_VERSION}) && \
+		build_tag=$$(cat $$storjup_dir/build.last) && \
+		base_tag=$$(cat $$storjup_dir/base.last) && \
+		for dockerfile in storj.Dockerfile edge.Dockerfile; do \
+			if [ -f "$$dockerfile" ] && ! grep -q "chmod 755 /etc/ssl/certs" "$$dockerfile"; then \
+				awk ' \
+					{ print; } \
+					!done && index($$0, "storjup/build:") { \
+						print "USER root"; \
+						print "RUN chmod 755 /etc/ssl/certs"; \
+						print "USER storj"; \
+						done=1; \
+					} \
+				' "$$dockerfile" > "$$dockerfile.tmp" && mv "$$dockerfile.tmp" "$$dockerfile"; \
+			fi; \
+			if [ -f "$$dockerfile" ] && ! grep -q "chmod 755 /etc/ssl/certs && git clone" "$$dockerfile"; then \
+				awk ' \
+					/^RUN git clone/ { \
+						print "USER root"; \
+						sub(/^RUN /, ""); \
+						print "RUN chmod 755 /etc/ssl/certs && " $$0 " && chown -R storj:storj storj"; \
+						print "USER storj"; \
+						next; \
+					} \
+					{ print; } \
+				' "$$dockerfile" > "$$dockerfile.tmp" && mv "$$dockerfile.tmp" "$$dockerfile"; \
+			fi; \
+			if [ -f "$$dockerfile" ] && ! grep -q "go install -buildvcs=false -race" "$$dockerfile"; then \
+				awk ' \
+					!inserted && /^RUN --mount=type=cache/ { \
+						print "USER root"; \
+						print; \
+						inserted=1; \
+						next; \
+					} \
+					/go install -race/ && $$0 !~ /chmod 755/ { \
+						sub(/go install -race/, "chmod 755 /etc/ssl/certs \\&\\& go install -buildvcs=false -race"); \
+					} \
+					/go install -ldflags/ && $$0 !~ /-buildvcs=false/ { \
+						sub(/go install -ldflags/, "go install -buildvcs=false -ldflags"); \
+					} \
+					{ print; } \
+				' "$$dockerfile" > "$$dockerfile.tmp" && mv "$$dockerfile.tmp" "$$dockerfile"; \
+			fi; \
+		done && \
 		docker compose -p ${INTEGRATION_COMPOSE_PROJECT} build \
-			--build-arg BUILD_TAG=$${storjup_tag:-latest} \
-			--build-arg BASE_TAG=$${storjup_tag:-latest}
+			--build-arg BUILD_TAG=$${build_tag} \
+			--build-arg BASE_TAG=$${base_tag}
 
 .PHONY: integration-env-deps
 integration-env-deps:
