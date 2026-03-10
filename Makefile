@@ -24,7 +24,7 @@ help:
 ##@ Local development/Public Jenkins/Helpers
 
 .PHONY: install-dev-dependencies
-install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are installed
+install-dev-dependencies: ## install-dev-dependencies assumes Go is installed
 	# Storj-specific:
 	go install github.com/storj/ci/check-mod-tidy@latest
 	go install github.com/storj/ci/check-copyright@latest
@@ -40,7 +40,10 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
 	# golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.57.0
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
+
+	# storj-up:
+	go install storj.io/storj-up@main
 
 	# shellcheck (TODO(artur): Windows)
 ifneq ($(shell which apt-get),)
@@ -78,7 +81,7 @@ lint: ## Lint
 	check-monkit ./...
 	check-errs ./...
 	staticcheck ./...
-	golangci-lint run --print-resources-usage --config ${GOLANGCI_LINT_CONFIG}
+	golangci-lint run --verbose --config ${GOLANGCI_LINT_CONFIG}
 	check-downgrades
 
 	# A bit of an explanation around this shellcheck command:
@@ -96,7 +99,7 @@ lint-testsuite: ## Lint testsuite
 	check-monkit ./...
 	check-errs ./...
 	staticcheck ./...
-	golangci-lint run --print-resources-usage --config ${GOLANGCI_LINT_CONFIG_TESTSUITE}
+	golangci-lint run --verbose --config ${GOLANGCI_LINT_CONFIG_TESTSUITE}
 
 ##@ Local development/Public Jenkins/Cross-Vet
 
@@ -271,13 +274,15 @@ integration-env-stop: ## Stop all running services in the integration environmen
 
 .PHONY: integration-env-clean
 integration-env-clean:
+	-docker compose down --volumes --remove-orphans
 	-docker rm $$(docker ps -aqf network=integration-network-${BUILD_NUMBER})
 	-docker rmi $$(docker image ls -qf label=build=${BUILD_NUMBER})
 	-docker rmi redis:latest
 	-docker rmi postgres:latest
 	-docker rmi storjlabs/gateway-mint:latest
-	-docker rmi storjlabs/splunk-s3-tests:latest
-	-docker compose down
+	-docker rmi storjlabs/ci:latest
+	-docker rmi python:3.11-bookworm
+	-docker rmi golang:${GO_VERSION}
 	-rm -rf storj
 	-rm -rf edge.Dockerfile storj.Dockerfile docker-compose.yaml
 
@@ -286,11 +291,11 @@ integration-env-purge: integration-env-stop integration-env-clean integration-ne
 
 .PHONY: integration-env-logs
 integration-env-logs: ## Retrieve logs from integration services
-	-docker logs integration-sim-${BUILD_NUMBER}
+	-docker compose logs
 	-docker logs integration-gateway-${BUILD_NUMBER}
 
 .PHONY: integration-all-tests
-integration-all-tests: integration-gateway-st-tests integration-mint-tests integration-splunk-tests ## Run all integration tests (environment needs to be started first)
+integration-all-tests: integration-gateway-st-tests integration-mint-tests integration-ceph-tests ## Run all integration tests (environment needs to be started first)
 
 # note: umask 0000 is needed for rclone tests so files can be cleaned up.
 .PHONY: integration-gateway-st-tests
@@ -310,7 +315,7 @@ integration-gateway-st-tests: ## Run gateway-st test suite (environment needs to
 	-c "umask 0000; scripts/run-integration-tests.sh $$TEST"
 
 .PHONY: integration-ceph-tests
-integration-ceph-tests: ## (environment needs to be started first)
+integration-ceph-tests: ## Run ceph test suite (environment needs to be started first)
 	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
 	docker run \
 	--network integration-network-${BUILD_NUMBER} \
@@ -335,18 +340,6 @@ integration-mint-tests: ## Run mint test suite (environment needs to be started 
 	-e ENABLE_HTTPS=0 \
 	--name integration-mint-tests-${BUILD_NUMBER}-$$TEST \
 	--rm storjlabs/gateway-mint:latest $$TEST
-
-.PHONY: integration-splunk-tests
-integration-splunk-tests: ## Run splunk test suite (environment needs to be started first)
-	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
-	docker run \
-	--network integration-network-${BUILD_NUMBER} \
-	-e ENDPOINT=gateway:9999 \
-	-e "AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID" \
-	-e "AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY" \
-	-e SECURE=0 \
-	--name integration-splunk-tests-${BUILD_NUMBER} \
-	--rm storjlabs/splunk-s3-tests:latest
 
 .PHONY: integration-image-build
 integration-image-build:
