@@ -40,7 +40,7 @@ install-dev-dependencies: ## install-dev-dependencies assumes Go and cURL are in
 	go install honnef.co/go/tools/cmd/staticcheck@latest
 
 	# golangci-lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.57.0
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
 	# shellcheck (TODO(artur): Windows)
 ifneq ($(shell which apt-get),)
@@ -270,14 +270,14 @@ integration-env-stop: ## Stop all running services in the integration environmen
 	-docker stop --time=1 $$(docker ps -qf network=integration-network-${BUILD_NUMBER})
 
 .PHONY: integration-env-clean
-integration-env-clean:
+integration-env-clean: ## Remove integration containers, images, and volumes
 	-docker rm $$(docker ps -aqf network=integration-network-${BUILD_NUMBER})
 	-docker rmi $$(docker image ls -qf label=build=${BUILD_NUMBER})
 	-docker rmi redis:latest
 	-docker rmi postgres:latest
 	-docker rmi storjlabs/gateway-mint:latest
-	-docker rmi storjlabs/splunk-s3-tests:latest
-	-docker compose down
+	-docker compose down --volumes --remove-orphans --rmi local
+	-docker volume prune -f
 	-rm -rf storj
 	-rm -rf edge.Dockerfile storj.Dockerfile docker-compose.yaml
 
@@ -290,7 +290,7 @@ integration-env-logs: ## Retrieve logs from integration services
 	-docker logs integration-gateway-${BUILD_NUMBER}
 
 .PHONY: integration-all-tests
-integration-all-tests: integration-gateway-st-tests integration-mint-tests integration-splunk-tests ## Run all integration tests (environment needs to be started first)
+integration-all-tests: integration-gateway-st-tests integration-mint-tests ## Run all integration tests (environment needs to be started first)
 
 # note: umask 0000 is needed for rclone tests so files can be cleaned up.
 .PHONY: integration-gateway-st-tests
@@ -335,18 +335,6 @@ integration-mint-tests: ## Run mint test suite (environment needs to be started 
 	-e ENABLE_HTTPS=0 \
 	--name integration-mint-tests-${BUILD_NUMBER}-$$TEST \
 	--rm storjlabs/gateway-mint:latest $$TEST
-
-.PHONY: integration-splunk-tests
-integration-splunk-tests: ## Run splunk test suite (environment needs to be started first)
-	$$(docker compose exec -T satellite-api storj-up credentials -e -s satellite-api:7777) && \
-	docker run \
-	--network integration-network-${BUILD_NUMBER} \
-	-e ENDPOINT=gateway:9999 \
-	-e "AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID" \
-	-e "AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY" \
-	-e SECURE=0 \
-	--name integration-splunk-tests-${BUILD_NUMBER} \
-	--rm storjlabs/splunk-s3-tests:latest
 
 .PHONY: integration-image-build
 integration-image-build:

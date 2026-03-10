@@ -172,11 +172,6 @@ pipeline {
                     steps {
                         script {
                             def tests = [:]
-                            tests['splunk-tests'] = {
-                                stage('splunk-tests') {
-                                    sh 'make integration-splunk-tests'
-                                }
-                            }
                             tests['ceph-tests'] = {
                                 stage('ceph-tests') {
                                     sh 'make integration-ceph-tests'
