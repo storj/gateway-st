@@ -65,3 +65,7 @@ func writeErrorResponse(ctx context.Context, w http.ResponseWriter, err cmd.APIE
 func writeErrorResponseHeadersOnly(w http.ResponseWriter, err cmd.APIError) {
 	writeResponse(w, err.HTTPStatusCode, nil, mimeNone)
 }
+
+func writeSuccessNoContent(w http.ResponseWriter) {
+	writeResponse(w, http.StatusNoContent, nil, mimeNone)
+}

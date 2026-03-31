@@ -606,10 +606,35 @@ func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) 
 
 	bucketName := mux.Vars(r)["bucket"]
 
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
 		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
 		return
 	}
 
 	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchWebsiteConfiguration), r.URL, false)
+}
+
+// DeleteBucketTaggingHandler is the HTTP handler for the DeleteBucketTagging operation,
+// which removes the set of tags that have been placed on a bucket.
+func (api *API) DeleteBucketTaggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "DeleteBucketTagging")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	if err := api.objectAPI.SetBucketTagging(ctx, bucketName, nil); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	writeSuccessNoContent(w)
 }
