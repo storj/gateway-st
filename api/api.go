@@ -98,6 +98,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		subrouter.Methods(http.MethodGet).Queries("website", "").HandlerFunc(api.GetBucketWebsiteHandler)
 
 		subrouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
+		subrouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteBucketHandler)
 	}
 }
 

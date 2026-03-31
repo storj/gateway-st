@@ -25,6 +25,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -617,6 +618,37 @@ func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchWebsiteConfiguration), r.URL, false)
+}
+
+// DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.
+func (api *API) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "DeleteBucket")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	forceDelete := false
+	if value := r.Header.Get(xhttp.MinIOForceDelete); value != "" {
+		var err error
+		forceDelete, err = strconv.ParseBool(value)
+		if err != nil {
+			apiErr := cmd.GetAPIError(cmd.ErrInvalidRequest)
+			apiErr.Description = err.Error()
+			cmd.WriteErrorResponse(ctx, w, apiErr, r.URL, false)
+			return
+		}
+	}
+
+	if err := api.objectAPI.DeleteBucket(ctx, bucketName, forceDelete); err != nil {
+		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		return
+	}
+
+	writeSuccessNoContent(w)
 }
 
 // DeleteBucketTaggingHandler is the HTTP handler for the DeleteBucketTagging operation,
