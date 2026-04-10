@@ -48,6 +48,12 @@ type API struct {
 	config Config
 }
 
+// BucketLocationGetter is an interface for getting bucket location.
+// This is implemented by the gateway layer to fetch bucket region/location.
+type BucketLocationGetter interface {
+	GetBucketLocation(ctx context.Context, bucketName string) (string, error)
+}
+
 // New constructs a new S3-compatible HTTP API.
 func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config) *API {
 	v2v4 := awsig.NewV2V4(credsProvider, awsig.V4Config{

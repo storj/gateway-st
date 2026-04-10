@@ -346,6 +346,27 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 	}, nil
 }
 
+// GetBucketLocation returns the location/region of a bucket.
+func (layer *gatewayLayer) GetBucketLocation(ctx context.Context, bucketName string) (location string, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return "", minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx, bucketName, "")
+	if err != nil {
+		return "", err
+	}
+
+	location, err = bucket.GetBucketLocation(ctx, project, bucketName)
+	if err != nil {
+		return "", ConvertError(err, bucketName, "")
+	}
+
+	return location, nil
+}
+
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
