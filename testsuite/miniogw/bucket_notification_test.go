@@ -20,7 +20,6 @@ import (
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
 	"storj.io/storj/satellite/console"
-	"storj.io/storj/satellite/eventing/eventingconfig"
 	"storj.io/storj/satellite/kms"
 	"storj.io/uplink"
 )
@@ -200,8 +199,6 @@ func TestBucketNotificationConfig_MultipleEvents(t *testing.T) {
 }
 
 func runTestWithEventing(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
-	enabledProjects := eventingconfig.ProjectSet{}
-
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount:   1,
 		StorageNodeCount: 0,
@@ -209,7 +206,6 @@ func runTestWithEventing(t *testing.T, test func(*testing.T, context.Context, mi
 		NonParallel:      true, // we control parallelism ourselves
 		Reconfigure: testplanet.Reconfigure{
 			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				config.BucketEventing.Projects = enabledProjects
 				config.Console.SatelliteManagedEncryptionEnabled = true
 				config.KeyManagement.KeyInfos = kms.KeyInfos{
 					Values: map[int]kms.KeyInfo{
@@ -235,9 +231,6 @@ func runTestWithEventing(t *testing.T, test func(*testing.T, context.Context, mi
 			ManagePassphrase: true,
 		})
 		require.NoError(t, err)
-
-		// Enable eventing for the test project
-		enabledProjects[proj.ID] = struct{}{}
 
 		// Create API key for the project without path encryption
 		_, apiKey, err := sat.API.Console.Service.CreateAPIKey(userCtx, proj.ID, "test-key", macaroon.APIKeyVersionEventing)
