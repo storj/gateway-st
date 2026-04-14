@@ -21,15 +21,29 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
+	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
+	"strings"
 
+	"github.com/amwolff/awsig"
+	miniogo "github.com/minio/minio-go/v7"
+	"go.uber.org/zap"
+
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 )
+
+var internalErrorResponse = apierr.Response{
+	Code:           "InternalError",
+	Description:    "We encountered an internal error. Please try again.",
+	HTTPStatusCode: http.StatusInternalServerError,
+}
 
 type mimeType string
 
@@ -58,14 +72,89 @@ func writeSuccessResponseHeadersOnly(w http.ResponseWriter) {
 	writeResponse(w, http.StatusOK, nil, mimeNone)
 }
 
-func writeErrorResponse(ctx context.Context, w http.ResponseWriter, err cmd.APIError, reqURL *url.URL) {
-	cmd.WriteErrorResponse(ctx, w, err, reqURL, false)
-}
-
-func writeErrorResponseHeadersOnly(w http.ResponseWriter, err cmd.APIError) {
-	writeResponse(w, err.HTTPStatusCode, nil, mimeNone)
-}
-
 func writeSuccessNoContent(w http.ResponseWriter) {
 	writeResponse(w, http.StatusNoContent, nil, mimeNone)
+}
+
+func (api *API) writeErrorResponse(ctx context.Context, w http.ResponseWriter, err error) {
+	resp, matched := errToResponse(err)
+	if !matched {
+		api.log.Error("unexpected error", zap.Error(err))
+		resp = internalErrorResponse
+	}
+
+	buf := bytes.NewBufferString(xml.Header)
+	e := xml.NewEncoder(buf)
+	if xmlErr := e.Encode(resp); xmlErr != nil {
+		api.log.Error("error encoding XML error response", zap.Error(err))
+		writeResponse(w, http.StatusInternalServerError, nil, mimeNone)
+	}
+}
+
+func (api *API) writeErrorResponseHeadersOnly(w http.ResponseWriter, err error) {
+	resp, matched := errToResponse(err)
+	if !matched {
+		api.log.Error("unexpected error", zap.Error(err))
+		resp = internalErrorResponse
+	}
+	writeResponse(w, resp.HTTPStatusCode, nil, mimeNone)
+}
+
+func errToResponse(err error) (resp apierr.Response, matched bool) {
+	if errors.As(err, &resp) {
+		return resp, true
+	}
+
+	if code := apierr.Code(0); errors.As(err, &code) {
+		var ok bool
+		resp, ok = code.ToResponse()
+		if ok {
+			return resp, true
+		}
+		return apierr.Response{}, false
+	}
+
+	if miniogoResp := (miniogo.ErrorResponse{}); errors.As(err, &miniogoResp) {
+		return apierr.Response{
+			Code:           miniogoResp.Code,
+			Description:    miniogoResp.Message,
+			HTTPStatusCode: miniogoResp.StatusCode,
+		}, true
+	}
+
+	if provider, ok := err.(cmd.APIErrorProvider); ok {
+		apiErr := provider.ToAPIError()
+		return apierr.Response{
+			Code:           apiErr.Code,
+			Description:    apiErr.Description,
+			HTTPStatusCode: apiErr.HTTPStatusCode,
+		}, true
+	}
+
+	if code, ok := awsigErrToCode(err); ok {
+		if code == apierr.CodeBadDigest {
+			if mismatch, ok := getChecksumMismatchFromError(err); ok {
+				switch {
+				case mismatch.Algorithm == awsig.AlgorithmMD5:
+					code = apierr.CodeContentMD5Mismatch
+				case mismatch.Algorithm == awsig.AlgorithmSHA256 && mismatch.IsContentSHA256:
+					code = apierr.CodeContentSHA256Mismatch
+				default:
+					return apierr.Response{
+						Code:           "BadDigest",
+						Description:    "The " + strings.ToUpper(mismatch.Algorithm.String()) + " you specified did not match the calculated checksum.",
+						HTTPStatusCode: http.StatusBadRequest,
+					}, true
+				}
+			}
+		}
+
+		resp, ok = code.ToResponse()
+		if ok {
+			return resp, true
+		}
+		return apierr.Response{}, false
+	}
+
+	return apierr.Response{}, false
 }

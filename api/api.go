@@ -26,6 +26,7 @@ import (
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
+	"go.uber.org/zap"
 
 	"storj.io/minio/cmd"
 )
@@ -42,6 +43,7 @@ type AuthData struct {
 
 // API is an S3-compatible HTTP API.
 type API struct {
+	log       *zap.Logger
 	objectAPI cmd.ObjectLayer
 	verifier  *awsig.V2V4[AuthData]
 
@@ -49,12 +51,13 @@ type API struct {
 }
 
 // New constructs a new S3-compatible HTTP API.
-func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config) *API {
+func New(log *zap.Logger, objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config) *API {
 	v2v4 := awsig.NewV2V4(credsProvider, awsig.V4Config{
 		Service:                "s3",
 		SkipRegionVerification: true,
 	})
 	return &API{
+		log:       log,
 		objectAPI: objectAPI,
 		verifier:  v2v4,
 		config:    config,

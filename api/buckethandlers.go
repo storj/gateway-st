@@ -28,10 +28,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/common/memory"
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -58,19 +60,19 @@ func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
 			objectLockEnabled = true
 		case "false":
 		default:
-			writeErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrInvalidRequest), r.URL)
+			api.writeErrorResponse(ctx, w, apierr.CodeInvalidRequest)
 		}
 	}
 
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
-		writeErrorResponse(ctx, w, awsigToAPIError(err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	body, err := vr.Reader()
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -82,7 +84,20 @@ func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
 			Location string   `xml:"LocationConstraint"`
 		}
 		if err = xmlDecoder(body, &createBucketLocationConfiguration{}, r.ContentLength); err != nil {
-			writeErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrMalformedXML), r.URL)
+			var errCode apierr.Code
+			if mismatch, ok := getChecksumMismatchFromError(err); ok {
+				switch {
+				case mismatch.Algorithm == awsig.AlgorithmMD5:
+					errCode = apierr.CodeContentMD5Mismatch
+				case mismatch.Algorithm == awsig.AlgorithmSHA256 && mismatch.IsContentSHA256:
+					errCode = apierr.CodeContentSHA256Mismatch
+				default:
+					errCode = apierr.CodeBadDigest
+				}
+			} else {
+				errCode = apierr.CodeMalformedXML
+			}
+			api.writeErrorResponse(ctx, w, errCode)
 			return
 		}
 	}
@@ -92,7 +107,7 @@ func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := api.objectAPI.MakeBucketWithLocation(ctx, bucket, opts); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -114,18 +129,18 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	body, err := vr.Reader()
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err = api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -134,34 +149,34 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		acl := &accessControlPolicy{}
 		if err = xmlDecoder(body, acl, r.ContentLength); err != nil {
 			if errors.Is(err, io.EOF) {
-				writeErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrMissingSecurityHeader), r.URL)
+				api.writeErrorResponse(ctx, w, apierr.CodeMissingSecurityHeader)
 				return
 			}
-			writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+			api.writeErrorResponse(ctx, w, err)
 			return
 		}
 
 		if len(acl.AccessControlList.Grants) == 0 {
-			writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, cmd.NotImplemented{}), r.URL)
+			api.writeErrorResponse(ctx, w, apierr.CodeNotImplemented)
 			return
 		}
 
 		if acl.AccessControlList.Grants[0].Permission != "FULL_CONTROL" {
-			writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, cmd.NotImplemented{}), r.URL)
+			api.writeErrorResponse(ctx, w, apierr.CodeNotImplemented)
 			return
 		}
 	}
 
 	if aclHeader != "" && aclHeader != "private" {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, cmd.NotImplemented{}), r.URL)
+		api.writeErrorResponse(ctx, w, apierr.CodeNotImplemented)
 		return
 	}
 
 	w.(http.Flusher).Flush()
 }
 
-// PutBucketNotificationConfigHandler is the HTTP handler for the PutBucketNotificationConfig operation,
-// which sets a bucket's notification configuration.
+// PutBucketNotificationConfigHandler is the HTTP handler for the PutBucketNotificationConfig
+// operation, which sets a bucket's notification configuration.
 func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "PutBucketNotificationConfig")
 
@@ -169,24 +184,24 @@ func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *htt
 
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	body, err := vr.Reader()
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	config, err := event.ParseConfig(io.LimitReader(body, maxPutBucketNotificationConfigBodySize))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if err = api.objectAPI.SetBucketNotificationConfig(ctx, bucketName, config); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -202,24 +217,24 @@ func (api *API) PutBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.
 
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	body, err := vr.Reader()
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	config, err := objectlock.ParseObjectLockConfig(body)
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if err = api.objectAPI.SetObjectLockConfig(ctx, bucketName, config); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -235,24 +250,24 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	body, err := vr.Reader()
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	tags, err := tags.ParseBucketXML(io.LimitReader(body, r.ContentLength))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if err = api.objectAPI.SetBucketTagging(ctx, bucketName, tags); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -268,24 +283,24 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	body, err := vr.Reader()
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	v, err := versioning.ParseConfig(io.LimitReader(body, maxPutBucketVersioningBodySize))
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if err = api.objectAPI.SetBucketVersioning(ctx, bucketName, v); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -299,12 +314,12 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		writeErrorResponseHeadersOnly(w, cmd.ToAPIError(ctx, err))
+		api.writeErrorResponseHeadersOnly(w, err)
 		return
 	}
 
@@ -322,12 +337,12 @@ func (api *API) GetBucketAccelerateHandler(w http.ResponseWriter, r *http.Reques
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -346,12 +361,12 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -366,7 +381,7 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err := xml.NewEncoder(w).Encode(acl); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -383,16 +398,16 @@ func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, true)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
-	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchCORSConfiguration), r.URL, false)
+	api.writeErrorResponse(ctx, w, apierr.CodeNoSuchCORSConfiguration)
 }
 
 // GetBucketLocationHandler is the HTTP handler for the GetBucketLocation operation,
@@ -405,12 +420,12 @@ func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request)
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -427,12 +442,12 @@ func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) 
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -448,19 +463,19 @@ func (api *API) GetBucketNotificationConfigHandler(w http.ResponseWriter, r *htt
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	config, err := api.objectAPI.GetBucketNotificationConfig(ctx, bucketName)
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	configData, err := xml.Marshal(config)
 	if err != nil {
-		writeErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -475,19 +490,19 @@ func (api *API) GetBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	config, err := api.objectAPI.GetObjectLockConfig(ctx, bucketName)
 	if err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	configData, err := xml.Marshal(config)
 	if err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -504,12 +519,12 @@ func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Requ
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -531,12 +546,12 @@ func (api *API) GetBucketRequestPaymentHandler(w http.ResponseWriter, r *http.Re
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -552,19 +567,19 @@ func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	tags, err := api.objectAPI.GetBucketTagging(ctx, bucketName)
 	if err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	responseBytes, err := xml.Marshal(tags)
 	if err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -579,19 +594,19 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	config, err := api.objectAPI.GetBucketVersioning(ctx, bucketName)
 	if err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	configData, err := xml.Marshal(config)
 	if err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -601,23 +616,24 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 // GetBucketWebsiteHandler is the HTTP handler for the GetBucketWebsite operation,
 // which returns a bucket's website configuration.
 //
-// This is a dummy handler. It always returns a NoSuchWebsiteConfiguration error.
+// This is a dummy handler. If the bucket is accessible, a NoSuchWebsiteConfiguration
+// error is returned.
 func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "GetBucketWebsite")
 
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
-	cmd.WriteErrorResponse(ctx, w, cmd.GetAPIError(cmd.ErrNoSuchWebsiteConfiguration), r.URL, false)
+	api.writeErrorResponse(ctx, w, apierr.CodeNoSuchWebsiteConfiguration)
 }
 
 // DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.
@@ -627,7 +643,7 @@ func (api *API) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) {
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -636,15 +652,13 @@ func (api *API) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) {
 		var err error
 		forceDelete, err = strconv.ParseBool(value)
 		if err != nil {
-			apiErr := cmd.GetAPIError(cmd.ErrInvalidRequest)
-			apiErr.Description = err.Error()
-			cmd.WriteErrorResponse(ctx, w, apiErr, r.URL, false)
+			api.writeErrorResponse(ctx, w, apierr.CodeInvalidForceDelete)
 			return
 		}
 	}
 
 	if err := api.objectAPI.DeleteBucket(ctx, bucketName, forceDelete); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
@@ -659,12 +673,12 @@ func (api *API) DeleteBucketTaggingHandler(w http.ResponseWriter, r *http.Reques
 	bucketName := mux.Vars(r)["bucket"]
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 
 	if err := api.objectAPI.SetBucketTagging(ctx, bucketName, nil); err != nil {
-		cmd.WriteErrorResponse(ctx, w, cmd.ToAPIError(ctx, err), r.URL, false)
+		api.writeErrorResponse(ctx, w, err)
 		return
 	}
 

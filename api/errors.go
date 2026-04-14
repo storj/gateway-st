@@ -5,80 +5,75 @@ package api
 
 import (
 	"errors"
-	"net/http"
+	"slices"
 
 	"github.com/amwolff/awsig"
 
-	"storj.io/minio/cmd"
+	"storj.io/gateway/api/apierr"
 )
 
-// awsigAPIErrorCodes maps awsig errors to APIErrorCodes. The awsig errors that don't have a corresponding
-// APIErrorCode are listed in awsigAPIErrors.
-var awsigAPIErrorCodes = map[error]cmd.APIErrorCode{
-	awsig.ErrAccessDenied:                    cmd.ErrAccessDenied,
-	awsig.ErrAuthorizationHeaderMalformed:    cmd.ErrAuthorizationHeaderMalformed,
-	awsig.ErrInvalidAccessKeyID:              cmd.ErrInvalidAccessKeyID,
-	awsig.ErrInvalidDateHeader:               cmd.ErrMalformedDate,
-	awsig.ErrInvalidPresignedDate:            cmd.ErrMalformedPresignedDate,
-	awsig.ErrInvalidPresignedExpiration:      cmd.ErrMalformedExpires,
-	awsig.ErrInvalidSignature:                cmd.ErrSignatureDoesNotMatch,
-	awsig.ErrInvalidXAmzDecodedContentLength: cmd.ErrMissingContentLength,
-	awsig.ErrMalformedPOSTRequest:            cmd.ErrMalformedPOSTRequest,
-	awsig.ErrMissingContentLength:            cmd.ErrMissingContentLength,
-	awsig.ErrMissingSecurityHeader:           cmd.ErrMissingSecurityHeader,
-	awsig.ErrNegativePresignedExpiration:     cmd.ErrNegativeExpires,
-	awsig.ErrPresignedExpirationTooLarge:     cmd.ErrMaximumExpires,
-	awsig.ErrRequestNotYetValid:              cmd.ErrRequestNotReadyYet,
-	awsig.ErrRequestExpired:                  cmd.ErrExpiredPresignRequest,
-	awsig.ErrRequestTimeTooSkewed:            cmd.ErrRequestTimeTooSkewed,
-	awsig.ErrSignatureDoesNotMatch:           cmd.ErrSignatureDoesNotMatch,
+// awsigErrToCodeMap maps awsig errors to their corresponding error codes.
+var awsigErrToCodeMap = map[error]apierr.Code{
+	awsig.ErrAccessDenied:                      apierr.CodeAccessDenied,
+	awsig.ErrAuthorizationHeaderMalformed:      apierr.CodeAuthorizationHeaderMalformed,
+	awsig.ErrBadDigest:                         apierr.CodeBadDigest,
+	awsig.ErrContentLengthWithTransferEncoding: apierr.CodeContentLengthWithTransferEncoding,
+	awsig.ErrEntityTooLarge:                    apierr.CodeEntityTooLarge,
+	awsig.ErrEntityTooSmall:                    apierr.CodeEntityTooSmall,
+	awsig.ErrInvalidAccessKeyID:                apierr.CodeInvalidAccessKeyID,
+	awsig.ErrInvalidDateHeader:                 apierr.CodeMalformedDate,
+	awsig.ErrInvalidDigest:                     apierr.CodeInvalidContentMD5,
+	awsig.ErrInvalidPOSTDate:                   apierr.CodeMalformedPOSTDate,
+	awsig.ErrInvalidPresignedDate:              apierr.CodeMalformedPresignedDate,
+	awsig.ErrInvalidPresignedExpiration:        apierr.CodeMalformedExpires,
+	awsig.ErrInvalidPresignedXAmzContentSHA256: apierr.CodeContentSHA256Mismatch,
+	awsig.ErrInvalidRequest:                    apierr.CodeInvalidRequest,
+	awsig.ErrInvalidSignature:                  apierr.CodeSignatureDoesNotMatch,
+	awsig.ErrInvalidXAmzContentSHA256:          apierr.CodeInvalidContentSHA256,
+	awsig.ErrInvalidXAmzDecodedContentLength:   apierr.CodeMissingContentLength,
+	awsig.ErrMalformedPOSTRequest:              apierr.CodeMalformedPOSTRequest,
+	awsig.ErrMissingContentLength:              apierr.CodeMissingContentLength,
+	awsig.ErrMissingPOSTPolicy:                 apierr.CodeMissingPOSTPolicy,
+	awsig.ErrMissingSecurityHeader:             apierr.CodeMissingSecurityHeader,
+	awsig.ErrNegativePresignedExpiration:       apierr.CodeNegativeExpires,
+	awsig.ErrNotImplemented:                    apierr.CodeUnsupportedECDSAP256SHA256,
+	awsig.ErrPresignedExpirationTooLarge:       apierr.CodeMaximumExpires,
+	awsig.ErrRequestExpired:                    apierr.CodeExpiredPresignedRequest,
+	awsig.ErrRequestNotYetValid:                apierr.CodeRequestNotReadyYet,
+	awsig.ErrRequestTimeTooSkewed:              apierr.CodeRequestTimeTooSkewed,
+	awsig.ErrSignatureDoesNotMatch:             apierr.CodeSignatureDoesNotMatch,
+	awsig.ErrUnsupportedSignature:              apierr.CodeUnsupportedSignature,
 }
 
-// awsigAPIErrors maps awsig errors to APIErrors. For awsig errors that correspond to an APIErrorCode,
-// awsigAPIErrorCodes should be used instead.
-var awsigAPIErrors = map[error]cmd.APIError{
-	awsig.ErrContentLengthWithTransferEncoding: {
-		Code:           "InvalidRequest",
-		Description:    "Cannot specify both Content-Length and Transfer-Encoding HTTP headers.",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
-	awsig.ErrInvalidPOSTDate: {
-		Code:           "InvalidArgument",
-		Description:    "X-Amz-Date must be formatted via ISO8601 Long format.",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
-	awsig.ErrInvalidXAmzContentSHA256: {
-		Code:           "InvalidArgument",
-		Description:    "x-amz-content-sha256 must be UNSIGNED-PAYLOAD, STREAMING-AWS4-HMAC-SHA256-PAYLOAD, or a valid sha256 value.",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
-	awsig.ErrMissingPOSTPolicy: {
-		Code:           "InvalidArgument",
-		Description:    "Bucket POST must contain a field named 'policy'.",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
-	awsig.ErrNotImplemented: {
-		Code:           "NotImplemented",
-		Description:    "The AWS4-ECDSA-P256-SHA256 algorithm is not implemented yet.",
-		HTTPStatusCode: http.StatusNotImplemented,
-	},
-	awsig.ErrUnsupportedSignature: {
-		Code:           "UnsupportedSignature",
-		Description:    "The provided request is signed with an unsupported STS Token version or the signature version is not supported.",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
+func awsigErrToCode(err error) (code apierr.Code, ok bool) {
+	for awsigErr, code := range awsigErrToCodeMap {
+		if errors.Is(err, awsigErr) {
+			return code, true
+		}
+	}
+	return apierr.CodeNone, false
 }
 
-func awsigToAPIError(err error) cmd.APIError {
-	for awsigErr, code := range awsigAPIErrorCodes {
-		if errors.Is(err, awsigErr) {
-			return cmd.GetAPIError(code)
-		}
+func getChecksumMismatchFromError(err error) (mismatch awsig.ChecksumMismatch, ok bool) {
+	var mismatchErr awsig.ChecksumMismatchError
+	if !errors.As(err, &mismatchErr) {
+		return awsig.ChecksumMismatch{}, false
 	}
-	for awsigErr, apiErr := range awsigAPIErrors {
-		if errors.Is(err, awsigErr) {
-			return apiErr
+	// When S3 determines what information to include in an error for a request containing
+	// multiple integrity failures, Content-MD5 takes priority over X-Amz-Content-Sha256,
+	// which takes priority over X-Amz-Checksum-<algorithm>.
+	slices.SortFunc(mismatchErr.Mismatches, func(a awsig.ChecksumMismatch, b awsig.ChecksumMismatch) int {
+		ord := func(mismatch awsig.ChecksumMismatch) int {
+			switch {
+			case a.Algorithm == awsig.AlgorithmMD5:
+				return 0
+			case a.Algorithm == awsig.AlgorithmSHA256 && a.IsContentSHA256:
+				return 1
+			default:
+				return 2
+			}
 		}
-	}
-	return cmd.GetAPIError(cmd.ErrInternalError)
+		return ord(a) - ord(b)
+	})
+	return mismatchErr.Mismatches[0], true
 }
