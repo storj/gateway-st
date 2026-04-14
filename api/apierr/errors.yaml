@@ -1,0 +1,174 @@
+- name: AccessDenied
+  code: AccessDenied
+  description: Access Denied
+  http_status: 403
+
+- name: AuthorizationHeaderMalformed
+  code: AuthorizationHeaderMalformed
+  description: The authorization header that you provided is not valid.
+  http_status: 400
+
+- name: BadDigest
+  code: BadDigest
+  description: The Content-MD5 or checksum value you specified did not match what we received.
+  http_status: 400
+
+- name: ContentLengthWithTransferEncoding
+  code: InvalidRequest
+  description: Cannot specify both Content-Length and Transfer-Encoding HTTP headers.
+  http_status: 400
+
+- name: ContentSHA256Mismatch
+  code: XAmzContentSHA256Mismatch
+  description: The provided 'x-amz-content-sha256' header does not match what was computed.
+  http_status: 400
+
+- name: ContentMD5Mismatch
+  code: BadDigest
+  decription: The Content-MD5 you specified did not match what we received.
+  http_status: 400
+
+- name: ChecksumMismatch
+  code: BadDigest
+  description: The checksum value you specified did not match what we received.
+  http_status: 400
+
+- name: EntityTooLarge
+  code: EntityTooLarge
+  description: Your proposed upload exceeds the maximum allowed object size.
+  http_status: 400
+
+- name: EntityTooSmall
+  code: EntityTooSmall
+  description: Your proposed upload is smaller than the minimum allowed object size.
+  http_status: 400
+
+- name: ExpiredPresignedRequest
+  code: AccessDenied
+  description: Request has expired
+  http_status: 403
+
+- name: Internal
+  code: InternalError
+  description: We encountered an internal error. Please try again.
+  http_status: 500
+
+- name: InvalidAccessKeyID
+  code: InvalidAccessKeyID
+  description: The access key ID that you provided does not exist in our records.
+  http_status: 403
+
+- name: InvalidContentSHA256
+  code: InvalidArgument
+  description: x-amz-content-sha256 must be UNSIGNED-PAYLOAD, STREAMING-AWS4-HMAC-SHA256-PAYLOAD, or a valid sha256 value.
+  http_status: 400
+
+- name: InvalidContentMD5
+  code: InvalidDigest
+  description: The Content-MD5 you specified was invalid.
+  http_status: 400
+
+- name: InvalidForceDelete
+  code: InvalidArgument
+  description: X-Minio-Force-Delete must be a valid boolean.
+  http_status: 400
+
+- name: InvalidRequest
+  code: InvalidRequest
+  description: The request is invalid.
+  http_status: 400
+
+- name: MalformedDate
+  code: MalformedDate
+  description: Invalid date format header, expected to be in ISO8601, RFC1123 or RFC1123Z time format.
+  http_status: 400
+
+- name: MalformedExpires
+  code: AuthorizationQueryParametersError
+  description: X-Amz-Expires should be a number
+  http_status: 400
+
+- name: MalformedPOSTDate
+  code: InvalidRequest
+  description: X-Amz-Date must be formatted via ISO8601 Long format.
+  http_status: 400
+
+- name: MalformedPOSTRequest
+  code: MalformedPOSTRequest
+  description: The body of your POST request is not well-formed multipart/form-data.
+  http_status: 400
+
+- name: MalformedPresignedDate
+  code: MalformedPresignedDate
+  description: X-Amz-Date must be in the ISO8601 Long Format "yyyyMMdd'T'HHmmss'Z'"
+  http_status: 400
+
+- name: MalformedXML
+  code: MalformedXML
+  description: The XML you provided was not well-formed or did not validate against our published schema.
+  http_status: 400
+
+- name: MaximumExpires
+  code: AuthorizationQueryParametersError
+  description: X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds
+  http_status: 400
+
+- name: MissingContentLength
+  code: MissingContentLength
+  description: You must provide the Content-Length HTTP header.
+  http_status: 411
+
+- name: MissingPOSTPolicy
+  code: InvalidArgument
+  description: Bucket POST must contain a field named 'policy'.
+  http_status: 400
+
+- name: MissingSecurityHeader
+  code: MissingSecurityHeader
+  description: Your request is missing a required header.
+  http_status: 400
+
+- name: NegativeExpires
+  code: AuthorizationQueryParametersError
+  description: X-Amz-Expires must be non-negative
+  http_status: 400
+
+- name: NoSuchCORSConfiguration
+  code: NoSuchCORSConfiguration
+  description: The CORS configuration does not exist
+  http_status: 404
+
+- name: NoSuchWebsiteConfiguration
+  code: NoSuchWebsiteConfiguration
+  description: The specified bucket does not have a website configuration
+  http_status: 404
+
+- name: NotImplemented
+  code: NotImplemented
+  description: A header that you provided implies functionality that is not implemented.
+  http_status: 501
+
+- name: RequestNotReadyYet
+  code: AccessDenied
+  description: Request is not valid yet
+  http_status: 403
+
+- name: RequestTimeTooSkewed
+  code: RequestTimeTooSkewed
+  description: The difference between the request time and the server's time is too large.
+  http_status: 403
+
+- name: SignatureDoesNotMatch
+  code: SignatureDoesNotMatch
+  description: The request signature we calculated does not match the signature you provided. Check your key and signing method.
+  http_status: 403
+
+- name: UnsupportedECDSAP256SHA256
+  code: NotImplemented
+  description: The AWS4-ECDSA-P256-SHA256 algorithm is not implemented yet.
+  http_status: 501
+
+- name: UnsupportedSignature
+  code: UnsupportedSignature
+  description: The provided request is signed with an unsupported STS Token version or the signature version is not supported.
+  http_status: 400
