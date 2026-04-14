@@ -15,15 +15,15 @@ import (
 // awsigAPIErrorCodes maps awsig errors to APIErrorCodes. The awsig errors that don't have a corresponding
 // APIErrorCode are listed in awsigAPIErrors.
 var awsigAPIErrorCodes = map[error]cmd.APIErrorCode{
+	awsig.ErrAccessDenied:                    cmd.ErrAccessDenied,
 	awsig.ErrAuthorizationHeaderMalformed:    cmd.ErrAuthorizationHeaderMalformed,
 	awsig.ErrInvalidAccessKeyID:              cmd.ErrInvalidAccessKeyID,
 	awsig.ErrInvalidDateHeader:               cmd.ErrMalformedDate,
 	awsig.ErrInvalidPresignedDate:            cmd.ErrMalformedPresignedDate,
 	awsig.ErrInvalidPresignedExpiration:      cmd.ErrMalformedExpires,
 	awsig.ErrInvalidSignature:                cmd.ErrSignatureDoesNotMatch,
-	awsig.ErrInvalidXAmzDecodedContentSHA256: cmd.ErrMissingContentLength,
+	awsig.ErrInvalidXAmzDecodedContentLength: cmd.ErrMissingContentLength,
 	awsig.ErrMalformedPOSTRequest:            cmd.ErrMalformedPOSTRequest,
-	awsig.ErrMissingAuthenticationToken:      cmd.ErrAccessDenied,
 	awsig.ErrMissingContentLength:            cmd.ErrMissingContentLength,
 	awsig.ErrMissingSecurityHeader:           cmd.ErrMissingSecurityHeader,
 	awsig.ErrNegativePresignedExpiration:     cmd.ErrNegativeExpires,

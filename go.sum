@@ -43,8 +43,8 @@ github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuy
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
-github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f h1:kBHbt/M6Bbu9H2fAeNn2W9snI80RmT5pVl6+lmVnwjg=
-github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f/go.mod h1:CVOJYR4n17wXqZ9WH93dQYQqRkzdtuX9K82MoZ82xHs=
+github.com/amwolff/awsig v0.0.0-20260414063042-162ff7da805a h1:mb42MCt1q6Pt1va9WeNsZAaKvP2TXuZjglRvK+67BaM=
+github.com/amwolff/awsig v0.0.0-20260414063042-162ff7da805a/go.mod h1:CVOJYR4n17wXqZ9WH93dQYQqRkzdtuX9K82MoZ82xHs=
 github.com/apache/arrow/go/v15 v15.0.2 h1:60IliRbiyTWCWjERBCkO1W4Qun9svcYoZrSLcyOsMLE=
 github.com/apache/arrow/go/v15 v15.0.2/go.mod h1:DGXsR3ajT524njufqf95822i+KTh+yea1jass9YXgjA=
 github.com/apache/thrift v0.12.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb+bacwQ=
@@ -970,8 +970,8 @@ storj.io/eventkit v0.0.0-20250410172343-61f26d3de156 h1:5MZ0CyMbG6Pi0rRzUWVG6dvp
 storj.io/eventkit v0.0.0-20250410172343-61f26d3de156/go.mod h1:CpnM6kfZV58dcq3lpbo/IQ4/KoutarnTSHY0GYVwnYw=
 storj.io/infectious v0.0.2 h1:rGIdDC/6gNYAStsxsZU79D/MqFjNyJc1tsyyj9sTl7Q=
 storj.io/infectious v0.0.2/go.mod h1:QEjKKww28Sjl1x8iDsjBpOM4r1Yp8RsowNcItsZJ1Vs=
-storj.io/minio v0.0.0-20260129101855-14915b3faa6d h1:XTkLpDsNEs0D5U+u3ikCAeKPGGcqmoX5FWlqsxb03+I=
-storj.io/minio v0.0.0-20260129101855-14915b3faa6d/go.mod h1:BacfXeIiBRppY7WzNhuHq1x2HtXbC/F6mR5YyQHIJB8=
+storj.io/minio v0.0.0-20260414064400-e5c2d60d8465 h1:T5NgMrT54Lx1RhvWW5fJVmJ4YadoVz/VHiVcfitION8=
+storj.io/minio v0.0.0-20260414064400-e5c2d60d8465/go.mod h1:6bRVljGogz8WAf+kShz588U0LCXzXUCXh1anXKWegeQ=
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad h1:HkjZ/RDf2MiY7ENNhDWWHOGa3jE1Q/RfeSp7lK8stK0=
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad/go.mod h1:ZS8oCmCdx8/cSCbQBeT3BSAgxqoHPclTerizqn5i+Os=
 storj.io/picobuf v0.0.4 h1:qswHDla+YZ2TovGtMnU4astjvrADSIz84FXRn0qgP6o=

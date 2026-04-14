@@ -12,7 +12,7 @@ require (
 	go.uber.org/zap v1.27.0
 	storj.io/common v0.0.0-20260328020406-acac5312e030
 	storj.io/gateway v0.0.0-00010101000000-000000000000
-	storj.io/minio v0.0.0-20260129101855-14915b3faa6d
+	storj.io/minio v0.0.0-20260414064400-e5c2d60d8465
 	storj.io/storj v1.151.4
 	storj.io/uplink v1.14.0
 )
@@ -43,7 +43,7 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/alecthomas/participle v0.2.1 // indirect
 	github.com/alicebob/miniredis/v2 v2.37.0 // indirect
-	github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f // indirect
+	github.com/amwolff/awsig v0.0.0-20260414063042-162ff7da805a // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/apache/thrift v0.17.0 // indirect
 	github.com/bcicen/jstream v1.0.1 // indirect

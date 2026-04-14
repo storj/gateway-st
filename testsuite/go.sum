@@ -63,8 +63,8 @@ github.com/alecthomas/participle v0.2.1 h1:4AVLj1viSGa4LG5HDXKXrm5xRx19SB/rS/skP
 github.com/alecthomas/participle v0.2.1/go.mod h1:SW6HZGeZgSIpcUWX3fXpfZhuaWHnmoD5KCVaqSaNTkk=
 github.com/alicebob/miniredis/v2 v2.37.0 h1:RheObYW32G1aiJIj81XVt78ZHJpHonHLHW7OLIshq68=
 github.com/alicebob/miniredis/v2 v2.37.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
-github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f h1:kBHbt/M6Bbu9H2fAeNn2W9snI80RmT5pVl6+lmVnwjg=
-github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f/go.mod h1:CVOJYR4n17wXqZ9WH93dQYQqRkzdtuX9K82MoZ82xHs=
+github.com/amwolff/awsig v0.0.0-20260414063042-162ff7da805a h1:mb42MCt1q6Pt1va9WeNsZAaKvP2TXuZjglRvK+67BaM=
+github.com/amwolff/awsig v0.0.0-20260414063042-162ff7da805a/go.mod h1:CVOJYR4n17wXqZ9WH93dQYQqRkzdtuX9K82MoZ82xHs=
 github.com/andybalholm/brotli v1.0.6 h1:Yf9fFpf49Zrxb9NlQaluyE92/+X7UVHlhMNJN2sxfOI=
 github.com/andybalholm/brotli v1.0.6/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/apache/arrow/go/v15 v15.0.2 h1:60IliRbiyTWCWjERBCkO1W4Qun9svcYoZrSLcyOsMLE=
@@ -978,8 +978,8 @@ storj.io/eventkit v0.0.0-20250410172343-61f26d3de156 h1:5MZ0CyMbG6Pi0rRzUWVG6dvp
 storj.io/eventkit v0.0.0-20250410172343-61f26d3de156/go.mod h1:CpnM6kfZV58dcq3lpbo/IQ4/KoutarnTSHY0GYVwnYw=
 storj.io/infectious v0.0.2 h1:rGIdDC/6gNYAStsxsZU79D/MqFjNyJc1tsyyj9sTl7Q=
 storj.io/infectious v0.0.2/go.mod h1:QEjKKww28Sjl1x8iDsjBpOM4r1Yp8RsowNcItsZJ1Vs=
-storj.io/minio v0.0.0-20260129101855-14915b3faa6d h1:XTkLpDsNEs0D5U+u3ikCAeKPGGcqmoX5FWlqsxb03+I=
-storj.io/minio v0.0.0-20260129101855-14915b3faa6d/go.mod h1:BacfXeIiBRppY7WzNhuHq1x2HtXbC/F6mR5YyQHIJB8=
+storj.io/minio v0.0.0-20260414064400-e5c2d60d8465 h1:T5NgMrT54Lx1RhvWW5fJVmJ4YadoVz/VHiVcfitION8=
+storj.io/minio v0.0.0-20260414064400-e5c2d60d8465/go.mod h1:6bRVljGogz8WAf+kShz588U0LCXzXUCXh1anXKWegeQ=
 storj.io/minmaxheap v0.0.0-20250403032542-1e24a6fe9c16 h1:s1SbAgJZQGR0CVneOyZ0wdqJJmwPciH0dtI+Mwc1fWw=
 storj.io/minmaxheap v0.0.0-20250403032542-1e24a6fe9c16/go.mod h1:6p7gFeGH+4LJ6xqL0ZPFhHcOHNpN9vacqt8UDyHK0do=
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad h1:HkjZ/RDf2MiY7ENNhDWWHOGa3jE1Q/RfeSp7lK8stK0=

@@ -3,7 +3,7 @@ module storj.io/gateway
 go 1.25.3
 
 require (
-	github.com/amwolff/awsig v0.0.0-20251205113350-51861a127c1f
+	github.com/amwolff/awsig v0.0.0-20260414063042-162ff7da805a
 	github.com/gorilla/mux v1.8.0
 	github.com/minio/cli v1.22.0
 	github.com/minio/minio-go/v7 v7.0.11-0.20210302210017-6ae69c73ce78
@@ -16,7 +16,7 @@ require (
 	golang.org/x/term v0.40.0
 	storj.io/common v0.0.0-20260328020406-acac5312e030
 	storj.io/eventkit v0.0.0-20250410172343-61f26d3de156
-	storj.io/minio v0.0.0-20260129101855-14915b3faa6d
+	storj.io/minio v0.0.0-20260414064400-e5c2d60d8465
 	storj.io/uplink v1.14.0
 )
 
