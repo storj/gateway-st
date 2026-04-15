@@ -70,7 +70,13 @@ func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := vr.Reader()
+	checksumReqs, err := getChecksumRequests(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
@@ -133,7 +139,15 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := vr.Reader()
+	// Amazon S3's documentation states that the "Content-Md5" header is required for this operation,
+	// but testing has shown that this isn't true. Therefore, we don't require it, either.
+	checksumReqs, err := getChecksumRequests(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
@@ -188,7 +202,13 @@ func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	body, err := vr.Reader()
+	checksumReqs, err := getChecksumRequests(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
@@ -221,7 +241,13 @@ func (api *API) PutBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	body, err := vr.Reader()
+	checksumReqs, err := getChecksumRequests(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
@@ -254,7 +280,13 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, err := vr.Reader()
+	checksumReqs, err := getChecksumRequests(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
@@ -287,7 +319,13 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	body, err := vr.Reader()
+	checksumReqs, err := getChecksumRequests(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return

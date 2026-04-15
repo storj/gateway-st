@@ -21,9 +21,16 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/xml"
+	"errors"
 	"io"
+	"net/http"
 	"path"
+
+	"github.com/amwolff/awsig"
+
+	xhttp "storj.io/minio/cmd/http"
 )
 
 // nopCharsetConverter is an XML charset reader that performs no conversion.
@@ -40,6 +47,43 @@ func xmlDecoder(body io.Reader, v any, size int64) error {
 	d := xml.NewDecoder(limitedBody)
 	d.CharsetReader = nopCharsetConverter
 	return d.Decode(v)
+}
+
+func extractContentMD5(h http.Header) ([]byte, error) {
+	values := h[xhttp.ContentMD5]
+	if len(values) == 0 {
+		return nil, nil
+	}
+	md5Str := values[0]
+	if md5Str == "" {
+		return nil, errors.New("Content-Md5 is empty")
+	}
+	// S3 uses strict decoding. It rejects Base64 strings where the unused padding bits aren't zero.
+	md5, err := base64.StdEncoding.Strict().DecodeString(md5Str)
+	if err != nil {
+		return nil, errors.New("Content-Md5 is not a valid Base64 string")
+	}
+	if len(md5) != 16 {
+		return nil, errors.New("Content-Md5 must be 16 bytes long")
+	}
+	return md5, nil
+}
+
+func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
+	md5, err := extractContentMD5(h)
+	if err != nil {
+		return nil, err
+	}
+	if md5 == nil {
+		return nil, nil
+	}
+	var checksumReqs []awsig.ChecksumRequest
+	req, err := awsig.NewChecksumRequest(awsig.AlgorithmMD5, base64.StdEncoding.EncodeToString(md5))
+	if err != nil {
+		return nil, err
+	}
+	checksumReqs = append(checksumReqs, req)
+	return checksumReqs, nil
 }
 
 func pathClean(p string) string {
