@@ -554,7 +554,7 @@ func TestPutObject(t *testing.T) {
 	t.Parallel()
 
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		hashReader, err := hash.NewReader(bytes.NewReader([]byte("test")),
+		hashReader, err := hash.NewDefaultReader(bytes.NewReader([]byte("test")),
 			int64(len("test")),
 			"098f6bcd4621d373cade4e832627b4f6",
 			"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -633,7 +633,7 @@ func TestPutObjectWithObjectLock(t *testing.T) {
 	t.Parallel()
 
 	runTestWithObjectLock(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
-		hashReader, err := hash.NewReader(bytes.NewReader([]byte("test")),
+		hashReader, err := hash.NewDefaultReader(bytes.NewReader([]byte("test")),
 			int64(len("test")),
 			"098f6bcd4621d373cade4e832627b4f6",
 			"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -780,7 +780,7 @@ func TestPutObjectZeroBytes(t *testing.T) {
 		bucket, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
-		h, err := hash.NewReader(
+		h, err := hash.NewDefaultReader(
 			bytes.NewReader(make([]byte, 0)),
 			0,
 			"d41d8cd98f00b204e9800998ecf8427e",
@@ -2827,7 +2827,7 @@ func TestPutObjectPartZeroBytesOnlyPart(t *testing.T) {
 			}
 		}()
 
-		h, err := hash.NewReader(
+		h, err := hash.NewDefaultReader(
 			bytes.NewReader(make([]byte, 0)),
 			0,
 			"d41d8cd98f00b204e9800998ecf8427e",
@@ -2899,7 +2899,7 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 		// Upload two non-zero parts:
 
 		for i := 0; i < 2; i++ {
-			h, err := hash.NewReader(
+			h, err := hash.NewDefaultReader(
 				bytes.NewReader([]byte(nonZeroContent)),
 				nonZeroContentLen,
 				nonZeroContentMD5Hex,
@@ -2924,7 +2924,7 @@ func TestPutObjectPartZeroBytesLastPart(t *testing.T) {
 
 		// Upload one (last) zero-byte part:
 
-		h, err := hash.NewReader(
+		h, err := hash.NewDefaultReader(
 			bytes.NewReader(make([]byte, 0)),
 			0,
 			"d41d8cd98f00b204e9800998ecf8427e",
@@ -3003,7 +3003,7 @@ func TestPutObjectPartSegmentSize(t *testing.T) {
 		for i, s := range []memory.Size{segmentSize, memory.KiB} { // 641 KiB file
 			data := testrand.Bytes(s)
 
-			h, err := hash.NewReader(bytes.NewReader(data), s.Int64(), md5Hex(data), sha256Hex(data), s.Int64())
+			h, err := hash.NewDefaultReader(bytes.NewReader(data), s.Int64(), md5Hex(data), sha256Hex(data), s.Int64())
 			require.NoError(t, err)
 
 			r := minio.NewPutObjReader(h)
@@ -3088,7 +3088,11 @@ func TestListObjectParts(t *testing.T) {
 			assert.Equal(t, i+1, info.PartNumber)
 			assert.Equal(t, minioReaders[i].Size(), info.Size)
 			assert.Equal(t, minioReaders[i].ActualSize(), info.ActualSize)
-			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), info.ETag)
+
+			md5Str, err := minioReaders[i].MD5HexString()
+			if assert.NoError(t, err) {
+				assert.Equal(t, md5Str, info.ETag)
+			}
 		}
 
 		listParts, err := layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 0, totalPartsCount, minio.ObjectOptions{})
@@ -3102,7 +3106,11 @@ func TestListObjectParts(t *testing.T) {
 			assert.Equal(t, minioReaders[i].Size(), listParts.Parts[i].Size)
 			assert.Equal(t, minioReaders[i].ActualSize(), listParts.Parts[i].ActualSize)
 			assert.WithinDuration(t, now, listParts.Parts[i].LastModified, 5*time.Second)
-			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), listParts.Parts[i].ETag)
+
+			md5Str, err := minioReaders[i].MD5HexString()
+			if assert.NoError(t, err) {
+				assert.Equal(t, md5Str, listParts.Parts[i].ETag)
+			}
 		}
 
 		// try batch of two
@@ -3119,7 +3127,11 @@ func TestListObjectParts(t *testing.T) {
 			assert.Equal(t, minioReaders[i].Size(), listParts.Parts[i].Size)
 			assert.Equal(t, minioReaders[i].ActualSize(), listParts.Parts[i].ActualSize)
 			assert.WithinDuration(t, now, listParts.Parts[i].LastModified, 5*time.Second)
-			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), listParts.Parts[i].ETag)
+
+			md5Str, err := minioReaders[i].MD5HexString()
+			if assert.NoError(t, err) {
+				assert.Equal(t, md5Str, listParts.Parts[i].ETag)
+			}
 		}
 
 		// try batch of remaining
@@ -3136,7 +3148,11 @@ func TestListObjectParts(t *testing.T) {
 			assert.Equal(t, minioReaders[i].Size(), listParts.Parts[i].Size)
 			assert.Equal(t, minioReaders[i].ActualSize(), listParts.Parts[i].ActualSize)
 			assert.WithinDuration(t, now, listParts.Parts[i].LastModified, 5*time.Second)
-			assert.Equal(t, minioReaders[i].MD5CurrentHexString(), listParts.Parts[i].ETag)
+
+			md5Str, err := minioReaders[i].MD5HexString()
+			if assert.NoError(t, err) {
+				assert.Equal(t, md5Str, listParts.Parts[i].ETag)
+			}
 		}
 	})
 }
@@ -3402,7 +3418,7 @@ func TestCompleteMultipartUploadSizeCheck(t *testing.T) {
 				} else {
 					b = testrand.Bytes(n)
 				}
-				h, err := hash.NewReader(bytes.NewReader(b), int64(len(b)), md5Hex(b), sha256Hex(b), int64(len(b)))
+				h, err := hash.NewDefaultReader(bytes.NewReader(b), int64(len(b)), md5Hex(b), sha256Hex(b), int64(len(b)))
 				require.NoError(t, err, tt.name)
 				r := minio.NewPutObjReader(h)
 				p, err := l.PutObjectPart(ctx, bucket.Name, object, uploadID, i+1, r, minio.ObjectOptions{})
@@ -3925,7 +3941,7 @@ func TestProjectUsageLimit(t *testing.T) {
 		err = layer.MakeBucketWithLocation(ctxWithProject, "testbucket", minio.BucketOptions{})
 		require.NoError(t, err)
 
-		hashReader, err := hash.NewReader(bytes.NewReader(data), int64(dataSize), md5Hex(data), sha256Hex(data), int64(dataSize))
+		hashReader, err := hash.NewDefaultReader(bytes.NewReader(data), int64(dataSize), md5Hex(data), sha256Hex(data), int64(dataSize))
 		require.NoError(t, err)
 		putObjectReader := minio.NewPutObjReader(hashReader)
 
@@ -4224,7 +4240,7 @@ func createVersionedFile(ctx context.Context, project *uplink.Project, bucket, k
 }
 
 func newMinioPutObjReader(t *testing.T) *minio.PutObjReader {
-	hashReader, err := hash.NewReader(
+	hashReader, err := hash.NewDefaultReader(
 		bytes.NewReader([]byte("test")),
 		int64(len("test")),
 		"098f6bcd4621d373cade4e832627b4f6",

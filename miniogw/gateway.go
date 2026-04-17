@@ -624,7 +624,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	}
 
 	if data == nil {
-		hashReader, err := hash.NewReader(bytes.NewReader([]byte{}), 0, "", "", 0)
+		hashReader, err := hash.NewDefaultReader(bytes.NewReader([]byte{}), 0, "", "", 0)
 		if err != nil {
 			return minio.ObjectInfo{}, ConvertError(err, bucket, object)
 		}
@@ -693,8 +693,13 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		delete(opts.UserDefined, xhttp.AmzObjectTagging)
 	}
 
-	etag := data.MD5CurrentHexString()
-	err = upload.SetETag(ctx, []byte(etag))
+	eTag, err := data.MD5HexString()
+	if err != nil {
+		err = errs.Combine(err, upload.Abort())
+		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+	}
+
+	err = upload.SetETag(ctx, []byte(eTag))
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)

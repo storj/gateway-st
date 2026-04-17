@@ -208,7 +208,13 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	err = partUpload.SetETag([]byte(data.MD5CurrentHexString()))
+	eTag, err := data.MD5HexString()
+	if err != nil {
+		err = errs.Combine(err, partUpload.Abort())
+		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	err = partUpload.SetETag([]byte(eTag))
 	if err != nil {
 		abortErr := partUpload.Abort()
 		err = errs.Combine(err, abortErr)
