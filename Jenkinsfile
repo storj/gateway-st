@@ -116,7 +116,7 @@ pipeline {
                             }
                             post {
                                 always {
-                                    sh script: 'cat .build/testsuite.json | grep "^{.*" | tparse -all -slow 100', returnStatus: true
+                                    sh script: 'cat .build/testsuite.json | tparse -all -slow 100', returnStatus: true
                                     archiveArtifacts artifacts: '.build/testsuite.json'
                                     junit '.build/testsuite.xml'
                                 }
@@ -158,7 +158,7 @@ pipeline {
                         checkout scm
 
                         // install storj-up dependency
-                        sh 'go install storj.io/storj-up@main'
+                        sh 'make integration-env-deps'
                     }
                 }
 
@@ -172,11 +172,6 @@ pipeline {
                     steps {
                         script {
                             def tests = [:]
-                            tests['splunk-tests'] = {
-                                stage('splunk-tests') {
-                                    sh 'make integration-splunk-tests'
-                                }
-                            }
                             tests['ceph-tests'] = {
                                 stage('ceph-tests') {
                                     sh 'make integration-ceph-tests'

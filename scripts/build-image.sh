@@ -36,12 +36,14 @@ esac
 docker run \
 	-u "$(id -u)":"$(id -g)" \
 	-v "$PWD":/go/build \
+	-v /etc/ssl/certs:/host-certs:ro \
 	-v "$PKG_CACHE_PATH":/go/pkg \
 	-v "$BUILD_CACHE_PATH":/tmp/.cache/go-build \
 	-e GOCACHE=/tmp/.cache/go-build \
 	-e GOARM=6 -e GOOS=linux -e GOARCH="$GOARCH" -e GOPROXY -e CGO_ENABLED \
 	-w /go/build \
 	--rm golang:"$GO_VERSION" \
+	env SSL_CERT_FILE=/host-certs/ca-certificates.crt SSL_CERT_DIR=/host-certs \
 	go build -o release/"$BUILD_NUMBER"/gateway_linux_"$GOARCH" \
 		storj.io/gateway
 
