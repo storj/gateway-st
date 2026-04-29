@@ -47,9 +47,9 @@ const maxPutBucketNotificationConfigBodySize = int64(memory.MiB)
 // maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
 const maxPutBucketVersioningBodySize = int64(memory.MiB)
 
-// PutBucketHandler is the HTTP handler for the PutBucket operation, which creates a bucket.
-func (api *API) PutBucketHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucket")
+// CreateBucketHandler is the HTTP handler for the CreateBucket operation, which creates a bucket.
+func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "CreateBucket")
 
 	bucket := mux.Vars(r)["bucket"]
 
@@ -189,10 +189,10 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	w.(http.Flusher).Flush()
 }
 
-// PutBucketNotificationConfigHandler is the HTTP handler for the PutBucketNotificationConfig
+// PutBucketNotificationConfigurationHandler is the HTTP handler for the PutBucketNotificationConfiguration
 // operation, which sets a bucket's notification configuration.
-func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucketNotificationConfig")
+func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutBucketNotificationConfiguration")
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -228,10 +228,10 @@ func (api *API) PutBucketNotificationConfigHandler(w http.ResponseWriter, r *htt
 	writeSuccessResponseHeadersOnly(w)
 }
 
-// PutBucketObjectLockConfigHandler is the HTTP handler for the PutBucketObjectLockConfig operation,
-// which places an Object Lock configuration on a bucket.
-func (api *API) PutBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucketObjectLockConfig")
+// PutObjectLockConfigurationHandler is the HTTP handler for the PutObjectLockConfiguration
+// operation, which places an Object Lock configuration on a bucket.
+func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutObjectLockConfiguration")
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -493,10 +493,10 @@ func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) 
 	cmd.WriteSuccessResponseXML(w, []byte(loggingDefaultConfig))
 }
 
-// GetBucketNotificationConfigHandler is the HTTP handler for the GetBucketNotificationConfig operation,
-// which returns a bucket's notification configuration.
-func (api *API) GetBucketNotificationConfigHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketNotificationConfig")
+// GetBucketNotificationConfigurationHandler is the HTTP handler for the GetBucketNotificationConfiguration
+// operation, which returns a bucket's notification configuration.
+func (api *API) GetBucketNotificationConfigurationHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketNotificationConfiguration")
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -520,10 +520,10 @@ func (api *API) GetBucketNotificationConfigHandler(w http.ResponseWriter, r *htt
 	cmd.WriteSuccessResponseXML(w, configData)
 }
 
-// GetBucketObjectLockConfigHandler is the HTTP handler for the GetBucketObjectLockConfig operation,
+// GetObjectLockConfigurationHandler is the HTTP handler for the GetObjectLockConfiguration operation,
 // which sets a bucket's Object Lock configuration.
-func (api *API) GetBucketObjectLockConfigHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketObjectLockConfig")
+func (api *API) GetObjectLockConfigurationHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObjectLockConfiguration")
 
 	bucketName := mux.Vars(r)["bucket"]
 

@@ -79,11 +79,11 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	for _, subrouter := range subrouters {
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
-		subrouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigHandler)
-		subrouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutBucketObjectLockConfigHandler)
+		subrouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)
+		subrouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutObjectLockConfigurationHandler)
 		subrouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler)
 		subrouter.Methods(http.MethodPut).Queries("versioning", "").HandlerFunc(api.PutBucketVersioningHandler)
-		subrouter.Methods(http.MethodPut).HandlerFunc(api.PutBucketHandler)
+		subrouter.Methods(http.MethodPut).HandlerFunc(api.CreateBucketHandler)
 
 		subrouter.Methods(http.MethodHead).HandlerFunc(api.HeadBucketHandler)
 
@@ -92,8 +92,8 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		subrouter.Methods(http.MethodGet).Queries("cors", "").HandlerFunc(api.GetBucketCorsHandler)
 		subrouter.Methods(http.MethodGet).Queries("location", "").HandlerFunc(api.GetBucketLocationHandler)
 		subrouter.Methods(http.MethodGet).Queries("logging", "").HandlerFunc(api.GetBucketLoggingHandler)
-		subrouter.Methods(http.MethodGet).Queries("notification", "").HandlerFunc(api.GetBucketNotificationConfigHandler)
-		subrouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetBucketObjectLockConfigHandler)
+		subrouter.Methods(http.MethodGet).Queries("notification", "").HandlerFunc(api.GetBucketNotificationConfigurationHandler)
+		subrouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetObjectLockConfigurationHandler)
 		subrouter.Methods(http.MethodGet).Queries("policyStatus", "").HandlerFunc(api.GetBucketPolicyStatusHandler)
 		subrouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler)
 		subrouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler)
