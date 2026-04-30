@@ -128,6 +128,11 @@
   description: You must provide the Content-Length HTTP header.
   http_status: 411
 
+- name: MissingContentMD5AndChecksum
+  code: InvalidRequest
+  description: "Missing required header for this request: Content-MD5 OR x-amz-checksum-*"
+  http_status: 400
+
 - name: MissingPOSTPolicy
   code: InvalidArgument
   description: Bucket POST must contain a field named 'policy'.
@@ -146,6 +151,11 @@
 - name: NoSuchCORSConfiguration
   code: NoSuchCORSConfiguration
   description: The CORS configuration does not exist
+  http_status: 404
+
+- name: NoSuchVersion
+  code: NoSuchVersion
+  description: The specified version does not exist.
   http_status: 404
 
 - name: NoSuchWebsiteConfiguration

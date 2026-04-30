@@ -35,8 +35,10 @@ import (
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/tags"
+	"go.uber.org/zap"
 
 	"storj.io/common/memory"
+	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/crypto"
@@ -54,6 +56,12 @@ const (
 	maxPutBucketVersioningBodySize = int64(memory.MiB)
 	// maxPostObjectSize is the maximum size of the object contents submitted in a POST Object request.
 	maxPostObjectSize = 5 * int64(memory.GB)
+	// maxDeleteObjectsBodySize is the maximum size of a DeleteObjects request body.
+	// This value is a little more than the theoretical worst-case size.
+	maxDeleteObjectsBodySize = 21000000
+
+	xAmzChecksumPrefix = "X-Amz-Checksum-"
+	nullVersionID      = "null"
 )
 
 // CreateBucketHandler is the HTTP handler for the CreateBucket operation, which creates a bucket.
@@ -103,20 +111,7 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 			Location string   `xml:"LocationConstraint"`
 		}
 		if err = xmlDecoder(body, &createBucketLocationConfiguration{}, r.ContentLength); err != nil {
-			var errCode apierr.Code
-			if mismatch, ok := getChecksumMismatchFromError(err); ok {
-				switch {
-				case mismatch.Algorithm == awsig.AlgorithmMD5:
-					errCode = apierr.CodeContentMD5Mismatch
-				case mismatch.Algorithm == awsig.AlgorithmSHA256 && mismatch.IsContentSHA256:
-					errCode = apierr.CodeContentSHA256Mismatch
-				default:
-					errCode = apierr.CodeBadDigest
-				}
-			} else {
-				errCode = apierr.CodeMalformedXML
-			}
-			api.writeErrorResponse(ctx, w, errCode)
+			api.writeErrorResponseWithFallback(ctx, w, err, apierr.CodeMalformedXML)
 			return
 		}
 	}
@@ -183,7 +178,7 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 				api.writeErrorResponse(ctx, w, apierr.CodeMissingSecurityHeader)
 				return
 			}
-			api.writeErrorResponse(ctx, w, err)
+			api.writeErrorResponseWithFallback(ctx, w, err, apierr.CodeMalformedXML)
 			return
 		}
 
@@ -739,7 +734,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	postForm := vr.PostForm()
 
 	for formKey := range postForm {
-		if strings.HasPrefix(http.CanonicalHeaderKey(formKey), "X-Amz-Checksum-") {
+		if strings.HasPrefix(http.CanonicalHeaderKey(formKey), xAmzChecksumPrefix) {
 			// TODO: Support checksum options
 			api.writeErrorResponse(ctx, w, apierr.CodeChecksumsUnsupported)
 			return
@@ -865,6 +860,138 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeSuccessNoContent(w)
 	}
+}
+
+// DeleteObjectsHandler is the HTTP handler for the DeleteObject operation, which deletes multiple objects
+// from a bucket.
+func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "DeleteObjects")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			// TODO: Support checksum options
+			api.writeErrorResponse(ctx, w, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	checksumReq, present, err := getContentMD5ChecksumRequest(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+	if !present {
+		api.writeErrorResponse(ctx, w, apierr.CodeMissingContentMD5AndChecksum)
+		return
+	}
+
+	body, err := vr.Reader(checksumReq)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	if r.ContentLength <= 0 {
+		api.writeErrorResponse(ctx, w, apierr.CodeMissingContentLength)
+		return
+	}
+
+	deleteReq := &cmd.DeleteObjectsRequest{}
+	if err := xmlDecoder(body, deleteReq, maxDeleteObjectsBodySize); err != nil {
+		api.writeErrorResponseWithFallback(ctx, w, err, apierr.CodeMalformedXML)
+		return
+	}
+
+	if len(deleteReq.Objects) == 0 {
+		api.writeErrorResponse(ctx, w, apierr.CodeMalformedXML)
+		return
+	}
+
+	for i := range deleteReq.Objects {
+		deleteReq.Objects[i].ObjectName = trimLeadingSlash(deleteReq.Objects[i].ObjectName)
+	}
+
+	type bucketObjectLocation struct {
+		key       string
+		versionID string
+	}
+
+	seen := make(map[bucketObjectLocation]struct{}, len(deleteReq.Objects))
+
+	var filteredIndex int
+
+	deleteErrs := make([]cmd.DeleteError, 0, len(deleteReq.Objects))
+	for _, object := range deleteReq.Objects {
+		loc := bucketObjectLocation{
+			key:       object.ObjectName,
+			versionID: object.VersionID,
+		}
+
+		if _, ok := seen[loc]; ok {
+			continue
+		}
+		seen[loc] = struct{}{}
+
+		if object.VersionID != "" && object.VersionID != nullVersionID {
+			if _, err := uuid.FromString(object.VersionID); err != nil {
+				resp, _ := apierr.CodeNoSuchVersion.ToResponse()
+				deleteErrs = append(deleteErrs, cmd.DeleteError{
+					Code:      resp.Code,
+					Message:   resp.Description,
+					Key:       object.ObjectName,
+					VersionID: object.VersionID,
+				})
+				continue
+			}
+		}
+
+		deleteReq.Objects[filteredIndex] = object
+		filteredIndex++
+	}
+	deleteReq.Objects = deleteReq.Objects[:filteredIndex]
+
+	deletedObjects, apiDeleteErrs, err := api.objectAPI.DeleteObjects(ctx, bucketName, deleteReq.Objects, cmd.ObjectOptions{
+		BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
+		Quiet:                     deleteReq.Quiet,
+	})
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	var internalErrs []error
+	for _, deleteErr := range apiDeleteErrs {
+		resp, ok := errToResponse(err)
+		if !ok {
+			internalErrs = append(internalErrs, err)
+			resp, _ = apierr.CodeInternal.ToResponse()
+		}
+		deleteErrs = append(deleteErrs, cmd.DeleteError{
+			Code:      resp.Code,
+			Message:   resp.Description,
+			Key:       deleteErr.ObjectName,
+			VersionID: deleteErr.VersionID,
+		})
+	}
+
+	if len(internalErrs) > 0 {
+		api.log.Error("unexpected errors when deleting objects", zap.Errors("errors", internalErrs))
+	}
+
+	encodedSuccessResponse := cmd.EncodeResponse(cmd.DeleteObjectsResponse{
+		DeletedObjects: deletedObjects,
+		Errors:         deleteErrs,
+	})
+
+	cmd.WriteSuccessResponseXML(w, encodedSuccessResponse)
 }
 
 // DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.

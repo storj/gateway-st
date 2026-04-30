@@ -40,12 +40,6 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 )
 
-var internalErrorResponse = apierr.Response{
-	Code:           "InternalError",
-	Description:    "We encountered an internal error. Please try again.",
-	HTTPStatusCode: http.StatusInternalServerError,
-}
-
 type mimeType string
 
 const (
@@ -96,7 +90,10 @@ func (api *API) writeErrorResponseWithFallback(ctx context.Context, w http.Respo
 	}
 	if !matched {
 		api.log.Error("unexpected error", zap.Error(err))
-		resp = internalErrorResponse
+		// It's safe to ignore the second return value (whether a corresponding response exists)
+		// because apierr.Code constants and their responses are generated together. A defined
+		// apierr.Code constant is guaranteed to have a defined response.
+		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 
 	buf := bytes.NewBufferString(xml.Header)
@@ -113,7 +110,7 @@ func (api *API) writeErrorResponseHeadersOnly(w http.ResponseWriter, err error) 
 	resp, matched := errToResponse(err)
 	if !matched {
 		api.log.Error("unexpected error", zap.Error(err))
-		resp = internalErrorResponse
+		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 	writeResponse(w, resp.HTTPStatusCode, nil, mimeNone)
 }

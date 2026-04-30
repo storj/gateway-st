@@ -32,10 +32,12 @@ const (
 	CodeMaximumExpires
 	CodeMethodNotAllowed
 	CodeMissingContentLength
+	CodeMissingContentMD5AndChecksum
 	CodeMissingPOSTPolicy
 	CodeMissingSecurityHeader
 	CodeNegativeExpires
 	CodeNoSuchCORSConfiguration
+	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
 	CodePostFormInvalidFileCount
@@ -193,6 +195,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "You must provide the Content-Length HTTP header.",
 		HTTPStatusCode: http.StatusLengthRequired,
 	},
+	CodeMissingContentMD5AndChecksum: {
+		Code:           "InvalidRequest",
+		Description:    "Missing required header for this request: Content-MD5 OR x-amz-checksum-*",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMissingPOSTPolicy: {
 		Code:           "InvalidArgument",
 		Description:    "Bucket POST must contain a field named 'policy'.",
@@ -211,6 +218,11 @@ var codeToResponse = map[Code]Response{
 	CodeNoSuchCORSConfiguration: {
 		Code:           "NoSuchCORSConfiguration",
 		Description:    "The CORS configuration does not exist",
+		HTTPStatusCode: http.StatusNotFound,
+	},
+	CodeNoSuchVersion: {
+		Code:           "NoSuchVersion",
+		Description:    "The specified version does not exist.",
 		HTTPStatusCode: http.StatusNotFound,
 	},
 	CodeNoSuchWebsiteConfiguration: {

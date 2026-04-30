@@ -117,6 +117,17 @@ func pathClean(p string) string {
 	return cp
 }
 
+func trimLeadingSlash(ep string) string {
+	if len(ep) > 0 && ep[0] == '/' {
+		keepTrailingSlash := strings.HasSuffix(ep, cmd.SlashSeparator) && len(ep) > 1
+		ep = path.Clean(ep)
+		if keepTrailingSlash {
+			ep += cmd.SlashSeparator
+		}
+	}
+	return ep
+}
+
 // GetObjectURL gets the fully qualified URL of an object.
 func GetObjectURL(r *http.Request, object string) string {
 	scheme := strings.ToLower(r.Header.Get("X-Forwarded-Proto"))
