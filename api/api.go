@@ -23,11 +23,13 @@ package api
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 )
@@ -78,6 +80,8 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	subrouters = append(subrouters, apiRouter.PathPrefix("/{bucket}").Subrouter())
 
 	for _, subrouter := range subrouters {
+		api.registerUnsupportedHandlers(subrouter)
+
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
 		subrouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)
@@ -99,7 +103,6 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		subrouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler)
 		subrouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler)
 		subrouter.Methods(http.MethodGet).Queries("versioning", "").HandlerFunc(api.GetBucketVersioningHandler)
-		subrouter.Methods(http.MethodGet).Queries("website", "").HandlerFunc(api.GetBucketWebsiteHandler)
 
 		subrouter.Methods(http.MethodPost).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
 		subrouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
@@ -134,4 +137,43 @@ func getVirtualHostedBucket(r *http.Request) string {
 // This is intended to be used in tests.
 func WithVirtualHostedStyle(ctx context.Context) context.Context {
 	return context.WithValue(ctx, isVHostKey, struct{}{})
+}
+
+var unsupportedEndpoints = []struct {
+	query   string
+	methods []string
+}{
+	{
+		query:   "encryption",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "lifecycle",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "policy",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "replication",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "website",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+}
+
+func (api *API) registerUnsupportedHandlers(router *mux.Router) {
+	for _, endpoint := range unsupportedEndpoints {
+		// The slice of methods is required to be cloned because the mux library
+		// modifies it (specifically, it replaces each method with its uppercase form).
+		// Concurrent tests may each call registerUnsupportedHandlers, and if one or
+		// more modifies the same slice that the others access, a data race occurs.
+		methods := slices.Clone(endpoint.methods)
+		router.Methods(methods...).Queries(endpoint.query, "").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			api.writeErrorResponse(r.Context(), w, apierr.CodeOperationNotSupported)
+		})
+	}
 }

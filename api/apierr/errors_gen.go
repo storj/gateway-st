@@ -40,6 +40,7 @@ const (
 	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
+	CodeOperationNotSupported
 	CodePostFormInvalidFileCount
 	CodePostFormMultipleKeyFields
 	CodePostPolicyConditionMissingOperationID
@@ -233,6 +234,11 @@ var codeToResponse = map[Code]Response{
 	CodeNotImplemented: {
 		Code:           "NotImplemented",
 		Description:    "A header that you provided implies functionality that is not implemented.",
+		HTTPStatusCode: http.StatusNotImplemented,
+	},
+	CodeOperationNotSupported: {
+		Code:           "NotImplemented",
+		Description:    "The specified operation is not supported.",
 		HTTPStatusCode: http.StatusNotImplemented,
 	},
 	CodePostFormInvalidFileCount: {

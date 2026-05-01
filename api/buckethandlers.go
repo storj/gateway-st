@@ -679,29 +679,6 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 	cmd.WriteSuccessResponseXML(w, configData)
 }
 
-// GetBucketWebsiteHandler is the HTTP handler for the GetBucketWebsite operation,
-// which returns a bucket's website configuration.
-//
-// This is a dummy handler. If the bucket is accessible, a NoSuchWebsiteConfiguration
-// error is returned.
-func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketWebsite")
-
-	bucketName := mux.Vars(r)["bucket"]
-
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		api.writeErrorResponse(ctx, w, err)
-		return
-	}
-
-	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		api.writeErrorResponse(ctx, w, err)
-		return
-	}
-
-	api.writeErrorResponse(ctx, w, apierr.CodeNoSuchWebsiteConfiguration)
-}
-
 // PostObjectHandler uploads an object to a bucket using an HTML form with a policy document.
 func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "PostObject")

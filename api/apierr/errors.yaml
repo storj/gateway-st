@@ -168,6 +168,11 @@
   description: A header that you provided implies functionality that is not implemented.
   http_status: 501
 
+- name: OperationNotSupported
+  code: NotImplemented
+  description: The specified operation is not supported.
+  http_status: 501
+
 - name: PostFormInvalidFileCount
   code: InvalidArgument
   description: POST requires exactly one file upload per request.
