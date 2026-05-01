@@ -22,7 +22,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"encoding/xml"
 	"errors"
 	"net/http"
@@ -32,7 +31,6 @@ import (
 	"github.com/amwolff/awsig"
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
-	"go.uber.org/zap"
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
@@ -79,17 +77,17 @@ func writeSuccessNoContent(w http.ResponseWriter) {
 	writeResponse(w, http.StatusNoContent, nil, mimeNone)
 }
 
-func (api *API) writeErrorResponse(ctx context.Context, w http.ResponseWriter, err error) {
-	api.writeErrorResponseWithFallback(ctx, w, err, nil)
+func (api *API) writeErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
+	api.writeErrorResponseWithFallback(w, r, err, nil)
 }
 
-func (api *API) writeErrorResponseWithFallback(ctx context.Context, w http.ResponseWriter, err error, fallbackErr error) {
+func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Request, err error, fallbackErr error) {
 	resp, matched := errToResponse(err)
 	if !matched && fallbackErr != nil {
 		resp, matched = errToResponse(fallbackErr)
 	}
 	if !matched {
-		api.log.Error("unexpected error", zap.Error(err))
+		api.log.Error(r, "unexpected error", err)
 		// It's safe to ignore the second return value (whether a corresponding response exists)
 		// because apierr.Code constants and their responses are generated together. A defined
 		// apierr.Code constant is guaranteed to have a defined response.
@@ -99,17 +97,17 @@ func (api *API) writeErrorResponseWithFallback(ctx context.Context, w http.Respo
 	buf := bytes.NewBufferString(xml.Header)
 	e := xml.NewEncoder(buf)
 	if xmlErr := e.Encode(resp); xmlErr != nil {
-		api.log.Error("error encoding XML error response", zap.Error(err))
+		api.log.Error(r, "error encoding XML error response", err)
 		writeResponse(w, http.StatusInternalServerError, nil, mimeNone)
 	}
 
 	writeResponse(w, resp.HTTPStatusCode, buf.Bytes(), mimeXML)
 }
 
-func (api *API) writeErrorResponseHeadersOnly(w http.ResponseWriter, err error) {
+func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWriter, err error) {
 	resp, matched := errToResponse(err)
 	if !matched {
-		api.log.Error("unexpected error", zap.Error(err))
+		api.log.Error(r, "unexpected error", err)
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 	writeResponse(w, resp.HTTPStatusCode, nil, mimeNone)

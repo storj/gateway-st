@@ -22,12 +22,13 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
-	"go.uber.org/zap"
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
@@ -46,7 +47,7 @@ type AuthData struct {
 
 // API is an S3-compatible HTTP API.
 type API struct {
-	log       *zap.Logger
+	log       Logger
 	objectAPI cmd.ObjectLayer
 	verifier  *awsig.V2V4[AuthData]
 
@@ -54,27 +55,40 @@ type API struct {
 }
 
 // New constructs a new S3-compatible HTTP API.
-func New(log *zap.Logger, objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config) *API {
+func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config, opts ...Option) *API {
 	v2v4 := awsig.NewV2V4(credsProvider, awsig.V4Config{
 		Service:                "s3",
 		SkipRegionVerification: true,
 	})
-	return &API{
-		log:       log,
+
+	api := &API{
 		objectAPI: objectAPI,
 		verifier:  v2v4,
 		config:    config,
 	}
+
+	for _, opt := range opts {
+		opt(api)
+	}
+	if api.log == nil {
+		api.log = nopLogger{}
+	}
+
+	return api
 }
+
+// Option is an option for constructing an API.
+type Option func(*API)
 
 // RegisterHandlers registers S3-compatible HTTP handlers on the provided router.
 func (api *API) RegisterHandlers(router *mux.Router) {
 	apiRouter := router.PathPrefix(cmd.SlashSeparator).Subrouter()
+	apiRouter.Use(requestIDMiddleware)
 
 	var subrouters []*mux.Router
 	for _, domain := range api.config.Domains {
 		subrouter := apiRouter.Host("{bucket:.+}." + domain).Subrouter()
-		subrouter.Use(withVirtualHostedStyleMiddleware())
+		subrouter.Use(withVirtualHostedStyleMiddleware)
 		subrouters = append(subrouters, subrouter)
 	}
 	subrouters = append(subrouters, apiRouter.PathPrefix("/{bucket}").Subrouter())
@@ -112,17 +126,22 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	}
 }
 
+func requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set(xhttp.AmzRequestID, fmt.Sprintf("%X", time.Now().UnixNano()))
+		next.ServeHTTP(w, r)
+	})
+}
+
 type contextKey int
 
 const isVHostKey contextKey = iota
 
-func withVirtualHostedStyleMiddleware() mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.WithValue(r.Context(), isVHostKey, struct{}{})
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+func withVirtualHostedStyleMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), isVHostKey, struct{}{})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func getVirtualHostedBucket(r *http.Request) string {
@@ -173,7 +192,7 @@ func (api *API) registerUnsupportedHandlers(router *mux.Router) {
 		// more modifies the same slice that the others access, a data race occurs.
 		methods := slices.Clone(endpoint.methods)
 		router.Methods(methods...).Queries(endpoint.query, "").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			api.writeErrorResponse(r.Context(), w, apierr.CodeOperationNotSupported)
+			api.writeErrorResponse(w, r, apierr.CodeOperationNotSupported)
 		})
 	}
 }
