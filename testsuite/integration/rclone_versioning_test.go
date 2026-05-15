@@ -25,7 +25,7 @@ func TestRcloneVersioning(t *testing.T) {
 
 	ctx := testcontext.New(t)
 
-	cmd := exec.Command("go", "install", "github.com/rclone/rclone@v1.68.0")
+	cmd := exec.Command("go", "install", "github.com/rclone/rclone@v1.74.1")
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "GOBIN="+ctx.Dir("binary"))
 	output, err := cmd.CombinedOutput()

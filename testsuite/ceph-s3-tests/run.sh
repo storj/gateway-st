@@ -19,10 +19,11 @@ mkdir -p "$BUILD_DIR"
 rm -rf "$BUILD_DIR/s3-tests/"
 
 pushd "$BUILD_DIR"
-    # note: tests are pegged at a specific revision to avoid upstream breaking the builds (e.g. config file changes)
+    # Don't bump past 88daca5 (botocore unpin) until storj/minio's
+    # bucket-handlers.go stops requiring Content-Md5 on DeleteObjects.
     git clone https://github.com/ceph/s3-tests && \
         cd s3-tests && \
-        git reset --hard a84d1c397b47f60047182116053798789ee47f28
+        git reset --hard 7a1aa1b42251c94f120393062deb9531ff7c45ef
 
     cp "$SCRIPTDIR/storj.conf" ./
 

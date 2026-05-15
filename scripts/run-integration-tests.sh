@@ -14,4 +14,4 @@ fi
 "$SCRIPTDIR"/../testsuite/integration/duplicity.sh
 "$SCRIPTDIR"/../testsuite/integration/duplicati.sh
 "$SCRIPTDIR"/../testsuite/integration/rclone.sh
-"$SCRIPTDIR"/../testsuite/integration/s3fs.sh
+# s3fs needs FUSE; invoke via `make integration-gateway-st-tests-s3fs`.
