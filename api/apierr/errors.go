@@ -3,7 +3,10 @@
 
 package apierr
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+)
 
 //go:generate go run ../../cmd/apierrgen -i errors.yaml -o errors_gen.go -p apierr
 
@@ -34,4 +37,88 @@ type Response struct {
 // Error implements the error interface.
 func (resp Response) Error() string {
 	return resp.Description
+}
+
+// ResponseProvider is the interface implemented by types that can represent themselves
+// as API error responses.
+type ResponseProvider interface {
+	ToResponse() Response
+}
+
+// PostPolicyConditionInvalidArgumentCountError indicates that an incorrect number
+// of arguments were specified in a condition of a POST policy.
+type PostPolicyConditionInvalidArgumentCountError struct {
+	OperationName string
+}
+
+// Error implements the error interface.
+func (err PostPolicyConditionInvalidArgumentCountError) Error() string {
+	return fmt.Sprintf("Invalid Policy: Invalid %s: wrong number of arguments.", err.OperationName)
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostPolicyConditionInvalidArgumentCountError) ToResponse() Response {
+	return Response{
+		Code:           "InvalidPolicyDocument",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusBadRequest,
+	}
+}
+
+// PostPolicyConditionUnknownOperationError indicates that the condition of a POST policy
+// contains an unknown operation.
+type PostPolicyConditionUnknownOperationError struct {
+	OperationName string
+}
+
+// Error implements the error interface.
+func (err PostPolicyConditionUnknownOperationError) Error() string {
+	return fmt.Sprintf("Invalid Policy: Invalid Condition: unknown operation %q.", err.OperationName)
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostPolicyConditionUnknownOperationError) ToResponse() Response {
+	return Response{
+		Code:           "InvalidPolicyDocument",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusBadRequest,
+	}
+}
+
+// PostPolicyInvalidExpirationError indicates that the expiration specified in a POST policy was not a valid timestamp.
+type PostPolicyInvalidExpirationError struct {
+	Value string
+}
+
+// Error implements the error interface.
+func (err PostPolicyInvalidExpirationError) Error() string {
+	return fmt.Sprintf("Invalid Policy: Invalid 'expiration' value: %q", err.Value)
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostPolicyInvalidExpirationError) ToResponse() Response {
+	return Response{
+		Code:           "InvalidPolicyDocument",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusBadRequest,
+	}
+}
+
+// PostPolicyUnexpectedElementError indicates that an unexpected top-level field was included in a POST policy.
+type PostPolicyUnexpectedElementError struct {
+	ElementName string
+}
+
+// Error implements the error interface.
+func (err PostPolicyUnexpectedElementError) Error() string {
+	return fmt.Sprintf("Invalid Policy: Unexpected: '%q'", err.ElementName)
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostPolicyUnexpectedElementError) ToResponse() Response {
+	return Response{
+		Code:           "InvalidPolicyDocument",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusBadRequest,
+	}
 }

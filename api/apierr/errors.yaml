@@ -148,6 +148,76 @@
   description: A header that you provided implies functionality that is not implemented.
   http_status: 501
 
+- name: PostPolicyConditionMissingOperationID
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Condition: missing operation identifier."
+  http_status: 400
+
+- name: PostPolicyContentLengthConditionInvalidValueType
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Condition Value: Must be a String or Number."
+  http_status: 400
+
+- name: PostPolicyContentLengthConditionInvalidString
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Condition Value: String must evaluate to a number."
+  http_status: 400
+
+- name: PostPolicyInvalidConditionsType
+  code: InvalidPolicyDocument
+  description: "Invalid Policy: Invalid 'conditions' value: must be a List."
+  http_status: 400
+
+- name: PostPolicyInvalidConditionType
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid condition test: must be a List or Object."
+  http_status: 400
+
+- name: PostPolicyInvalidExpirationType
+  code: InvalidPolicyDocument
+  description: "Invalid Policy: Invalid 'expiration' value: must be a String."
+  http_status: 400
+
+- name: PostPolicyInvalidJSON
+  code: InvalidPolicyDocument
+  description: "Invalid Policy: Invalid JSON."
+  http_status: 400
+
+- name: PostPolicyMatchConditionInvalidKeyType
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Condition Key: Must be a string."
+  http_status: 400
+
+- name: PostPolicyMatchConditionInvalidValueType
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Condition Value: Must be a string."
+  http_status: 400
+
+- name: PostPolicyMatchConditionKeyMissingPrefix
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Condition Key: Must start with '$'."
+  http_status: 400
+
+- name: PostPolicyMissingConditions
+  code: InvalidPolicyDocument
+  description: "Invalid Policy: Policy missing conditions."
+  http_status: 400
+
+- name: PostPolicyMissingExpiration
+  code: InvalidPolicyDocument
+  description: "Invalid Policy: Policy missing expiration."
+  http_status: 400
+
+- name: PostPolicySimpleConditionInvalidValueType
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Simple-Condition: value must be a string."
+  http_status: 400
+
+- name: PostPolicySimpleConditionTooManyProperties
+  code: InvalidPolicyDocument
+  message: "Invalid Policy: Invalid Simple-Condition: Simple-Conditions must have exactly one property specified."
+  http_status: 400
+
 - name: RequestNotReadyYet
   code: AccessDenied
   description: Request is not valid yet

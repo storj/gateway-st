@@ -36,6 +36,20 @@ const (
 	CodeNoSuchCORSConfiguration
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
+	CodePostPolicyConditionMissingOperationID
+	CodePostPolicyContentLengthConditionInvalidString
+	CodePostPolicyContentLengthConditionInvalidValueType
+	CodePostPolicyInvalidConditionType
+	CodePostPolicyInvalidConditionsType
+	CodePostPolicyInvalidExpirationType
+	CodePostPolicyInvalidJSON
+	CodePostPolicyMatchConditionInvalidKeyType
+	CodePostPolicyMatchConditionInvalidValueType
+	CodePostPolicyMatchConditionKeyMissingPrefix
+	CodePostPolicyMissingConditions
+	CodePostPolicyMissingExpiration
+	CodePostPolicySimpleConditionInvalidValueType
+	CodePostPolicySimpleConditionTooManyProperties
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
 	CodeSignatureDoesNotMatch
@@ -193,6 +207,76 @@ var codeToResponse = map[Code]Response{
 		Code:           "NotImplemented",
 		Description:    "A header that you provided implies functionality that is not implemented.",
 		HTTPStatusCode: http.StatusNotImplemented,
+	},
+	CodePostPolicyConditionMissingOperationID: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyContentLengthConditionInvalidString: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyContentLengthConditionInvalidValueType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyInvalidConditionType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyInvalidConditionsType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "Invalid Policy: Invalid 'conditions' value: must be a List.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyInvalidExpirationType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "Invalid Policy: Invalid 'expiration' value: must be a String.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyInvalidJSON: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "Invalid Policy: Invalid JSON.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyMatchConditionInvalidKeyType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyMatchConditionInvalidValueType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyMatchConditionKeyMissingPrefix: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyMissingConditions: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "Invalid Policy: Policy missing conditions.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyMissingExpiration: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "Invalid Policy: Policy missing expiration.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicySimpleConditionInvalidValueType: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicySimpleConditionTooManyProperties: {
+		Code:           "InvalidPolicyDocument",
+		Description:    "",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeRequestNotReadyYet: {
 		Code:           "AccessDenied",
