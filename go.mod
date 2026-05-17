@@ -15,10 +15,10 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
-	storj.io/common v0.0.0-20260328020406-acac5312e030
+	storj.io/common v0.0.0-20260514184426-9f076a4a8d52
 	storj.io/eventkit v0.0.0-20250410172343-61f26d3de156
 	storj.io/minio v0.0.0-20260424005736-af7b2f48133e
-	storj.io/uplink v1.14.0
+	storj.io/uplink v1.14.2
 )
 
 require (
