@@ -25,36 +25,22 @@ pipeline {
 
             stages {
                 stage('Preparation') {
-                    parallel {
-                        stage('Checkout') {
-                            steps {
-                                // extglob lets !(.git) work; dotglob includes dotfiles.
-                                sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
+                    steps {
+                        // extglob lets !(.git) work; dotglob includes dotfiles.
+                        sh 'bash -O extglob -O dotglob -c "rm -rf !(.git|.|..)"'
 
-                                checkout scm
-                                sh 'git restore-mtime'
+                        checkout scm
+                        sh 'git restore-mtime'
 
-                                sh 'go mod download'
-                                dir('testsuite') {
-                                    sh 'go mod download'
-                                }
-
-                                sh 'mkdir -p .build'
-
-                                // go-junit-report isn't baked into storjlabs/ci yet.
-                                sh 'go install github.com/jstemmer/go-junit-report/v2@v2.1.0'
-                            }
+                        sh 'go mod download'
+                        dir('testsuite') {
+                            sh 'go mod download'
                         }
 
-                        stage('Start databases') {
-                            steps {
-                                sh 'service postgresql start'
+                        sh 'mkdir -p .build'
 
-                                dir('.build') {
-                                    sh 'cockroach start-single-node --insecure --store=\'/tmp/crdb\' --listen-addr=localhost:26257 --http-addr=localhost:8080 --cache 512MiB --max-sql-memory 512MiB --background'
-                                }
-                            }
-                        }
+                        // go-junit-report isn't baked into storjlabs/ci yet.
+                        sh 'go install github.com/jstemmer/go-junit-report/v2@v2.1.0'
                     }
                 }
 
@@ -78,11 +64,15 @@ pipeline {
 
                         stage('Test') {
                             environment {
-                                JSON                 = true
-                                SHORT                = false
-                                STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
-                                STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
+                                JSON = true
+                                SHORT = false
+                                STORJ_TEST_COCKROACH = 'omit'
+                                STORJ_TEST_POSTGRES = 'omit'
+                                STORJ_TEST_SPANNER = 'run:/usr/local/bin/spanner_emulator --override_change_stream_partition_token_alive_seconds=1'
                                 STORJ_TEST_LOG_LEVEL = 'info'
+                                STORJ_HASHSTORE_TABLE_DEFAULT_KIND = 'memtbl'
+                                SPANNER_DISABLE_BUILTIN_METRICS = 'true'
+                                GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS = 'true'
                             }
                             steps {
                                 sh 'make test-main 2>&1 | tee .build/tests.json | go-junit-report -parser gojson -out .build/tests.xml'
@@ -98,11 +88,15 @@ pipeline {
 
                         stage('Testsuite') {
                             environment {
-                                JSON                 = true
-                                SHORT                = false
-                                STORJ_TEST_COCKROACH = 'cockroach://root@localhost:26257/postgres?sslmode=disable'
-                                STORJ_TEST_POSTGRES  = 'postgres://postgres@localhost/postgres?sslmode=disable'
+                                JSON = true
+                                SHORT = false
+                                STORJ_TEST_COCKROACH = 'omit'
+                                STORJ_TEST_POSTGRES = 'omit'
+                                STORJ_TEST_SPANNER = 'run:/usr/local/bin/spanner_emulator --override_change_stream_partition_token_alive_seconds=1'
                                 STORJ_TEST_LOG_LEVEL = 'info'
+                                STORJ_HASHSTORE_TABLE_DEFAULT_KIND = 'memtbl'
+                                SPANNER_DISABLE_BUILTIN_METRICS = 'true'
+                                GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS = 'true'
                             }
                             steps {
                                 // Exhaust ports 1024-10000 so tests fail loudly if they hard-code one.
