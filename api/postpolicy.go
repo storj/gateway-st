@@ -5,14 +5,47 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"math"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/amwolff/awsig"
+
 	"storj.io/gateway/api/apierr"
+	xhttp "storj.io/minio/cmd/http"
+)
+
+var (
+	requiredFormKeys = []string{
+		"bucket",
+		"key",
+	}
+
+	sigV2RequiredFormKeys = []string{
+		"signature",
+	}
+
+	sigV4RequiredFormKeys = []string{
+		"x-amz-credential",
+		"x-amz-date",
+		"x-amz-signature",
+	}
+
+	// allowedExtraFormKeys contains POST form keys that are allowed to have no corresponding
+	// POST policy condition.
+	allowedExtraFormKeys = map[string]struct{}{
+		"file": {},
+		// While a POST form must include the signature field, a POST policy is allowed to omit it.
+		// This is because it is cryptographically impossible to construct a meaningful policy condition
+		// that references the signature, which is a hash of the policy itself.
+		"signature":       {},
+		"x-amz-signature": {},
+	}
 )
 
 // PostPolicyOperator is the operator of a POST policy condition.
@@ -284,4 +317,214 @@ func (f *PostPolicy) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// CheckPostForm validates submitted form values against a parsed POST policy.
+// See https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-HTTPPOSTConstructPolicy.html
+func CheckPostForm(policy PostPolicy, postForm awsig.PostForm) error {
+	if !policy.Expiration.After(time.Now()) {
+		return apierr.CodePostPolicyExpired
+	}
+
+	if err := validatePostForm(postForm, policy.Conditions.Items); err != nil {
+		return err
+	}
+
+	for _, cond := range policy.Conditions.Items {
+		trimmedKey := strings.TrimPrefix(cond.Key, "$")
+
+		if strings.EqualFold(trimmedKey, "file") {
+			// It's impossible to satisfy any condition that references the object's contents.
+			return newConditionFailedError(string(cond.Operator), cond.Key, cond.Value)
+		}
+
+		formVal := getPostFormValue(postForm, trimmedKey)
+		if !evalCondition(cond.Operator, formVal, cond.Value) {
+			return newConditionFailedError(string(cond.Operator), cond.Key, cond.Value)
+		}
+	}
+
+	return nil
+}
+
+// validatePostForm validates the structure of a multipart POST form against POST policy conditions.
+func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition) error {
+	policyKeysMap := make(map[string]struct{}, len(conditions))
+	for _, cond := range conditions {
+		after, hasPrefix := strings.CutPrefix(cond.Key, "$")
+		if !hasPrefix {
+			return fmt.Errorf("expected key of POST policy condition to be prefixed with '$', but got %q", cond.Key)
+		}
+		policyKeysMap[strings.ToLower(after)] = struct{}{}
+	}
+	policyKeys := slices.Collect(maps.Keys(policyKeysMap))
+
+	formKeysMap := make(map[string]struct{}, len(postForm))
+	for key, elements := range postForm {
+		key := strings.ToLower(key)
+		if _, exists := formKeysMap[key]; exists {
+			return fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
+		}
+		if len(elements) > 1 {
+			switch key {
+			case "file":
+				return apierr.CodePostFormInvalidFileCount
+			case "key":
+				return apierr.CodePostFormMultipleKeyFields
+			}
+		}
+		formKeysMap[key] = struct{}{}
+	}
+	if _, ok := formKeysMap["file"]; !ok {
+		return apierr.CodePostFormInvalidFileCount
+	}
+	formKeys := slices.Collect(maps.Keys(formKeysMap))
+
+	for _, key := range formKeys {
+		if _, ok := allowedExtraFormKeys[key]; ok {
+			continue
+		}
+		if _, ok := policyKeysMap[key]; !ok {
+			return apierr.PostFormExtraFieldsError{
+				FieldName: key,
+			}
+		}
+	}
+
+	for _, key := range policyKeys {
+		if _, ok := formKeysMap[key]; !ok {
+			return apierr.PostFormMissingFieldError{
+				FieldName: key,
+			}
+		}
+	}
+
+	for _, key := range requiredFormKeys {
+		if _, ok := formKeysMap[key]; !ok {
+			return apierr.PostFormMissingFieldError{
+				FieldName: key,
+			}
+		}
+	}
+
+	_, isSigV4 := formKeysMap[strings.ToLower(xhttp.AmzAlgorithm)]
+	_, isSigV2 := formKeysMap[strings.ToLower(xhttp.AmzAccessKeyID)]
+	if isSigV4 {
+		for _, key := range sigV4RequiredFormKeys {
+			if _, ok := formKeysMap[key]; !ok {
+				return apierr.PostFormMissingFieldError{
+					FieldName: key,
+				}
+			}
+		}
+	} else if isSigV2 {
+		for _, key := range sigV2RequiredFormKeys {
+			if _, ok := formKeysMap[key]; !ok {
+				return apierr.PostFormMissingFieldError{
+					FieldName: key,
+				}
+			}
+		}
+	} else {
+		return apierr.CodeAccessDenied
+	}
+
+	return nil
+}
+
+func newConditionFailedError(args ...any) error {
+	// The error message is slightly inaccurate because we don't have information
+	// about how the conditions were formatted in the JSON. Equality conditions may
+	// have been formatted as {"key": value} rather than ["eq", "$key", "value"].
+	var conditionStr string
+	jsonBytes, jsonErr := json.Marshal(args)
+	if jsonErr == nil {
+		conditionStr = string(jsonBytes)
+	} else {
+		conditionStr = fmt.Sprintf("(error marshalling condition: %s)", jsonErr.Error())
+	}
+	return apierr.PostFormConditionFailedError{
+		Condition: conditionStr,
+	}
+}
+
+func getPostFormValue(postForm awsig.PostForm, key string) string {
+	elems := postForm.Values(key)
+	switch len(elems) {
+	case 0:
+		return ""
+	case 1:
+		return elems[0].Value
+	default:
+		var builder strings.Builder
+		for i, elem := range elems {
+			if i > 0 {
+				builder.WriteRune(',')
+			}
+			builder.WriteString(elem.Value)
+		}
+		return builder.String()
+	}
+}
+
+func evalCondition(op PostPolicyOperator, input, expected string) bool {
+	switch op {
+	case PostPolicyOperatorEqual:
+		return input == expected
+	case PostPolicyOperatorStartsWith:
+		return strings.HasPrefix(input, expected)
+	default:
+		return false
+	}
+}
+
+var metadataHeaders = []string{
+	"Cache-Control",
+	"Content-Encoding",
+	"Content-Disposition",
+	"Content-Language",
+	"Content-Type",
+	"Expires",
+	"X-Amz-Storage-Class",
+}
+
+// userMetadataKeyPrefixes contains the prefixes of user-defined metadata keys.
+// All values stored with a key starting with one of the following prefixes
+// must be extracted from the header.
+var userMetadataKeyPrefixes = []string{
+	"X-Amz-Meta-",
+	"X-Minio-Meta-",
+}
+
+// ExtractMetadataFromPostForm extracts object metadata from a POST form.
+func ExtractMetadataFromPostForm(postForm awsig.PostForm) (map[string]string, error) {
+	metadata := make(map[string]string, len(postForm))
+	for _, key := range metadataHeaders {
+		if !postForm.Has(key) {
+			continue
+		}
+		if _, ok := metadata[key]; ok {
+			return nil, fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
+		}
+		metadata[key] = getPostFormValue(postForm, key)
+	}
+
+	for key, elems := range postForm {
+		key = http.CanonicalHeaderKey(key)
+		for _, prefix := range userMetadataKeyPrefixes {
+			if !strings.HasPrefix(key, prefix) {
+				continue
+			}
+			if _, ok := metadata[key]; ok {
+				return nil, fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
+			}
+			values := make([]string, 0, len(elems))
+			for _, elem := range elems {
+				values = append(values, elem.Value)
+			}
+			metadata[key] = strings.Join(values, ",")
+		}
+	}
+
+	return metadata, nil
 }

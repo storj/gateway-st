@@ -148,6 +148,16 @@
   description: A header that you provided implies functionality that is not implemented.
   http_status: 501
 
+- name: PostFormInvalidFileCount
+  code: InvalidArgument
+  description: POST requires exactly one file upload per request.
+  http_status: 400
+
+- name: PostFormMultipleKeyFields
+  code: InvalidArgument
+  description: POST only supports one key parameter per request.
+  http_status: 400
+
 - name: PostPolicyConditionMissingOperationID
   code: InvalidPolicyDocument
   message: "Invalid Policy: Invalid Condition: missing operation identifier."
@@ -162,6 +172,11 @@
   code: InvalidPolicyDocument
   message: "Invalid Policy: Invalid Condition Value: String must evaluate to a number."
   http_status: 400
+
+- name: PostPolicyExpired
+  code: AccessDenied
+  description: "Invalid according to Policy: Policy expired."
+  http_status: 403
 
 - name: PostPolicyInvalidConditionsType
   code: InvalidPolicyDocument

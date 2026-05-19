@@ -45,6 +45,64 @@ type ResponseProvider interface {
 	ToResponse() Response
 }
 
+// PostFormConditionFailedError indicates that a POST form did not satisfy a condition of a POST policy.
+type PostFormConditionFailedError struct {
+	Condition string
+}
+
+// Error implements the error interface.
+func (err PostFormConditionFailedError) Error() string {
+	return fmt.Sprintf("Invalid according to Policy: Policy Condition failed: %s", err.Condition)
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostFormConditionFailedError) ToResponse() Response {
+	return Response{
+		Code:           "AccessDenied",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusForbidden,
+	}
+}
+
+// PostFormExtraFieldsError indicates that an input field was found in a POST form that was
+// not included in a POST policy.
+type PostFormExtraFieldsError struct {
+	FieldName string
+}
+
+// Error implements the error interface.
+func (err PostFormExtraFieldsError) Error() string {
+	return "Invalid according to Policy: Extra input fields: " + err.FieldName
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostFormExtraFieldsError) ToResponse() Response {
+	return Response{
+		Code:           "AccessDenied",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusForbidden,
+	}
+}
+
+// PostFormMissingFieldError indicates that a POST form was missing a field.
+type PostFormMissingFieldError struct {
+	FieldName string
+}
+
+// Error implements the error interface.
+func (err PostFormMissingFieldError) Error() string {
+	return "Bucket POST must contain a field named '" + err.FieldName + "'. If it is specified, please check the order of the fields."
+}
+
+// ToResponse implements the ResponseProvider interface.
+func (err PostFormMissingFieldError) ToResponse() Response {
+	return Response{
+		Code:           "InvalidArgument",
+		Description:    err.Error(),
+		HTTPStatusCode: http.StatusBadRequest,
+	}
+}
+
 // PostPolicyConditionInvalidArgumentCountError indicates that an incorrect number
 // of arguments were specified in a condition of a POST policy.
 type PostPolicyConditionInvalidArgumentCountError struct {

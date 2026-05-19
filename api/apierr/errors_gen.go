@@ -36,9 +36,12 @@ const (
 	CodeNoSuchCORSConfiguration
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
+	CodePostFormInvalidFileCount
+	CodePostFormMultipleKeyFields
 	CodePostPolicyConditionMissingOperationID
 	CodePostPolicyContentLengthConditionInvalidString
 	CodePostPolicyContentLengthConditionInvalidValueType
+	CodePostPolicyExpired
 	CodePostPolicyInvalidConditionType
 	CodePostPolicyInvalidConditionsType
 	CodePostPolicyInvalidExpirationType
@@ -208,6 +211,16 @@ var codeToResponse = map[Code]Response{
 		Description:    "A header that you provided implies functionality that is not implemented.",
 		HTTPStatusCode: http.StatusNotImplemented,
 	},
+	CodePostFormInvalidFileCount: {
+		Code:           "InvalidArgument",
+		Description:    "POST requires exactly one file upload per request.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostFormMultipleKeyFields: {
+		Code:           "InvalidArgument",
+		Description:    "POST only supports one key parameter per request.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodePostPolicyConditionMissingOperationID: {
 		Code:           "InvalidPolicyDocument",
 		Description:    "",
@@ -222,6 +235,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidPolicyDocument",
 		Description:    "",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostPolicyExpired: {
+		Code:           "AccessDenied",
+		Description:    "Invalid according to Policy: Policy expired.",
+		HTTPStatusCode: http.StatusForbidden,
 	},
 	CodePostPolicyInvalidConditionType: {
 		Code:           "InvalidPolicyDocument",
