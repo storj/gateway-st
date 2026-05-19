@@ -31,6 +31,7 @@ import (
 
 	"github.com/amwolff/awsig"
 	miniogo "github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/tags"
 	"go.uber.org/zap"
 
 	"storj.io/gateway/api/apierr"
@@ -47,7 +48,10 @@ var internalErrorResponse = apierr.Response{
 
 type mimeType string
 
-const mimeNone mimeType = ""
+const (
+	mimeNone mimeType = ""
+	mimeXML  mimeType = "application/xml"
+)
 
 func writeResponse(w http.ResponseWriter, statusCode int, response []byte, mType mimeType) {
 	setCommonHeaders(w)
@@ -68,6 +72,11 @@ func setCommonHeaders(w http.ResponseWriter) {
 	crypto.RemoveSensitiveHeaders(w.Header())
 }
 
+func writeRedirectSeeOther(w http.ResponseWriter, location string) {
+	w.Header().Set(xhttp.Location, location)
+	writeResponse(w, http.StatusSeeOther, nil, mimeNone)
+}
+
 func writeSuccessResponseHeadersOnly(w http.ResponseWriter) {
 	writeResponse(w, http.StatusOK, nil, mimeNone)
 }
@@ -77,7 +86,14 @@ func writeSuccessNoContent(w http.ResponseWriter) {
 }
 
 func (api *API) writeErrorResponse(ctx context.Context, w http.ResponseWriter, err error) {
+	api.writeErrorResponseWithFallback(ctx, w, err, nil)
+}
+
+func (api *API) writeErrorResponseWithFallback(ctx context.Context, w http.ResponseWriter, err error, fallbackErr error) {
 	resp, matched := errToResponse(err)
+	if !matched && fallbackErr != nil {
+		resp, matched = errToResponse(fallbackErr)
+	}
 	if !matched {
 		api.log.Error("unexpected error", zap.Error(err))
 		resp = internalErrorResponse
@@ -89,6 +105,8 @@ func (api *API) writeErrorResponse(ctx context.Context, w http.ResponseWriter, e
 		api.log.Error("error encoding XML error response", zap.Error(err))
 		writeResponse(w, http.StatusInternalServerError, nil, mimeNone)
 	}
+
+	writeResponse(w, resp.HTTPStatusCode, buf.Bytes(), mimeXML)
 }
 
 func (api *API) writeErrorResponseHeadersOnly(w http.ResponseWriter, err error) {
@@ -105,13 +123,8 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		return resp, true
 	}
 
-	if code := apierr.Code(0); errors.As(err, &code) {
-		var ok bool
-		resp, ok = code.ToResponse()
-		if ok {
-			return resp, true
-		}
-		return apierr.Response{}, false
+	if provider := apierr.ResponseProvider(nil); errors.As(err, &provider) {
+		return provider.ToResponse(), true
 	}
 
 	if miniogoResp := (miniogo.ErrorResponse{}); errors.As(err, &miniogoResp) {
@@ -122,13 +135,22 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		}, true
 	}
 
-	if provider, ok := err.(cmd.APIErrorProvider); ok {
+	if provider := cmd.APIErrorProvider(nil); errors.As(err, &provider) {
 		apiErr := provider.ToAPIError()
 		return apierr.Response{
 			Code:           apiErr.Code,
 			Description:    apiErr.Description,
 			HTTPStatusCode: apiErr.HTTPStatusCode,
 		}, true
+	}
+
+	if code := apierr.Code(0); errors.As(err, &code) {
+		var ok bool
+		resp, ok = code.ToResponse()
+		if ok {
+			return resp, true
+		}
+		return apierr.Response{}, false
 	}
 
 	if code, ok := awsigErrToCode(err); ok {
@@ -154,6 +176,18 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 			return resp, true
 		}
 		return apierr.Response{}, false
+	}
+
+	if tagsErr := tags.Error(nil); errors.As(err, &tagsErr) {
+		return apierr.Response{
+			Code:           tagsErr.Code(),
+			Description:    tagsErr.Error(),
+			HTTPStatusCode: http.StatusBadRequest,
+		}, true
+	}
+
+	if xmlErr := (*xml.SyntaxError)(nil); errors.As(err, &xmlErr) {
+		return apierr.CodeMalformedXML.ToResponse()
 	}
 
 	return apierr.Response{}, false

@@ -29,6 +29,7 @@ import (
 	"go.uber.org/zap"
 
 	"storj.io/minio/cmd"
+	xhttp "storj.io/minio/cmd/http"
 )
 
 // Config contains configuration parameters for an API.
@@ -71,7 +72,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	var subrouters []*mux.Router
 	for _, domain := range api.config.Domains {
 		subrouter := apiRouter.Host("{bucket:.+}." + domain).Subrouter()
-		subrouter.Use(withVirtualHostedStyle())
+		subrouter.Use(withVirtualHostedStyleMiddleware())
 		subrouters = append(subrouters, subrouter)
 	}
 	subrouters = append(subrouters, apiRouter.PathPrefix("/{bucket}").Subrouter())
@@ -100,6 +101,8 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		subrouter.Methods(http.MethodGet).Queries("versioning", "").HandlerFunc(api.GetBucketVersioningHandler)
 		subrouter.Methods(http.MethodGet).Queries("website", "").HandlerFunc(api.GetBucketWebsiteHandler)
 
+		subrouter.Methods(http.MethodPost).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
+
 		subrouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
 		subrouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteBucketHandler)
 	}
@@ -109,7 +112,7 @@ type contextKey int
 
 const isVHostKey contextKey = iota
 
-func withVirtualHostedStyle() mux.MiddlewareFunc {
+func withVirtualHostedStyleMiddleware() mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.WithValue(r.Context(), isVHostKey, struct{}{})
@@ -123,4 +126,11 @@ func getVirtualHostedBucket(r *http.Request) string {
 		return mux.Vars(r)["bucket"]
 	}
 	return ""
+}
+
+// WithVirtualHostedStyle returns a new context that indicates that the request is
+// using a virtual-hosted-style URL, where the bucket name is part of the subdomain.
+// This is intended to be used in tests.
+func WithVirtualHostedStyle(ctx context.Context) context.Context {
+	return context.WithValue(ctx, isVHostKey, struct{}{})
 }

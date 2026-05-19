@@ -26,10 +26,15 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
+	"strings"
 
 	"github.com/amwolff/awsig"
+	"github.com/gorilla/mux"
 
+	"storj.io/gateway/api/apierr"
+	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 )
 
@@ -69,21 +74,39 @@ func extractContentMD5(h http.Header) ([]byte, error) {
 	return md5, nil
 }
 
-func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
+func getContentMD5ChecksumRequest(h http.Header) (checksumReq awsig.ChecksumRequest, present bool, err error) {
 	md5, err := extractContentMD5(h)
 	if err != nil {
-		return nil, err
+		return awsig.ChecksumRequest{}, false, err
 	}
 	if md5 == nil {
-		return nil, nil
+		return awsig.ChecksumRequest{}, false, nil
 	}
-	var checksumReqs []awsig.ChecksumRequest
 	req, err := awsig.NewChecksumRequest(awsig.AlgorithmMD5, base64.StdEncoding.EncodeToString(md5))
 	if err != nil {
-		return nil, err
+		return awsig.ChecksumRequest{}, true, err
 	}
-	checksumReqs = append(checksumReqs, req)
-	return checksumReqs, nil
+	return req, true, nil
+}
+
+// getResource returns "/bucketName/objectName" for path-style or virtual-hosted-style requests.
+func getResource(r *http.Request) string {
+	vHostBucket := getVirtualHostedBucket(r)
+	if vHostBucket == "" {
+		return r.URL.Path
+	}
+	return cmd.SlashSeparator + pathJoin(vHostBucket, r.URL.Path)
+}
+
+// pathJoin functions identically to path.Join but retains the trailing slash of the last element.
+func pathJoin(elems ...string) string {
+	trailingSlash := ""
+	if len(elems) > 0 {
+		if strings.HasSuffix(elems[len(elems)-1], cmd.SlashSeparator) {
+			trailingSlash = cmd.SlashSeparator
+		}
+	}
+	return path.Join(elems...) + trailingSlash
 }
 
 func pathClean(p string) string {
@@ -92,4 +115,90 @@ func pathClean(p string) string {
 		return ""
 	}
 	return cp
+}
+
+// GetObjectURL gets the fully qualified URL of an object.
+func GetObjectURL(r *http.Request, object string) string {
+	scheme := strings.ToLower(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+
+	var urlPath string
+	if len(getVirtualHostedBucket(r)) != 0 {
+		urlPath = path.Join(cmd.SlashSeparator, object)
+	} else {
+		bucket := mux.Vars(r)["bucket"]
+		urlPath = path.Join(cmd.SlashSeparator, bucket, object)
+	}
+
+	return (&url.URL{
+		Host:   r.Host,
+		Path:   urlPath,
+		Scheme: scheme,
+	}).String()
+}
+
+type limitedAwsigReader struct {
+	reader   awsig.Reader
+	limit    int64
+	n        int64
+	limitErr error
+}
+
+// NewLimitedAwsigReader returns an awsig.Reader that limits the amount of bytes
+// read from an awsig.Reader it wraps. It can be used in cases where there is a
+// need to determine the specific reason why reading has stopped, either because
+// a reader has truly run out of data to read or because there is more data to
+// read but the limit has been reached. In the latter case,
+// apierr.CodeEntityTooLarge is returned by Read.
+func NewLimitedAwsigReader(r awsig.Reader, limit int64) awsig.Reader {
+	return &limitedAwsigReader{
+		reader: r,
+		limit:  limit,
+	}
+}
+
+// Read implements the awsig.Reader interface.
+func (lr *limitedAwsigReader) Read(p []byte) (n int, err error) {
+	if lr.limitErr != nil {
+		return 0, lr.limitErr
+	}
+
+	remaining := lr.limit - lr.n
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+
+	n, err = lr.reader.Read(p)
+	lr.n += int64(n)
+
+	if err != nil {
+		lr.limitErr = err
+		return n, err
+	}
+
+	if lr.n < lr.limit {
+		return n, nil
+	}
+
+	var buf [1]byte
+	probeN, probeErr := lr.reader.Read(buf[:])
+	if probeN > 0 {
+		lr.limitErr = apierr.CodeEntityTooLarge
+	}
+	if probeErr != nil {
+		lr.limitErr = probeErr
+	}
+
+	return n, lr.limitErr
+}
+
+// Checksums implements te awsig.Reader interface.
+func (lr *limitedAwsigReader) Checksums() (map[awsig.ChecksumAlgorithm][]byte, error) {
+	return lr.reader.Checksums()
 }

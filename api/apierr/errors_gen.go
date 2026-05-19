@@ -10,6 +10,7 @@ const (
 	CodeAuthorizationHeaderMalformed
 	CodeBadDigest
 	CodeChecksumMismatch
+	CodeChecksumsUnsupported
 	CodeContentLengthWithTransferEncoding
 	CodeContentMD5Mismatch
 	CodeContentSHA256Mismatch
@@ -29,6 +30,7 @@ const (
 	CodeMalformedPresignedDate
 	CodeMalformedXML
 	CodeMaximumExpires
+	CodeMethodNotAllowed
 	CodeMissingContentLength
 	CodeMissingPOSTPolicy
 	CodeMissingSecurityHeader
@@ -80,6 +82,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "BadDigest",
 		Description:    "The checksum value you specified did not match what we received.",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeChecksumsUnsupported: {
+		Code:           "NotImplemented",
+		Description:    "Checksum options are not supported at this time.",
+		HTTPStatusCode: http.StatusNotImplemented,
 	},
 	CodeContentLengthWithTransferEncoding: {
 		Code:           "InvalidRequest",
@@ -175,6 +182,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "AuthorizationQueryParametersError",
 		Description:    "X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMethodNotAllowed: {
+		Code:           "MethodNotAllowed",
+		Description:    "The specified method is not allowed against this resource.",
+		HTTPStatusCode: 405,
 	},
 	CodeMissingContentLength: {
 		Code:           "MissingContentLength",

@@ -21,10 +21,14 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 
@@ -35,17 +39,22 @@ import (
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
+	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
+	"storj.io/minio/pkg/hash"
 )
 
-// maxPutBucketNotificationConfigBodySize is the maximum size of the PutBucketNotificationConfiguration request body.
-const maxPutBucketNotificationConfigBodySize = int64(memory.MiB)
-
-// maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
-const maxPutBucketVersioningBodySize = int64(memory.MiB)
+const (
+	// maxPutBucketNotificationConfigBodySize is the maximum size of the PutBucketNotificationConfiguration request body.
+	maxPutBucketNotificationConfigBodySize = int64(memory.MiB)
+	// maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
+	maxPutBucketVersioningBodySize = int64(memory.MiB)
+	// maxPostObjectSize is the maximum size of the object contents submitted in a POST Object request.
+	maxPostObjectSize = 5 * int64(memory.GB)
+)
 
 // CreateBucketHandler is the HTTP handler for the CreateBucket operation, which creates a bucket.
 func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
@@ -70,10 +79,14 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	checksumReqs, err := getChecksumRequests(r.Header)
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	body, err := vr.Reader(checksumReqs...)
@@ -141,10 +154,14 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Amazon S3's documentation states that the "Content-Md5" header is required for this operation,
 	// but testing has shown that this isn't true. Therefore, we don't require it, either.
-	checksumReqs, err := getChecksumRequests(r.Header)
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	body, err := vr.Reader(checksumReqs...)
@@ -202,10 +219,14 @@ func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter,
 		return
 	}
 
-	checksumReqs, err := getChecksumRequests(r.Header)
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	body, err := vr.Reader(checksumReqs...)
@@ -241,10 +262,14 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	checksumReqs, err := getChecksumRequests(r.Header)
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	body, err := vr.Reader(checksumReqs...)
@@ -280,10 +305,14 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	checksumReqs, err := getChecksumRequests(r.Header)
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	body, err := vr.Reader(checksumReqs...)
@@ -319,10 +348,14 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	checksumReqs, err := getChecksumRequests(r.Header)
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
 		api.writeErrorResponse(ctx, w, err)
 		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	body, err := vr.Reader(checksumReqs...)
@@ -672,6 +705,166 @@ func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	api.writeErrorResponse(ctx, w, apierr.CodeNoSuchWebsiteConfiguration)
+}
+
+// PostObjectHandler uploads an object to a bucket using an HTML form with a policy document.
+func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PostObject")
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(ctx, w, apierr.CodeNotImplemented)
+		return
+	}
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if r.ContentLength < 0 {
+		api.writeErrorResponse(ctx, w, apierr.CodeMissingContentLength)
+		return
+	}
+
+	// Make sure that the URL does not contain an object name.
+	resource := getResource(r)
+	if bucketName != path.Clean(resource[1:]) {
+		api.writeErrorResponse(ctx, w, apierr.CodeMethodNotAllowed)
+		return
+	}
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	postForm := vr.PostForm()
+
+	for formKey := range postForm {
+		if strings.HasPrefix(http.CanonicalHeaderKey(formKey), "X-Amz-Checksum-") {
+			// TODO: Support checksum options
+			api.writeErrorResponse(ctx, w, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
+	}
+
+	awsigReader, err := vr.Reader(checksumReqs...)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	hashReader := hash.NewAwsigReader(NewLimitedAwsigReader(awsigReader, maxPostObjectSize), -1, -1)
+
+	policyBytes, err := base64.StdEncoding.DecodeString(postForm.Get("policy").Value)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, apierr.CodeMalformedPOSTRequest)
+		return
+	}
+
+	var postPolicy PostPolicy
+	if err := json.Unmarshal(policyBytes, &postPolicy); err != nil {
+		api.writeErrorResponseWithFallback(ctx, w, err, apierr.CodePostPolicyInvalidJSON)
+		return
+	}
+
+	if err = CheckPostForm(postPolicy, postForm); err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	successRedirect := getPostFormValue(postForm, "success_action_redirect")
+	successStatus := getPostFormValue(postForm, "success_action_status")
+	var redirectURL *url.URL
+	if successRedirect != "" {
+		redirectURL, _ = url.Parse(successRedirect)
+		if redirectURL != nil && (redirectURL.Host == "" || redirectURL.Scheme == "") {
+			redirectURL = nil
+		}
+	}
+
+	metadata, err := ExtractMetadataFromPostForm(postForm)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	if postForm.Has("tagging") {
+		tagsReader := strings.NewReader(getPostFormValue(postForm, "tagging"))
+		objectTags, err := tags.ParseObjectXML(tagsReader)
+		if err != nil {
+			api.writeErrorResponse(ctx, w, err)
+			return
+		}
+		metadata[xhttp.AmzObjectTagging] = objectTags.String()
+	}
+
+	opts := cmd.ObjectOptions{
+		UserDefined: metadata,
+	}
+
+	for _, cond := range postPolicy.Conditions.Items {
+		opts.PostPolicy.Conditions.Items = append(opts.PostPolicy.Conditions.Items, cmd.PostPolicyCondition{
+			Operator: string(cond.Operator),
+			Key:      cond.Key,
+			Value:    cond.Value,
+		})
+	}
+	opts.PostPolicy.Conditions.ContentLengthRange = cmd.ContentLengthRange(postPolicy.Conditions.ContentLengthRange)
+	opts.PostPolicy.Expiration = postPolicy.Expiration.Time
+
+	pReader := cmd.NewPutObjReader(hashReader)
+
+	objectKey := strings.ReplaceAll(postForm.Get("key").Value, "${filename}", postForm.FileName())
+	objInfo, err := api.objectAPI.PutObject(ctx, bucketName, objectKey, pReader, opts)
+	if err != nil {
+		api.writeErrorResponse(ctx, w, err)
+		return
+	}
+
+	// We must not use the http.Header().Set method here because some (broken)
+	// clients expect the ETag header key to be literally "ETag" - not "Etag" (case-sensitive).
+	// Therefore, we have to set the ETag directly as a map entry.
+	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+	}
+
+	w.Header().Set(xhttp.Location, GetObjectURL(r, objectKey))
+
+	if successRedirect != "" {
+		queryValues := make(url.Values)
+		queryValues.Set("bucket", objInfo.Bucket)
+		queryValues.Set("key", objInfo.Name)
+		queryValues.Set("etag", "\""+objInfo.ETag+"\"")
+		redirectURL.RawQuery = queryValues.Encode()
+		writeRedirectSeeOther(w, redirectURL.String())
+		return
+	}
+
+	switch successStatus {
+	case "201":
+		resp := cmd.EncodeResponse(cmd.PostResponse{
+			Bucket:   objInfo.Bucket,
+			Key:      objInfo.Name,
+			ETag:     `"` + objInfo.ETag + `"`,
+			Location: w.Header().Get(xhttp.Location),
+		})
+		writeResponse(w, http.StatusCreated, resp, mimeXML)
+	case "200":
+		writeSuccessResponseHeadersOnly(w)
+	default:
+		writeSuccessNoContent(w)
+	}
 }
 
 // DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.

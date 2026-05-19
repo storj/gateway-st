@@ -33,6 +33,11 @@
   description: The checksum value you specified did not match what we received.
   http_status: 400
 
+- name: ChecksumsUnsupported
+  code: NotImplemented
+  description: Checksum options are not supported at this time.
+  http_status: 501
+
 - name: EntityTooLarge
   code: EntityTooLarge
   description: Your proposed upload exceeds the maximum allowed object size.
@@ -112,6 +117,11 @@
   code: AuthorizationQueryParametersError
   description: X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds
   http_status: 400
+
+- name: MethodNotAllowed
+  code: MethodNotAllowed
+  description: The specified method is not allowed against this resource.
+  http_status: 405
 
 - name: MissingContentLength
   code: MissingContentLength
