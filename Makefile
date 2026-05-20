@@ -241,7 +241,7 @@ integration-gateway-st-tests: ## Run a single gateway-st subtest as $$TEST (envi
 	-w /build \
 	--name integration-gateway-st-tests-${BUILD_NUMBER}-$$TEST \
 	--rm storjlabs/ci:latest \
-	scripts/run-integration-tests.sh $$TEST
+	testsuite/integration/$$TEST.sh
 
 # s3fs needs FUSE so it can't run as the host user.
 .PHONY: integration-gateway-st-tests-s3fs
@@ -257,7 +257,7 @@ integration-gateway-st-tests-s3fs: ## Run the gateway-st s3fs subtest (privilege
 	-w /build \
 	--name integration-gateway-st-tests-s3fs-${BUILD_NUMBER} \
 	--rm storjlabs/ci:latest \
-	scripts/run-integration-tests.sh s3fs
+	testsuite/integration/s3fs.sh
 
 # umask 0000 because the container runs as root and writes to bind-mounted /build/.build/.
 .PHONY: integration-ceph-tests
