@@ -38,6 +38,13 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 )
 
+const (
+	defaultOwnerID          = "7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c"
+	defaultOwnerDisplayName = "storj"
+	defaultStorageClass     = "STANDARD"
+	iso8601Milli            = "2006-01-02T15:04:05.000Z"
+)
+
 type mimeType string
 
 const (
@@ -64,6 +71,14 @@ func setCommonHeaders(w http.ResponseWriter) {
 	crypto.RemoveSensitiveHeaders(w.Header())
 }
 
+func encodeResponse(response any) ([]byte, error) {
+	bytesBuffer := bytes.NewBufferString(xml.Header)
+	if err := xml.NewEncoder(bytesBuffer).Encode(response); err != nil {
+		return nil, err
+	}
+	return bytesBuffer.Bytes(), nil
+}
+
 func writeRedirectSeeOther(w http.ResponseWriter, location string) {
 	w.Header().Set(xhttp.Location, location)
 	writeResponse(w, http.StatusSeeOther, nil, mimeNone)
@@ -71,6 +86,10 @@ func writeRedirectSeeOther(w http.ResponseWriter, location string) {
 
 func writeSuccessResponseHeadersOnly(w http.ResponseWriter) {
 	writeResponse(w, http.StatusOK, nil, mimeNone)
+}
+
+func writeSuccessResponseXML(w http.ResponseWriter, response []byte) {
+	writeResponse(w, http.StatusOK, response, mimeXML)
 }
 
 func writeSuccessNoContent(w http.ResponseWriter) {
@@ -186,4 +205,55 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 	}
 
 	return apierr.Response{}, false
+}
+
+func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo cmd.ListObjectsInfo) cmd.ListObjectsResponse {
+	data := cmd.ListObjectsResponse{
+		Name:           bucketName,
+		Contents:       make([]cmd.Object, 0, len(listInfo.Objects)),
+		EncodingType:   params.encodingType,
+		Prefix:         s3EncodeName(params.prefix, params.encodingType),
+		Marker:         s3EncodeName(params.marker, params.encodingType),
+		Delimiter:      s3EncodeName(params.delimiter, params.encodingType),
+		MaxKeys:        params.maxKeys,
+		NextMarker:     s3EncodeName(listInfo.NextMarker, params.encodingType),
+		IsTruncated:    listInfo.IsTruncated,
+		CommonPrefixes: make([]cmd.CommonPrefix, 0, len(listInfo.Prefixes)),
+	}
+
+	for _, object := range listInfo.Objects {
+		if object.Name == "" {
+			continue
+		}
+
+		content := cmd.Object{
+			Key:          s3EncodeName(object.Name, params.encodingType),
+			LastModified: object.ModTime.UTC().Format(iso8601Milli),
+			Size:         object.Size,
+			Owner: cmd.Owner{
+				ID:          defaultOwnerID,
+				DisplayName: defaultOwnerDisplayName,
+			},
+		}
+
+		if object.ETag != "" {
+			content.ETag = "\"" + object.ETag + "\""
+		}
+
+		if object.StorageClass != "" {
+			content.StorageClass = object.StorageClass
+		} else {
+			content.StorageClass = defaultStorageClass
+		}
+
+		data.Contents = append(data.Contents, content)
+	}
+
+	for _, prefix := range listInfo.Prefixes {
+		data.CommonPrefixes = append(data.CommonPrefixes, cmd.CommonPrefix{
+			Prefix: s3EncodeName(prefix, params.encodingType),
+		})
+	}
+
+	return data
 }

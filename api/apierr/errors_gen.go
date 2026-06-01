@@ -21,7 +21,9 @@ const (
 	CodeInvalidAccessKeyID
 	CodeInvalidContentMD5
 	CodeInvalidContentSHA256
+	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
+	CodeInvalidMaxKeys
 	CodeInvalidRequest
 	CodeMalformedDate
 	CodeMalformedExpires
@@ -141,9 +143,19 @@ var codeToResponse = map[Code]Response{
 		Description:    "x-amz-content-sha256 must be UNSIGNED-PAYLOAD, STREAMING-AWS4-HMAC-SHA256-PAYLOAD, or a valid sha256 value.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidEncodingMethod: {
+		Code:           "InvalidArgument",
+		Description:    "Invalid Encoding Method specified in Request",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidForceDelete: {
 		Code:           "InvalidArgument",
 		Description:    "X-Minio-Force-Delete must be a valid boolean.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidMaxKeys: {
+		Code:           "InvalidArgument",
+		Description:    "Provided max-keys not an integer or within integer range",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidRequest: {

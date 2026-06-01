@@ -412,7 +412,7 @@ func (api *API) GetBucketAccelerateHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	const accelerateDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><AccelerateConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>`
-	cmd.WriteSuccessResponseXML(w, []byte(accelerateDefaultConfig))
+	writeSuccessResponseXML(w, []byte(accelerateDefaultConfig))
 }
 
 // GetBucketAclHandler is the HTTP handler for the GetBucketAcl operation,
@@ -494,7 +494,13 @@ func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cmd.WriteSuccessResponseXML(w, cmd.EncodeResponse(cmd.LocationResponse{}))
+	resp, err := encodeResponse(cmd.LocationResponse{})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseXML(w, resp)
 }
 
 // GetBucketLoggingHandler is the HTTP handler for the GetBucketLogging operation,
@@ -517,7 +523,7 @@ func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	const loggingDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><!--<LoggingEnabled><TargetBucket>myLogsBucket</TargetBucket><TargetPrefix>add/this/prefix/to/my/log/files/access_log-</TargetPrefix></LoggingEnabled>--></BucketLoggingStatus>`
-	cmd.WriteSuccessResponseXML(w, []byte(loggingDefaultConfig))
+	writeSuccessResponseXML(w, []byte(loggingDefaultConfig))
 }
 
 // GetBucketNotificationConfigurationHandler is the HTTP handler for the GetBucketNotificationConfiguration
@@ -544,7 +550,7 @@ func (api *API) GetBucketNotificationConfigurationHandler(w http.ResponseWriter,
 		return
 	}
 
-	cmd.WriteSuccessResponseXML(w, configData)
+	writeSuccessResponseXML(w, configData)
 }
 
 // GetObjectLockConfigurationHandler is the HTTP handler for the GetObjectLockConfiguration operation,
@@ -571,7 +577,7 @@ func (api *API) GetObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	cmd.WriteSuccessResponseXML(w, configData)
+	writeSuccessResponseXML(w, configData)
 }
 
 // GetBucketPolicyStatusHandler is the HTTP handler for the GetBucketPolicyStatus operation,
@@ -593,12 +599,16 @@ func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	encodedSuccessResponse := cmd.EncodeResponse(cmd.PolicyStatus{
+	encodedSuccessResponse, err := encodeResponse(cmd.PolicyStatus{
 		// Our buckets are never public.
 		IsPublic: "FALSE",
 	})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
 
-	cmd.WriteSuccessResponseXML(w, encodedSuccessResponse)
+	writeSuccessResponseXML(w, encodedSuccessResponse)
 }
 
 // GetBucketRequestPaymentHandler is the HTTP handler for the GetBucketRequestPayment operation,
@@ -621,7 +631,7 @@ func (api *API) GetBucketRequestPaymentHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	const requestPaymentDefaultConfig = `<?xml version="1.0" encoding="UTF-8"?><RequestPaymentConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Payer>BucketOwner</Payer></RequestPaymentConfiguration>`
-	cmd.WriteSuccessResponseXML(w, []byte(requestPaymentDefaultConfig))
+	writeSuccessResponseXML(w, []byte(requestPaymentDefaultConfig))
 }
 
 // GetBucketTaggingHandler is the HTTP handler for the GetBucketTagging operation,
@@ -648,7 +658,7 @@ func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cmd.WriteSuccessResponseXML(w, responseBytes)
+	writeSuccessResponseXML(w, responseBytes)
 }
 
 // GetBucketVersioningHandler is the HTTP handler for the GetBucketVersioning operation,
@@ -675,7 +685,7 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cmd.WriteSuccessResponseXML(w, configData)
+	writeSuccessResponseXML(w, configData)
 }
 
 // PostObjectHandler uploads an object to a bucket using an HTML form with a policy document.
@@ -824,12 +834,16 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch successStatus {
 	case "201":
-		resp := cmd.EncodeResponse(cmd.PostResponse{
+		resp, err := encodeResponse(cmd.PostResponse{
 			Bucket:   objInfo.Bucket,
 			Key:      objInfo.Name,
 			ETag:     `"` + objInfo.ETag + `"`,
 			Location: w.Header().Get(xhttp.Location),
 		})
+		if err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
 		writeResponse(w, http.StatusCreated, resp, mimeXML)
 	case "200":
 		writeSuccessResponseHeadersOnly(w)
@@ -962,12 +976,16 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		api.log.Error(r, "unexpected errors", internalErrs...)
 	}
 
-	encodedSuccessResponse := cmd.EncodeResponse(cmd.DeleteObjectsResponse{
+	encodedSuccessResponse, err := encodeResponse(cmd.DeleteObjectsResponse{
 		DeletedObjects: deletedObjects,
 		Errors:         deleteErrs,
 	})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
 
-	cmd.WriteSuccessResponseXML(w, encodedSuccessResponse)
+	writeSuccessResponseXML(w, encodedSuccessResponse)
 }
 
 // DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.

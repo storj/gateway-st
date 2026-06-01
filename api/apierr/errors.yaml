@@ -73,9 +73,19 @@
   description: The Content-MD5 you specified was invalid.
   http_status: 400
 
+- name: InvalidEncodingMethod
+  code: InvalidArgument
+  description: Invalid Encoding Method specified in Request
+  http_status: 400
+
 - name: InvalidForceDelete
   code: InvalidArgument
   description: X-Minio-Force-Delete must be a valid boolean.
+  http_status: 400
+
+- name: InvalidMaxKeys
+  code: InvalidArgument
+  description: Provided max-keys not an integer or within integer range
   http_status: 400
 
 - name: InvalidRequest
