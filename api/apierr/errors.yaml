@@ -93,6 +93,11 @@
   description: The request is invalid.
   http_status: 400
 
+- name: IncorrectContinuationToken
+  code: InvalidArgument
+  description: The continuation token provided is incorrect
+  http_status: 400
+
 - name: MalformedDate
   code: MalformedDate
   description: Invalid date format header, expected to be in ISO8601, RFC1123 or RFC1123Z time format.

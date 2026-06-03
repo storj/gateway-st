@@ -17,6 +17,7 @@ const (
 	CodeEntityTooLarge
 	CodeEntityTooSmall
 	CodeExpiredPresignedRequest
+	CodeIncorrectContinuationToken
 	CodeInternal
 	CodeInvalidAccessKeyID
 	CodeInvalidContentMD5
@@ -122,6 +123,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "AccessDenied",
 		Description:    "Request has expired",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeIncorrectContinuationToken: {
+		Code:           "InvalidArgument",
+		Description:    "The continuation token provided is incorrect",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInternal: {
 		Code:           "InternalError",

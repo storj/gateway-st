@@ -21,6 +21,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -105,4 +106,85 @@ func validateListObjectsParams(maxKeys int, encodingType string) error {
 		return apierr.CodeInvalidEncodingMethod
 	}
 	return nil
+}
+
+// ListObjectsV2Handler is the HTTP handler for the ListObjectsV2 operation, which lists the objects in a bucket.
+func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListObjectsV2")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	params, err := getListObjectsV2Params(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if err := validateListObjectsParams(params.maxKeys, params.encodingType); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	listObjectsV2Info, err := api.objectAPI.ListObjectsV2(ctx, bucketName, params.prefix, params.token, params.delimiter,
+		params.maxKeys, params.fetchOwner, params.startAfter)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	response := generateListObjectsV2Response(bucketName, params, listObjectsV2Info)
+
+	resp, err := encodeResponse(response)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseXML(w, resp)
+}
+
+type listObjectsV2Params struct {
+	prefix       string
+	token        string
+	delimiter    string
+	maxKeys      int
+	fetchOwner   bool
+	startAfter   string
+	encodingType string
+}
+
+func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err error) {
+	tokenStr := values.Get("continuation-token")
+	if tokenStr == "" {
+		return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
+	}
+
+	decodedToken, err := base64.StdEncoding.DecodeString(tokenStr)
+	if err != nil {
+		return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
+	}
+
+	var maxKeys int
+	if maxKeysStr := values.Get("max-keys"); maxKeysStr != "" {
+		if maxKeys, err = strconv.Atoi(maxKeysStr); err != nil {
+			return listObjectsV2Params{}, apierr.CodeInvalidMaxKeys
+		}
+	} else {
+		maxKeys = maxObjectList
+	}
+
+	return listObjectsV2Params{
+		prefix:       trimLeadingSlash(values.Get("prefix")),
+		token:        string(decodedToken),
+		delimiter:    values.Get("delimiter"),
+		maxKeys:      maxKeys,
+		fetchOwner:   values.Get("fetch-owner") == "true",
+		startAfter:   trimLeadingSlash(values.Get("start-after")),
+		encodingType: values.Get("encoding-type"),
+	}, nil
 }

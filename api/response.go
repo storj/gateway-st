@@ -22,6 +22,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"net/http"
@@ -254,6 +255,60 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 			Prefix: s3EncodeName(prefix, params.encodingType),
 		})
 	}
+
+	return data
+}
+
+func generateListObjectsV2Response(bucketName string, params listObjectsV2Params, listInfo cmd.ListObjectsV2Info) cmd.ListObjectsV2Response {
+	data := cmd.ListObjectsV2Response{
+		Name:                  bucketName,
+		Contents:              make([]cmd.Object, 0, len(listInfo.Objects)),
+		EncodingType:          params.encodingType,
+		StartAfter:            s3EncodeName(params.startAfter, params.encodingType),
+		Delimiter:             s3EncodeName(params.delimiter, params.encodingType),
+		Prefix:                s3EncodeName(params.prefix, params.encodingType),
+		MaxKeys:               params.maxKeys,
+		ContinuationToken:     base64.StdEncoding.EncodeToString([]byte(params.token)),
+		NextContinuationToken: base64.StdEncoding.EncodeToString([]byte(listInfo.NextContinuationToken)),
+		IsTruncated:           listInfo.IsTruncated,
+		CommonPrefixes:        make([]cmd.CommonPrefix, 0, len(listInfo.Prefixes)),
+	}
+
+	for _, object := range listInfo.Objects {
+		if object.Name == "" {
+			continue
+		}
+
+		content := cmd.Object{
+			Key:          s3EncodeName(object.Name, params.encodingType),
+			LastModified: object.ModTime.UTC().Format(iso8601Milli),
+			Size:         object.Size,
+			Owner: cmd.Owner{
+				ID:          defaultOwnerID,
+				DisplayName: defaultOwnerDisplayName,
+			},
+		}
+
+		if object.ETag != "" {
+			content.ETag = "\"" + object.ETag + "\""
+		}
+
+		if object.StorageClass != "" {
+			content.StorageClass = object.StorageClass
+		} else {
+			content.StorageClass = defaultStorageClass
+		}
+
+		data.Contents = append(data.Contents, content)
+	}
+
+	for _, prefix := range listInfo.Prefixes {
+		data.CommonPrefixes = append(data.CommonPrefixes, cmd.CommonPrefix{
+			Prefix: s3EncodeName(prefix, params.encodingType),
+		})
+	}
+
+	data.KeyCount = len(data.Contents) + len(data.CommonPrefixes)
 
 	return data
 }
