@@ -188,3 +188,71 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 		encodingType: values.Get("encoding-type"),
 	}, nil
 }
+
+// ListObjectVersionsHandler is the HTTP handler for the ListObjectVersions operation,
+// which lists the object versions in a bucket.
+func (api *API) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListObjectVersions")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	params, err := getListObjectVersionsParams(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if err := validateListObjectsParams(params.maxKeys, params.encodingType); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	listObjectVersionsInfo, err := api.objectAPI.ListObjectVersions(ctx, bucketName, params.prefix, params.marker,
+		params.versionIDMarker, params.delimiter, params.maxKeys)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	resp, err := encodeResponse(generateListVersionsResponse(bucketName, params, listObjectVersionsInfo))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseXML(w, resp)
+}
+
+type listObjectVersionsParams struct {
+	prefix          string
+	marker          string
+	versionIDMarker string
+	delimiter       string
+	maxKeys         int
+	encodingType    string
+}
+
+func getListObjectVersionsParams(values url.Values) (params listObjectVersionsParams, err error) {
+	var maxKeys int
+	if maxKeysStr := values.Get("max-keys"); maxKeysStr != "" {
+		if maxKeys, err = strconv.Atoi(maxKeysStr); err != nil {
+			return listObjectVersionsParams{}, apierr.CodeInvalidMaxKeys
+		}
+	} else {
+		maxKeys = maxObjectList
+	}
+
+	return listObjectVersionsParams{
+		prefix:          trimLeadingSlash(values.Get("prefix")),
+		marker:          trimLeadingSlash(values.Get("key-marker")),
+		versionIDMarker: values.Get("version-id-marker"),
+		delimiter:       values.Get("delimiter"),
+		maxKeys:         maxKeys,
+		encodingType:    values.Get("encoding-type"),
+	}, nil
+}

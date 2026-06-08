@@ -312,3 +312,65 @@ func generateListObjectsV2Response(bucketName string, params listObjectsV2Params
 
 	return data
 }
+
+func generateListVersionsResponse(bucketName string, params listObjectVersionsParams, listInfo cmd.ListObjectVersionsInfo) cmd.ListVersionsResponse {
+	data := cmd.ListVersionsResponse{
+		Name:                bucketName,
+		Versions:            make([]cmd.ObjectVersion, 0, len(listInfo.Objects)),
+		EncodingType:        params.encodingType,
+		Prefix:              s3EncodeName(params.prefix, params.encodingType),
+		KeyMarker:           s3EncodeName(params.marker, params.encodingType),
+		Delimiter:           s3EncodeName(params.delimiter, params.encodingType),
+		MaxKeys:             params.maxKeys,
+		NextKeyMarker:       s3EncodeName(listInfo.NextMarker, params.encodingType),
+		NextVersionIDMarker: listInfo.NextVersionIDMarker,
+		VersionIDMarker:     params.versionIDMarker,
+		IsTruncated:         listInfo.IsTruncated,
+		CommonPrefixes:      make([]cmd.CommonPrefix, 0, len(listInfo.Prefixes)),
+	}
+
+	for _, object := range listInfo.Objects {
+		if object.Name == "" {
+			continue
+		}
+
+		content := cmd.ObjectVersion{
+			Object: cmd.Object{
+				Key:          s3EncodeName(object.Name, params.encodingType),
+				LastModified: object.ModTime.UTC().Format(iso8601Milli),
+				Size:         object.Size,
+				Owner: cmd.Owner{
+					ID:          defaultOwnerID,
+					DisplayName: defaultOwnerDisplayName,
+				},
+			},
+			VersionID:      object.VersionID,
+			IsLatest:       object.IsLatest,
+			IsDeleteMarker: object.DeleteMarker,
+		}
+
+		if object.ETag != "" {
+			content.ETag = "\"" + object.ETag + "\""
+		}
+
+		if object.StorageClass != "" {
+			content.StorageClass = object.StorageClass
+		} else {
+			content.StorageClass = defaultStorageClass
+		}
+
+		if content.VersionID == "" {
+			content.VersionID = nullVersionID
+		}
+
+		data.Versions = append(data.Versions, content)
+	}
+
+	for _, prefix := range listInfo.Prefixes {
+		data.CommonPrefixes = append(data.CommonPrefixes, cmd.CommonPrefix{
+			Prefix: s3EncodeName(prefix, params.encodingType),
+		})
+	}
+
+	return data
+}
