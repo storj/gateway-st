@@ -88,6 +88,11 @@
   description: Provided max-keys not an integer or within integer range
   http_status: 400
 
+- name: InvalidMaxUploads
+  code: InvalidArgument
+  description: Argument max-uploads must be an integer between 0 and 2147483647
+  http_status: 400
+
 - name: InvalidRequest
   code: InvalidRequest
   description: The request is invalid.

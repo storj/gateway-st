@@ -374,3 +374,36 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 
 	return data
 }
+
+func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultipartsInfo, encodingType string) cmd.ListMultipartUploadsResponse {
+	listMultipartUploadsResponse := cmd.ListMultipartUploadsResponse{
+		Bucket:             bucket,
+		Delimiter:          s3EncodeName(listInfo.Delimiter, encodingType),
+		IsTruncated:        listInfo.IsTruncated,
+		EncodingType:       encodingType,
+		Prefix:             s3EncodeName(listInfo.Prefix, encodingType),
+		KeyMarker:          s3EncodeName(listInfo.KeyMarker, encodingType),
+		NextKeyMarker:      s3EncodeName(listInfo.NextKeyMarker, encodingType),
+		MaxUploads:         listInfo.MaxUploads,
+		NextUploadIDMarker: listInfo.NextUploadIDMarker,
+		UploadIDMarker:     listInfo.UploadIDMarker,
+		CommonPrefixes:     make([]cmd.CommonPrefix, len(listInfo.CommonPrefixes)),
+		Uploads:            make([]cmd.Upload, len(listInfo.Uploads)),
+	}
+
+	for index, commonPrefix := range listInfo.CommonPrefixes {
+		listMultipartUploadsResponse.CommonPrefixes[index] = cmd.CommonPrefix{
+			Prefix: s3EncodeName(commonPrefix, encodingType),
+		}
+	}
+
+	for index, upload := range listInfo.Uploads {
+		listMultipartUploadsResponse.Uploads[index] = cmd.Upload{
+			UploadID:  upload.UploadID,
+			Key:       s3EncodeName(upload.Object, encodingType),
+			Initiated: upload.Initiated.UTC().Format(iso8601Milli),
+		}
+	}
+
+	return listMultipartUploadsResponse
+}

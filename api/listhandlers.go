@@ -256,3 +256,77 @@ func getListObjectVersionsParams(values url.Values) (params listObjectVersionsPa
 		encodingType:    values.Get("encoding-type"),
 	}, nil
 }
+
+// ListMultipartUploadsHandler is the HTTP handler for the ListMultipartUploads operation,
+// which lists the incomplete multipart uploads in a bucket.
+func (api *API) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListMultipartUploads")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	params, err := getListMultipartUploadsParams(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if params.maxUploads < 0 {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidMaxUploads)
+		return
+	}
+
+	if params.keyMarker != "" && !strings.HasPrefix(params.keyMarker, params.prefix) {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	listMultipartsInfo, err := api.objectAPI.ListMultipartUploads(ctx, bucketName, params.prefix, params.keyMarker,
+		params.uploadIDMarker, params.delimiter, params.maxUploads)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	response := generateListMultipartUploadsResponse(bucketName, listMultipartsInfo, params.encodingType)
+	encodedSuccessResponse, err := encodeResponse(response)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseXML(w, encodedSuccessResponse)
+}
+
+type listMultipartUploadsParams struct {
+	prefix         string
+	keyMarker      string
+	uploadIDMarker string
+	delimiter      string
+	maxUploads     int
+	encodingType   string
+}
+
+func getListMultipartUploadsParams(values url.Values) (params listMultipartUploadsParams, err error) {
+	var maxUploads int
+	if maxUploadsStr := values.Get("max-uploads"); maxUploadsStr != "" {
+		if maxUploads, err = strconv.Atoi(maxUploadsStr); err != nil {
+			return listMultipartUploadsParams{}, apierr.CodeInvalidMaxUploads
+		}
+	} else {
+		maxUploads = maxObjectList
+	}
+
+	return listMultipartUploadsParams{
+		prefix:         trimLeadingSlash(values.Get("prefix")),
+		keyMarker:      trimLeadingSlash(values.Get("key-marker")),
+		uploadIDMarker: values.Get("upload-id-marker"),
+		delimiter:      values.Get("delimiter"),
+		maxUploads:     maxUploads,
+		encodingType:   values.Get("encoding-type"),
+	}, nil
+}

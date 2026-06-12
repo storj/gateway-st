@@ -25,6 +25,7 @@ const (
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidMaxKeys
+	CodeInvalidMaxUploads
 	CodeInvalidRequest
 	CodeMalformedDate
 	CodeMalformedExpires
@@ -162,6 +163,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidMaxKeys: {
 		Code:           "InvalidArgument",
 		Description:    "Provided max-keys not an integer or within integer range",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidMaxUploads: {
+		Code:           "InvalidArgument",
+		Description:    "Argument max-uploads must be an integer between 0 and 2147483647",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidRequest: {
