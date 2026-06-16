@@ -129,6 +129,8 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		subrouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
 		subrouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteBucketHandler)
 	}
+
+	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).HandlerFunc((api.ListBucketsHandler))
 }
 
 func requestIDMiddleware(next http.Handler) http.Handler {

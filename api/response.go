@@ -407,3 +407,22 @@ func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultip
 
 	return listMultipartUploadsResponse
 }
+
+func generateListBucketsResponse(bucketInfos []cmd.BucketInfo) cmd.ListBucketsResponse {
+	resp := cmd.ListBucketsResponse{
+		Owner: cmd.Owner{
+			ID:          defaultOwnerID,
+			DisplayName: defaultOwnerDisplayName,
+		},
+	}
+	resp.Buckets.Buckets = make([]cmd.Bucket, 0, len(bucketInfos))
+
+	for _, bucketInfo := range bucketInfos {
+		resp.Buckets.Buckets = append(resp.Buckets.Buckets, cmd.Bucket{
+			Name:         bucketInfo.Name,
+			CreationDate: bucketInfo.Created.UTC().Format(iso8601Milli),
+		})
+	}
+
+	return resp
+}

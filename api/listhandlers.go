@@ -330,3 +330,28 @@ func getListMultipartUploadsParams(values url.Values) (params listMultipartUploa
 		encodingType:   values.Get("encoding-type"),
 	}, nil
 }
+
+// ListBucketsHandler is the HTTP handler for the ListBuckets operation,
+// which lists the buckets owned by the requester.
+func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListBuckets")
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	bucketInfos, err := api.objectAPI.ListBuckets(ctx)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	resp, err := encodeResponse(generateListBucketsResponse(bucketInfos))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseXML(w, resp)
+}
