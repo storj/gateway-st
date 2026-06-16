@@ -130,6 +130,14 @@ func trimLeadingSlash(ep string) string {
 	return ep
 }
 
+func unescapePath(p string) (string, error) {
+	ep, err := url.PathUnescape(p)
+	if err != nil {
+		return "", err
+	}
+	return trimLeadingSlash(ep), nil
+}
+
 func shouldEscape(c byte) bool {
 	if 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' {
 		return false

@@ -83,6 +83,20 @@ type Option func(*API)
 // RegisterHandlers registers S3-compatible HTTP handlers on the provided router.
 func (api *API) RegisterHandlers(router *mux.Router) {
 	apiRouter := router.PathPrefix(cmd.SlashSeparator).Subrouter()
+	// UseEncodedPath configures the router to match routes using the raw (percent-encoded) form of
+	// the request path instead of the unescaped one. This is required because object keys which
+	// are present in the URL may contain characters that, when decoded, break request routing.
+	// For example, an object key may contain a newline character, which isn't matched by the
+	// "." in regular expressions used for route matching. This would cause the the request to be
+	// misrouted. (The MinIO issue suggests that more cases exist, but only the newline case has
+	// been verified by us.)
+	// See: https://github.com/minio/minio/issues/8950
+	apiRouter.UseEncodedPath()
+	// SkipClean disables path cleaning. This is required because signature verification must use
+	// the raw path.
+	// See: https://github.com/minio/minio/issues/3256
+	apiRouter.SkipClean(true)
+
 	apiRouter.Use(requestIDMiddleware)
 
 	var subrouters []*mux.Router
@@ -95,6 +109,11 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 	for _, subrouter := range subrouters {
 		api.registerUnsupportedHandlers(subrouter)
+
+		// Object-level operations
+		objRouter := subrouter.Path("/{object:.+}").Subrouter()
+
+		objRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutObjectAclHandler)
 
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)

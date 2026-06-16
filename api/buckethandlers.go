@@ -197,7 +197,9 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.(http.Flusher).Flush()
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // PutBucketNotificationConfigurationHandler is the HTTP handler for the PutBucketNotificationConfiguration
