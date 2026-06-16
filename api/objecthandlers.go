@@ -24,13 +24,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 
+	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 )
 
 // PutObjectAclHandler is the HTTP handler for the PutObjectAcl operation,
@@ -105,4 +108,63 @@ func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+// PutObjectLegalHoldHandler is the HTTP handler for the PutObjectLegalHold operation,
+// which sets an object's legal hold configuration.
+func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutObjectLegalHold")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if !hasContentMD5 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5)
+		return
+	}
+	checksumReqs = append(checksumReqs, checksumReq)
+
+	body, err := vr.Reader(checksumReqs...)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	legalHold, err := objectlock.ParseObjectLegalHold(body)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID := strings.TrimSpace(r.URL.Query().Get(xhttp.VersionID))
+	if versionID != "" && versionID != nullVersionID {
+		if _, err := uuid.FromString(versionID); err != nil {
+			api.writeErrorResponse(w, r, apierr.CodeNoSuchVersion)
+			return
+		}
+	}
+
+	if err = api.objectAPI.SetObjectLegalHold(ctx, bucketName, objectKey, versionID, legalHold); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
 }

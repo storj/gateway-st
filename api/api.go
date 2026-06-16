@@ -114,6 +114,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		objRouter := subrouter.Path("/{object:.+}").Subrouter()
 
 		objRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutObjectAclHandler)
+		objRouter.Methods(http.MethodPut).Queries("legal-hold", "").HandlerFunc(api.PutObjectLegalHoldHandler)
 
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)

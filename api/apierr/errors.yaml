@@ -148,9 +148,9 @@
   description: You must provide the Content-Length HTTP header.
   http_status: 411
 
-- name: MissingContentMD5AndChecksum
+- name: MissingContentMD5
   code: InvalidRequest
-  description: "Missing required header for this request: Content-MD5 OR x-amz-checksum-*"
+  description: "Missing required header for this request: Content-MD5"
   http_status: 400
 
 - name: MissingPOSTPolicy

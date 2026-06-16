@@ -36,7 +36,7 @@ const (
 	CodeMaximumExpires
 	CodeMethodNotAllowed
 	CodeMissingContentLength
-	CodeMissingContentMD5AndChecksum
+	CodeMissingContentMD5
 	CodeMissingPOSTPolicy
 	CodeMissingSecurityHeader
 	CodeNegativeExpires
@@ -220,9 +220,9 @@ var codeToResponse = map[Code]Response{
 		Description:    "You must provide the Content-Length HTTP header.",
 		HTTPStatusCode: http.StatusLengthRequired,
 	},
-	CodeMissingContentMD5AndChecksum: {
+	CodeMissingContentMD5: {
 		Code:           "InvalidRequest",
-		Description:    "Missing required header for this request: Content-MD5 OR x-amz-checksum-*",
+		Description:    "Missing required header for this request: Content-MD5",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMissingPOSTPolicy: {

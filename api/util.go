@@ -135,6 +135,7 @@ func unescapePath(p string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// S3 ignores the first leading slash of object keys provided in request URLs.
 	return trimLeadingSlash(ep), nil
 }
 

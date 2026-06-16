@@ -881,7 +881,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !present {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5AndChecksum)
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5)
 		return
 	}
 
