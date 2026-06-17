@@ -26,6 +26,7 @@ const (
 	CodeInvalidForceDelete
 	CodeInvalidMaxKeys
 	CodeInvalidMaxUploads
+	CodeInvalidPartNumber
 	CodeInvalidRequest
 	CodeMalformedDate
 	CodeMalformedExpires
@@ -168,6 +169,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidMaxUploads: {
 		Code:           "InvalidArgument",
 		Description:    "Argument max-uploads must be an integer between 0 and 2147483647",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidPartNumber: {
+		Code:           "InvalidArgument",
+		Description:    "Part number must be an integer between 1 and 10000, inclusive",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidRequest: {

@@ -229,6 +229,18 @@ func s3EncodeName(name string, encodingType string) (result string) {
 	return name
 }
 
+func isStreamingSigV4(r *http.Request) bool {
+	if strings.HasPrefix(r.Header.Get(xhttp.Authorization), "AWS4-") {
+		switch r.Header.Get(xhttp.AmzContentSha256) {
+		case "STREAMING-UNSIGNED-PAYLOAD-TRAILER",
+			"STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
+			"STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER":
+			return true
+		}
+	}
+	return false
+}
+
 // GetObjectURL gets the fully qualified URL of an object.
 func GetObjectURL(r *http.Request, object string) string {
 	scheme := strings.ToLower(r.Header.Get("X-Forwarded-Proto"))

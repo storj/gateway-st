@@ -93,6 +93,11 @@
   description: Argument max-uploads must be an integer between 0 and 2147483647
   http_status: 400
 
+- name: InvalidPartNumber
+  code: InvalidArgument
+  description: Part number must be an integer between 1 and 10000, inclusive
+  http_status: 400
+
 - name: InvalidRequest
   code: InvalidRequest
   description: The request is invalid.

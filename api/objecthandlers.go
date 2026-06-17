@@ -24,14 +24,25 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
+	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
+	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
+	"storj.io/minio/pkg/hash"
+)
+
+const (
+	maxPartSize   = 5 * int64(memory.GiB)
+	minPartNumber = 1
+	maxPartNumber = 10000
 )
 
 // PutObjectAclHandler is the HTTP handler for the PutObjectAcl operation,
@@ -222,6 +233,89 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 	if objInfo.VersionID != "" {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
+
+	writeSuccessResponseHeadersOnly(w)
+}
+
+// UploadPartHandler is the HTTP handler for the UploadPart operation, which uploads a part
+// of a multipart upload.
+func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "UploadPart")
+
+	// Reject UploadPartCopy requests that may have been routed here due to a misconfiguration.
+	if _, ok := r.Header[xhttp.AmzCopySource]; ok {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			// TODO: Support checksum options
+			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	body, err := api.verifyWithBody(r, false)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	size := r.ContentLength
+
+	if isStreamingSigV4(r) {
+		size, err = strconv.ParseInt(r.Header.Get(xhttp.AmzDecodedContentLength), 10, 64)
+		if err != nil {
+			// This shouldn't happen here as this case is handled previously by awsig's validation
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+	}
+
+	if size == -1 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+		return
+	}
+
+	if size > maxPartSize {
+		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
+		return
+	}
+
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+
+	partNumStr := r.URL.Query().Get(xhttp.PartNumber)
+	partNumber, err := strconv.Atoi(partNumStr)
+	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumber)
+		return
+	}
+
+	putObjReader := cmd.NewPutObjReader(hash.NewAwsigReader(body, size, size))
+	partInfo, err := api.objectAPI.PutObjectPart(ctx, bucketName, objectKey, uploadID, partNumber, putObjReader, cmd.ObjectOptions{})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	// We must not use the http.Header().Set method here because some (broken)
+	// clients expect the ETag header key to be literally "ETag" - not "Etag" (case-sensitive).
+	// Therefore, we have to set the ETag directly as a map entry.
+	w.Header()[xhttp.ETag] = []string{"\"" + partInfo.ETag + "\""}
 
 	writeSuccessResponseHeadersOnly(w)
 }
