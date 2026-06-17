@@ -33,6 +33,7 @@ import (
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 
+	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
@@ -54,6 +55,16 @@ func xmlDecoder(body io.Reader, v any, size int64) error {
 	d := xml.NewDecoder(limitedBody)
 	d.CharsetReader = nopCharsetConverter
 	return d.Decode(v)
+}
+
+func extractVersionID(v url.Values) (string, error) {
+	versionID := strings.TrimSpace(v.Get(xhttp.VersionID))
+	if versionID != "" && versionID != nullVersionID {
+		if _, err := uuid.FromString(versionID); err != nil {
+			return "", apierr.CodeNoSuchVersion
+		}
+	}
+	return versionID, nil
 }
 
 func extractContentMD5(h http.Header) ([]byte, error) {

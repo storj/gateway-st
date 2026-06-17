@@ -24,12 +24,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 
-	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
@@ -153,15 +151,80 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	versionID := strings.TrimSpace(r.URL.Query().Get(xhttp.VersionID))
-	if versionID != "" && versionID != nullVersionID {
-		if _, err := uuid.FromString(versionID); err != nil {
-			api.writeErrorResponse(w, r, apierr.CodeNoSuchVersion)
-			return
-		}
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
 	}
 
 	if err = api.objectAPI.SetObjectLegalHold(ctx, bucketName, objectKey, versionID, legalHold); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
+}
+
+// PutObjectRetentionHandler is the HTTP handler for the PutObjectRetention operation,
+// which sets an object's retention configuration.
+func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutObjectRetention")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if !hasContentMD5 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5)
+		return
+	}
+	checksumReqs = append(checksumReqs, checksumReq)
+
+	body, err := vr.Reader(checksumReqs...)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	retention, err := objectlock.ParseObjectRetention(body)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	// if requesting governance bypass, object layer only removes the active
+	// retention if retention is nil.
+	governanceBypassSet := objectlock.IsObjectLockGovernanceBypassSet(r.Header)
+	if governanceBypassSet && retention.Mode == "" && retention.RetainUntilDate.IsZero() {
+		retention = nil
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if err = api.objectAPI.SetObjectRetention(ctx, bucketName, objectKey, versionID, cmd.ObjectOptions{
+		Retention:                 retention,
+		BypassGovernanceRetention: governanceBypassSet,
+	}); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
