@@ -25,8 +25,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
+	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
@@ -47,23 +47,7 @@ func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -121,25 +105,7 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if !hasContentMD5 {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5)
-		return
-	}
-	checksumReqs = append(checksumReqs, checksumReq)
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, true)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -178,25 +144,7 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if !hasContentMD5 {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5)
-		return
-	}
-	checksumReqs = append(checksumReqs, checksumReq)
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, true)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -227,6 +175,52 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 	}); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
+	}
+
+	writeSuccessResponseHeadersOnly(w)
+}
+
+// PutObjectTaggingHandler is the HTTP handler for the PutObjectTagging operation,
+// which places a set of tags on an object.
+func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutObjectTagging")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	body, err := api.verifyWithBody(r, false)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	tags, err := tags.ParseObjectXML(io.LimitReader(body, r.ContentLength))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	objInfo, err := api.objectAPI.PutObjectTags(ctx, bucketName, objectKey, tags.String(), cmd.ObjectOptions{
+		VersionID: versionID,
+	})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
 
 	writeSuccessResponseHeadersOnly(w)

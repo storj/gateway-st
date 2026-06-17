@@ -255,6 +255,32 @@ func GetObjectURL(r *http.Request, object string) string {
 	}).String()
 }
 
+func (api *API) verifyWithBody(r *http.Request, requireContentMD5 bool) (awsig.Reader, error) {
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		return nil, err
+	}
+
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
+	} else if requireContentMD5 {
+		return nil, apierr.CodeMissingContentMD5
+	}
+
+	body, err := vr.Reader(checksumReqs...)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
 type limitedAwsigReader struct {
 	reader   awsig.Reader
 	limit    int64

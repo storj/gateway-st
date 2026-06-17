@@ -80,23 +80,7 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -140,25 +124,9 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
 	// Amazon S3's documentation states that the "Content-Md5" header is required for this operation,
 	// but testing has shown that this isn't true. Therefore, we don't require it, either.
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -209,23 +177,7 @@ func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter,
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -252,23 +204,7 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -295,23 +231,7 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -338,23 +258,7 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
-	}
-
-	body, err := vr.Reader(checksumReqs...)
+	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
