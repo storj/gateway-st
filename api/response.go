@@ -53,7 +53,7 @@ const (
 	mimeXML  mimeType = "application/xml"
 )
 
-func writeResponse(w http.ResponseWriter, statusCode int, response []byte, mType mimeType) {
+func (api *API) writeResponse(w http.ResponseWriter, r *http.Request, statusCode int, response []byte, mType mimeType) {
 	setCommonHeaders(w)
 	if mType != mimeNone {
 		w.Header().Set(xhttp.ContentType, string(mType))
@@ -61,7 +61,10 @@ func writeResponse(w http.ResponseWriter, statusCode int, response []byte, mType
 	w.Header().Set(xhttp.ContentLength, strconv.Itoa(len(response)))
 	w.WriteHeader(statusCode)
 	if response != nil {
-		_, _ = w.Write(response)
+		_, err := w.Write(response)
+		if err != nil {
+			api.log.Error(r, "error writing response", err)
+		}
 		w.(http.Flusher).Flush()
 	}
 }
@@ -80,21 +83,21 @@ func encodeResponse(response any) ([]byte, error) {
 	return bytesBuffer.Bytes(), nil
 }
 
-func writeRedirectSeeOther(w http.ResponseWriter, location string) {
+func (api *API) writeRedirectSeeOther(w http.ResponseWriter, r *http.Request, location string) {
 	w.Header().Set(xhttp.Location, location)
-	writeResponse(w, http.StatusSeeOther, nil, mimeNone)
+	api.writeResponse(w, r, http.StatusSeeOther, nil, mimeNone)
 }
 
-func writeSuccessResponseHeadersOnly(w http.ResponseWriter) {
-	writeResponse(w, http.StatusOK, nil, mimeNone)
+func (api *API) writeSuccessResponseHeadersOnly(w http.ResponseWriter, r *http.Request) {
+	api.writeResponse(w, r, http.StatusOK, nil, mimeNone)
 }
 
-func writeSuccessResponseXML(w http.ResponseWriter, response []byte) {
-	writeResponse(w, http.StatusOK, response, mimeXML)
+func (api *API) writeSuccessResponseXML(w http.ResponseWriter, r *http.Request, response []byte) {
+	api.writeResponse(w, r, http.StatusOK, response, mimeXML)
 }
 
-func writeSuccessNoContent(w http.ResponseWriter) {
-	writeResponse(w, http.StatusNoContent, nil, mimeNone)
+func (api *API) writeSuccessNoContent(w http.ResponseWriter, r *http.Request) {
+	api.writeResponse(w, r, http.StatusNoContent, nil, mimeNone)
 }
 
 func (api *API) writeErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
@@ -118,10 +121,10 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 	e := xml.NewEncoder(buf)
 	if xmlErr := e.Encode(resp); xmlErr != nil {
 		api.log.Error(r, "error encoding XML error response", err)
-		writeResponse(w, http.StatusInternalServerError, nil, mimeNone)
+		api.writeResponse(w, r, http.StatusInternalServerError, nil, mimeNone)
 	}
 
-	writeResponse(w, resp.HTTPStatusCode, buf.Bytes(), mimeXML)
+	api.writeResponse(w, r, resp.HTTPStatusCode, buf.Bytes(), mimeXML)
 }
 
 func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWriter, err error) {
@@ -130,7 +133,7 @@ func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWr
 		api.log.Error(r, "unexpected error", err)
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
-	writeResponse(w, resp.HTTPStatusCode, nil, mimeNone)
+	api.writeResponse(w, r, resp.HTTPStatusCode, nil, mimeNone)
 }
 
 func errToResponse(err error) (resp apierr.Response, matched bool) {
@@ -425,4 +428,11 @@ func generateListBucketsResponse(bucketInfos []cmd.BucketInfo) cmd.ListBucketsRe
 	}
 
 	return resp
+}
+
+func generateCopyObjectPartResponse(partInfo cmd.PartInfo) cmd.CopyObjectPartResponse {
+	return cmd.CopyObjectPartResponse{
+		ETag:         "\"" + partInfo.ETag + "\"",
+		LastModified: partInfo.LastModified.UTC().Format(iso8601Milli),
+	}
 }

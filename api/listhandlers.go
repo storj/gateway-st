@@ -69,7 +69,7 @@ func (api *API) ListObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSuccessResponseXML(w, response)
+	api.writeSuccessResponseXML(w, r, response)
 }
 
 type listObjectsParams struct {
@@ -145,7 +145,7 @@ func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSuccessResponseXML(w, resp)
+	api.writeSuccessResponseXML(w, r, resp)
 }
 
 type listObjectsV2Params struct {
@@ -225,7 +225,7 @@ func (api *API) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeSuccessResponseXML(w, resp)
+	api.writeSuccessResponseXML(w, r, resp)
 }
 
 type listObjectVersionsParams struct {
@@ -299,7 +299,7 @@ func (api *API) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeSuccessResponseXML(w, encodedSuccessResponse)
+	api.writeSuccessResponseXML(w, r, encodedSuccessResponse)
 }
 
 type listMultipartUploadsParams struct {
@@ -353,5 +353,5 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSuccessResponseXML(w, resp)
+	api.writeSuccessResponseXML(w, r, resp)
 }

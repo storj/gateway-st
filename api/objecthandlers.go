@@ -24,6 +24,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -139,7 +140,7 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeSuccessResponseHeadersOnly(w)
+	api.writeSuccessResponseHeadersOnly(w, r)
 }
 
 // PutObjectRetentionHandler is the HTTP handler for the PutObjectRetention operation,
@@ -188,7 +189,7 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeSuccessResponseHeadersOnly(w)
+	api.writeSuccessResponseHeadersOnly(w, r)
 }
 
 // PutObjectTaggingHandler is the HTTP handler for the PutObjectTagging operation,
@@ -234,7 +235,7 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
 
-	writeSuccessResponseHeadersOnly(w)
+	api.writeSuccessResponseHeadersOnly(w, r)
 }
 
 // UploadPartHandler is the HTTP handler for the UploadPart operation, which uploads a part
@@ -317,5 +318,117 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	// Therefore, we have to set the ETag directly as a map entry.
 	w.Header()[xhttp.ETag] = []string{"\"" + partInfo.ETag + "\""}
 
-	writeSuccessResponseHeadersOnly(w)
+	api.writeSuccessResponseHeadersOnly(w, r)
+}
+
+// UploadPartCopyHandler is the HTTP handler for the UploadPartCopyHandler operation,
+// which uploads a part of a multipart upload using an existing object as a data source.
+func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "UploadPartCopy")
+
+	for _, header := range []string{
+		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfModifiedSince),
+		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfUnmodifiedSince),
+		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfNoneMatch),
+		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfMatch),
+		xhttp.AmzServerSideEncryptionCustomerAlgorithm,
+		xhttp.AmzServerSideEncryptionCustomerKey,
+		xhttp.AmzServerSideEncryptionCustomerKeyMD5,
+		xhttp.AmzServerSideEncryptionCopyCustomerAlgorithm,
+		xhttp.AmzServerSideEncryptionCopyCustomerKey,
+		xhttp.AmzServerSideEncryptionCopyCustomerKeyMD5,
+		"X-Amz-Request-Payer",
+		"X-Amz-Expected-Bucket-Owner",
+		"X-Amz-Source-Expected-Bucket-Owner",
+	} {
+		if _, ok := r.Header[header]; ok {
+			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+			return
+		}
+	}
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	vars := mux.Vars(r)
+	dstBucket := vars["bucket"]
+	dstObject, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	cpSrcPath := r.Header.Get(xhttp.AmzCopySource)
+	var srcVersionID string
+	if u, err := url.Parse(cpSrcPath); err == nil {
+		srcVersionID = strings.TrimSpace(u.Query().Get(xhttp.VersionID))
+		// Note that url.Parse does the unescaping
+		cpSrcPath = u.Path
+	}
+
+	srcBucket, srcObject := splitCopySourcePath(cpSrcPath)
+	if srcObject == "" || srcBucket == "" {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidCopySource)
+		return
+	}
+
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+
+	partNumberStr := r.URL.Query().Get(xhttp.PartNumber)
+	partNumber, err := strconv.Atoi(partNumberStr)
+	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumber)
+		return
+	}
+
+	startOffset, length := int64(0), int64(-1)
+
+	if rangeHeader := r.Header.Get(xhttp.AmzCopySourceRange); rangeHeader != "" {
+		if rangeSpec, err := parseRangeForCopy(rangeHeader); err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		} else if rangeSpec != nil {
+			startOffset, length = rangeSpec.Start, rangeSpec.End-rangeSpec.Start+1
+		}
+	}
+
+	if length > maxPartSize {
+		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
+		return
+	}
+
+	partInfo, err := api.objectAPI.CopyObjectPart(
+		ctx,
+		srcBucket, srcObject, dstBucket, dstObject, uploadID,
+		partNumber,
+		startOffset, length,
+		cmd.ObjectInfo{},
+		cmd.ObjectOptions{VersionID: srcVersionID}, cmd.ObjectOptions{},
+	)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	response := generateCopyObjectPartResponse(partInfo)
+	encodedSuccessResponse, err := encodeResponse(response)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if srcVersionID != "" {
+		w.Header().Set(xhttp.AmzCopySourceVersionID, srcVersionID)
+	}
+
+	api.writeSuccessResponseXML(w, r, encodedSuccessResponse)
 }

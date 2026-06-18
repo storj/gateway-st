@@ -22,12 +22,15 @@ const (
 	CodeInvalidAccessKeyID
 	CodeInvalidContentMD5
 	CodeInvalidContentSHA256
+	CodeInvalidCopySource
+	CodeInvalidCopySourceRange
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidMaxKeys
 	CodeInvalidMaxUploads
 	CodeInvalidPartNumber
 	CodeInvalidRequest
+	CodeMalformedCopySourceRange
 	CodeMalformedDate
 	CodeMalformedExpires
 	CodeMalformedPOSTDate
@@ -151,6 +154,16 @@ var codeToResponse = map[Code]Response{
 		Description:    "x-amz-content-sha256 must be UNSIGNED-PAYLOAD, STREAMING-AWS4-HMAC-SHA256-PAYLOAD, or a valid sha256 value.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidCopySource: {
+		Code:           "InvalidArgument",
+		Description:    "Copy Source must mention the source bucket and key: sourcebucket/sourcekey",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidCopySourceRange: {
+		Code:           "InvalidArgument",
+		Description:    "The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidEncodingMethod: {
 		Code:           "InvalidArgument",
 		Description:    "Invalid Encoding Method specified in Request",
@@ -179,6 +192,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidRequest: {
 		Code:           "InvalidRequest",
 		Description:    "The request is invalid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMalformedCopySourceRange: {
+		Code:           "InvalidArgument",
+		Description:    "Range specified is not valid for source object",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMalformedDate: {

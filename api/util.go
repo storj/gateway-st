@@ -27,11 +27,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
+	"strconv"
 	"strings"
 
 	"github.com/amwolff/awsig"
-	"github.com/gorilla/mux"
 
 	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
@@ -39,7 +38,10 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 )
 
-const urlEncodingType = "url"
+const (
+	urlEncodingType = "url"
+	byteRangePrefix = "bytes="
+)
 
 // nopCharsetConverter is an XML charset reader that performs no conversion.
 // It is used to ignore the encoding that may be specified in the body of an S3 request.
@@ -102,126 +104,6 @@ func getContentMD5ChecksumRequest(h http.Header) (checksumReq awsig.ChecksumRequ
 	return req, true, nil
 }
 
-// getResource returns "/bucketName/objectName" for path-style or virtual-hosted-style requests.
-func getResource(r *http.Request) string {
-	vHostBucket := getVirtualHostedBucket(r)
-	if vHostBucket == "" {
-		return r.URL.Path
-	}
-	return cmd.SlashSeparator + pathJoin(vHostBucket, r.URL.Path)
-}
-
-// pathJoin functions identically to path.Join but retains the trailing slash of the last element.
-func pathJoin(elems ...string) string {
-	trailingSlash := ""
-	if len(elems) > 0 {
-		if strings.HasSuffix(elems[len(elems)-1], cmd.SlashSeparator) {
-			trailingSlash = cmd.SlashSeparator
-		}
-	}
-	return path.Join(elems...) + trailingSlash
-}
-
-func pathClean(p string) string {
-	cp := path.Clean(p)
-	if cp == "." {
-		return ""
-	}
-	return cp
-}
-
-func trimLeadingSlash(ep string) string {
-	if len(ep) > 0 && ep[0] == '/' {
-		keepTrailingSlash := strings.HasSuffix(ep, cmd.SlashSeparator) && len(ep) > 1
-		ep = path.Clean(ep)
-		if keepTrailingSlash {
-			ep += cmd.SlashSeparator
-		}
-	}
-	return ep
-}
-
-func unescapePath(p string) (string, error) {
-	ep, err := url.PathUnescape(p)
-	if err != nil {
-		return "", err
-	}
-	// S3 ignores the first leading slash of object keys provided in request URLs.
-	return trimLeadingSlash(ep), nil
-}
-
-func shouldEscape(c byte) bool {
-	if 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' {
-		return false
-	}
-
-	switch c {
-	case '-', '_', '.', '/', '*':
-		return false
-	}
-	return true
-}
-
-// s3URLEncode is based on Golang's url.QueryEscape() code,
-// while considering some S3 exceptions:
-//   - Avoid encoding '/' and '*'
-//   - Force encoding of '~'
-func s3URLEncode(s string) string {
-	spaceCount, hexCount := 0, 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if shouldEscape(c) {
-			if c == ' ' {
-				spaceCount++
-			} else {
-				hexCount++
-			}
-		}
-	}
-
-	if spaceCount == 0 && hexCount == 0 {
-		return s
-	}
-
-	var buf [64]byte
-	var t []byte
-
-	required := len(s) + 2*hexCount
-	if required <= len(buf) {
-		t = buf[:required]
-	} else {
-		t = make([]byte, required)
-	}
-
-	if hexCount == 0 {
-		copy(t, s)
-		for i := 0; i < len(s); i++ {
-			if s[i] == ' ' {
-				t[i] = '+'
-			}
-		}
-		return string(t)
-	}
-
-	j := 0
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; {
-		case c == ' ':
-			t[j] = '+'
-			j++
-		case shouldEscape(c):
-			t[j] = '%'
-			t[j+1] = "0123456789ABCDEF"[c>>4]
-			t[j+2] = "0123456789ABCDEF"[c&15]
-			j += 3
-		default:
-			t[j] = s[i]
-			j++
-		}
-	}
-	return string(t)
-}
-
 func s3EncodeName(name string, encodingType string) (result string) {
 	if strings.ToLower(encodingType) == urlEncodingType {
 		return s3URLEncode(name)
@@ -241,30 +123,86 @@ func isStreamingSigV4(r *http.Request) bool {
 	return false
 }
 
-// GetObjectURL gets the fully qualified URL of an object.
-func GetObjectURL(r *http.Request, object string) string {
-	scheme := strings.ToLower(r.Header.Get("X-Forwarded-Proto"))
-	if scheme == "" {
-		if r.TLS != nil {
-			scheme = "https"
-		} else {
-			scheme = "http"
+// ParseRange parses an HTTP range string as an HTTPRangeSpec. It returns apierr.CodeMalformedCopySourceRange
+// if the range string is malformed and apierr.CodeInvalidCopySourceRange if it is well-formed but
+// semantically invalid.
+func ParseRange(rangeString string) (*cmd.HTTPRangeSpec, error) {
+	byteRangeStr, ok := strings.CutPrefix(rangeString, byteRangePrefix)
+	if !ok {
+		return nil, apierr.CodeMalformedCopySourceRange
+	}
+
+	beginOffsetStr, endOffsetStr, ok := strings.Cut(byteRangeStr, "-")
+	if !ok {
+		return nil, apierr.CodeMalformedCopySourceRange
+	}
+
+	beginOffset, hasBeginOffset, err := parseRangeOffset(beginOffsetStr)
+	if err != nil {
+		return nil, apierr.CodeMalformedCopySourceRange
+	}
+
+	endOffset, hasEndOffset, err := parseRangeOffset(endOffsetStr)
+	if err != nil {
+		return nil, apierr.CodeMalformedCopySourceRange
+	}
+
+	switch {
+	case hasBeginOffset && hasEndOffset:
+		if beginOffset > endOffset {
+			return nil, apierr.CodeInvalidCopySourceRange
 		}
+		return &cmd.HTTPRangeSpec{
+			IsSuffixLength: false,
+			Start:          beginOffset,
+			End:            endOffset,
+		}, nil
+	case hasBeginOffset:
+		return &cmd.HTTPRangeSpec{
+			IsSuffixLength: false,
+			Start:          beginOffset,
+			End:            -1,
+		}, nil
+	case hasEndOffset:
+		if endOffset == 0 {
+			return nil, apierr.CodeInvalidCopySourceRange
+		}
+		return &cmd.HTTPRangeSpec{
+			IsSuffixLength: true,
+			Start:          -endOffset,
+			End:            -1,
+		}, nil
+	default:
+		return nil, apierr.CodeMalformedCopySourceRange
 	}
+}
 
-	var urlPath string
-	if len(getVirtualHostedBucket(r)) != 0 {
-		urlPath = path.Join(cmd.SlashSeparator, object)
-	} else {
-		bucket := mux.Vars(r)["bucket"]
-		urlPath = path.Join(cmd.SlashSeparator, bucket, object)
+func parseRangeOffset(s string) (offset int64, present bool, err error) {
+	if s == "" {
+		return 0, false, nil
 	}
+	if s[0] == '+' || s[0] == '-' {
+		return 0, false, apierr.CodeMalformedCopySourceRange
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 {
+		return 0, false, apierr.CodeMalformedCopySourceRange
+	}
+	return n, true, nil
+}
 
-	return (&url.URL{
-		Host:   r.Host,
-		Path:   urlPath,
-		Scheme: scheme,
-	}).String()
+// parseRangeForCopy parses an HTTP range string as an HTTPRangeSpec. It functions identically to
+// parseRange with the exception of returning apierr.CodeInvalidCopySourceRange for range strings
+// that are not of the form "bytes=first-last", where first and last are zero-based offsets.
+func parseRangeForCopy(rangeStr string) (rangeSpec *cmd.HTTPRangeSpec, err error) {
+	rangeSpec, err = ParseRange(rangeStr)
+	if err != nil {
+		return nil, err
+	}
+	if rangeSpec.IsSuffixLength || rangeSpec.Start < 0 || rangeSpec.End < 0 {
+		return nil, apierr.CodeInvalidCopySourceRange
+	}
+	return rangeSpec, nil
 }
 
 func (api *API) verifyWithBody(r *http.Request, requireContentMD5 bool) (awsig.Reader, error) {

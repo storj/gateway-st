@@ -73,6 +73,16 @@
   description: The Content-MD5 you specified was invalid.
   http_status: 400
 
+- name: InvalidCopySource
+  code: InvalidArgument
+  description: "Copy Source must mention the source bucket and key: sourcebucket/sourcekey"
+  http_status: 400
+
+- name: InvalidCopySourceRange
+  code: InvalidArgument
+  description: The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy
+  http_status: 400
+
 - name: InvalidEncodingMethod
   code: InvalidArgument
   description: Invalid Encoding Method specified in Request
@@ -131,6 +141,11 @@
 - name: MalformedPresignedDate
   code: MalformedPresignedDate
   description: X-Amz-Date must be in the ISO8601 Long Format "yyyyMMdd'T'HHmmss'Z'"
+  http_status: 400
+
+- name: MalformedCopySourceRange
+  code: InvalidArgument
+  description: Range specified is not valid for source object
   http_status: 400
 
 - name: MalformedXML
