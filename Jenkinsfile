@@ -4,6 +4,7 @@ pipeline {
     options {
         timeout(time: 50, unit: 'MINUTES')
         skipDefaultCheckout(true)
+        skipStagesAfterUnstable()
     }
 
     environment {
