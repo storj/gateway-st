@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -476,55 +475,4 @@ func evalCondition(op PostPolicyOperator, input, expected string) bool {
 	default:
 		return false
 	}
-}
-
-var metadataHeaders = []string{
-	"Cache-Control",
-	"Content-Encoding",
-	"Content-Disposition",
-	"Content-Language",
-	"Content-Type",
-	"Expires",
-	"X-Amz-Storage-Class",
-}
-
-// userMetadataKeyPrefixes contains the prefixes of user-defined metadata keys.
-// All values stored with a key starting with one of the following prefixes
-// must be extracted from the header.
-var userMetadataKeyPrefixes = []string{
-	"X-Amz-Meta-",
-	"X-Minio-Meta-",
-}
-
-// ExtractMetadataFromPostForm extracts object metadata from a POST form.
-func ExtractMetadataFromPostForm(postForm awsig.PostForm) (map[string]string, error) {
-	metadata := make(map[string]string, len(postForm))
-	for _, key := range metadataHeaders {
-		if !postForm.Has(key) {
-			continue
-		}
-		if _, ok := metadata[key]; ok {
-			return nil, fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
-		}
-		metadata[key] = getPostFormValue(postForm, key)
-	}
-
-	for key, elems := range postForm {
-		key = http.CanonicalHeaderKey(key)
-		for _, prefix := range userMetadataKeyPrefixes {
-			if !strings.HasPrefix(key, prefix) {
-				continue
-			}
-			if _, ok := metadata[key]; ok {
-				return nil, fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
-			}
-			values := make([]string, 0, len(elems))
-			for _, elem := range elems {
-				values = append(values, elem.Value)
-			}
-			metadata[key] = strings.Join(values, ",")
-		}
-	}
-
-	return metadata, nil
 }

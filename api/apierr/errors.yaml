@@ -113,6 +113,11 @@
   description: The request is invalid.
   http_status: 400
 
+- name: InvalidStorageClass
+  code: InvalidArgument
+  description: The specified storage class is not valid.
+  http_status: 400
+
 - name: IncorrectContinuationToken
   code: InvalidArgument
   description: The continuation token provided is incorrect

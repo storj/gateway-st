@@ -34,6 +34,7 @@ import (
 	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	xhttp "storj.io/minio/cmd/http"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 )
 
 const urlEncodingType = "url"
@@ -104,4 +105,23 @@ func s3EncodeName(name string, encodingType string) (result string) {
 		return s3URLEncode(name)
 	}
 	return name
+}
+
+func parseObjectLockHeaders(h http.Header, bucket, object string) (retMode objectlock.RetMode, retDate objectlock.RetentionDate, legalHold objectlock.ObjectLegalHold, err error) {
+	retentionRequested := objectlock.IsObjectLockRetentionRequested(h)
+	legalHoldRequested := objectlock.IsObjectLockLegalHoldRequested(h)
+
+	if retentionRequested {
+		if retMode, retDate, err = objectlock.ParseObjectLockRetentionHeaders(h); err != nil {
+			return objectlock.RetMode(""), objectlock.RetentionDate{}, objectlock.ObjectLegalHold{}, err
+		}
+	}
+
+	if legalHoldRequested {
+		if legalHold, err = objectlock.ParseObjectLockLegalHoldHeaders(h); err != nil {
+			return objectlock.RetMode(""), objectlock.RetentionDate{}, objectlock.ObjectLegalHold{}, err
+		}
+	}
+
+	return retMode, retDate, legalHold, nil
 }

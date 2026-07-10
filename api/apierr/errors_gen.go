@@ -30,6 +30,7 @@ const (
 	CodeInvalidMaxUploads
 	CodeInvalidPartNumber
 	CodeInvalidRequest
+	CodeInvalidStorageClass
 	CodeMalformedCopySourceRange
 	CodeMalformedDate
 	CodeMalformedExpires
@@ -192,6 +193,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidRequest: {
 		Code:           "InvalidRequest",
 		Description:    "The request is invalid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidStorageClass: {
+		Code:           "InvalidArgument",
+		Description:    "The specified storage class is not valid.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMalformedCopySourceRange: {

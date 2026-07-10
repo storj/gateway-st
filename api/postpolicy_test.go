@@ -6,9 +6,7 @@ package api_test
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -430,37 +428,4 @@ func TestCheckPostForm(t *testing.T) {
 			require.ErrorIs(t, err, tt.expectedErrIs)
 		})
 	}
-}
-
-func TestExtractMetadataFromPostForm(t *testing.T) {
-	postForm := awsig.PostForm{
-		"Content-Type":        {{Value: "image/png"}},
-		"Cache-Control":       {{Value: "max-age=60"}},
-		"Content-Language":    {{Value: "en-US"}, {Value: "en-CA"}},
-		"Content-Encoding":    {{Value: "gzip"}},
-		"Content-Disposition": {{Value: "inline"}},
-		"Expires":             {{Value: "+2h"}},
-		"X-Amz-Storage-Class": {{Value: "STANDARD"}},
-		"X-Amz-Meta-Key":      {{Value: "amzMeta1"}, {Value: "amzMeta2"}},
-		"X-Minio-Meta-Key":    {{Value: "minioMeta1"}, {Value: "minioMeta2"}},
-	}
-
-	expectedMeta := make(map[string]string)
-	for k, elems := range postForm {
-		values := make([]string, 0, len(elems))
-		for _, elem := range elems {
-			values = append(values, elem.Value)
-		}
-		expectedMeta[k] = strings.Join(values, ",")
-	}
-
-	// Insert fields that should not be extracted.
-	maps.Copy(postForm, awsig.PostForm{
-		"Authorization":  {{Value: "AWS 1234567890ABCDEF:g0h1i2j3k4l5m6n7o8p9q0r1s2="}},
-		"Content-Length": {{Value: "123"}},
-	})
-
-	extracted, err := api.ExtractMetadataFromPostForm(postForm)
-	require.NoError(t, err)
-	require.Equal(t, expectedMeta, extracted)
 }

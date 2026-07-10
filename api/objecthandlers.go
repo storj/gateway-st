@@ -34,6 +34,7 @@ import (
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
+	"storj.io/minio/cmd/config/storageclass"
 	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -41,6 +42,7 @@ import (
 )
 
 const (
+	maxObjectSize = 5 * int64(memory.TiB)
 	maxPartSize   = 5 * int64(memory.GiB)
 	minPartNumber = 1
 	maxPartNumber = 10000
@@ -431,4 +433,125 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.writeSuccessResponseXML(w, r, encodedSuccessResponse)
+}
+
+// PutObjectHandler is the HTTP handler for the PutObject operation, which uploads an object.
+func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "PutObject")
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			// TODO: Support checksum options
+			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	body, err := api.verifyWithBody(r, false)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	switch r.Header.Get(xhttp.AmzStorageClass) {
+	case "", storageclass.STANDARD, storageclass.ONEZONE:
+	case storageclass.RRS:
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	default:
+		api.writeErrorResponse(w, r, apierr.CodeInvalidStorageClass)
+		return
+	}
+
+	size := r.ContentLength
+
+	if _, err := strconv.ParseInt(r.Header.Get(xhttp.ContentLength), 10, 64); err != nil {
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+		return
+	}
+
+	if isStreamingSigV4(r) {
+		size, err = strconv.ParseInt(r.Header.Get(xhttp.AmzDecodedContentLength), 10, 64)
+		if err != nil {
+			// This shouldn't happen here as this case is handled previously by awsig's validation
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+	}
+
+	if size == -1 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+		return
+	}
+
+	if size > maxObjectSize {
+		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
+		return
+	}
+
+	metadata, err := extractMetadata(ctx, r)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	crypto.RemoveSensitiveEntries(metadata)
+
+	if val, exists := metadata[amzStorageClass]; exists && val == storageclass.ONEZONE {
+		delete(metadata, amzStorageClass)
+	}
+
+	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {
+		if _, err := tags.ParseObjectTags(objTags); err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+		metadata[xhttp.AmzObjectTagging] = objTags
+	}
+
+	putReader := cmd.NewPutObjReader(hash.NewAwsigReader(body, size, size))
+
+	opts := cmd.ObjectOptions{
+		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
+		UserDefined: metadata,
+	}
+
+	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, bucketName, objectKey)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if retentionMode.Valid() {
+		if opts.Retention == nil {
+			opts.Retention = &objectlock.ObjectRetention{}
+		}
+		opts.Retention.Mode = retentionMode
+		opts.Retention.RetainUntilDate = retentionDate
+	}
+	if legalHold.Status.Valid() {
+		opts.LegalHold = &legalHold.Status
+	}
+
+	objInfo, err := api.objectAPI.PutObject(ctx, bucketName, objectKey, putReader, opts)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+
+	api.writeSuccessResponseHeadersOnly(w, r)
 }
