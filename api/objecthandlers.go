@@ -602,3 +602,98 @@ func (api *API) GetObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 }
+
+// GetObjectAttributesHandler is the HTTP handler for the GetObjectAttributes operation,
+// which returns an object's metadata.
+func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObjectAttributes")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	writeArgumentErrorResponse := func(argName, argValue string, err error) {
+		errResp, matched := errToResponse(err)
+		if !matched {
+			api.log.Error(r, "unexpected error", err)
+			errResp, _ = apierr.CodeInternal.ToResponse()
+		}
+
+		resp := cmd.ObjectAttributesErrorResponse{
+			ArgumentName:  argName,
+			ArgumentValue: argValue,
+			APIErrorResponse: cmd.APIErrorResponse{
+				Code:    errResp.Code,
+				Message: errResp.Description,
+			},
+		}
+
+		encodedResp, err := encodeResponse(resp)
+		if err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+		api.writeResponse(w, r, errResp.HTTPStatusCode, encodedResp, mimeXML)
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		writeArgumentErrorResponse("versionId", r.URL.Query().Get(xhttp.VersionID), err)
+		return
+	}
+
+	attrs := strings.TrimSpace(r.Header.Get(xhttp.AmzObjectAttributes))
+	if attrs == "" {
+		writeArgumentErrorResponse(strings.ToLower(xhttp.AmzObjectAttributes), "", apierr.CodeInvalidAttributeName)
+		return
+	}
+
+	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	var resp cmd.ObjectAttributesResponse
+	for name := range strings.SplitSeq(attrs, ",") {
+		switch strings.TrimSpace(name) {
+		case xhttp.ETag:
+			resp.ETag = objInfo.ETag
+		case xhttp.StorageClass:
+			resp.StorageClass = storageclass.STANDARD
+			if objInfo.StorageClass != "" {
+				resp.StorageClass = objInfo.StorageClass
+			}
+		case xhttp.ObjectSize:
+			resp.ObjectSize = objInfo.Size
+		case xhttp.ObjectParts, xhttp.Checksum:
+			// TODO: Support these.
+			writeArgumentErrorResponse(strings.ToLower(xhttp.AmzObjectAttributes), name, apierr.CodeUnsupportedAttributeName)
+			return
+		default:
+			writeArgumentErrorResponse(strings.ToLower(xhttp.AmzObjectAttributes), name, apierr.CodeInvalidAttributeName)
+			return
+		}
+	}
+
+	if objInfo.VersionID != "" {
+		w.Header().Set(xhttp.AmzVersionID, objInfo.VersionID)
+	}
+	w.Header().Set(xhttp.LastModified, objInfo.ModTime.UTC().Format(http.TimeFormat))
+
+	encodedResp, err := encodeResponse(resp)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	api.writeSuccessResponseXML(w, r, encodedResp)
+}

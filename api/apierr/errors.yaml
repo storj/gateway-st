@@ -63,6 +63,11 @@
   description: The access key ID that you provided does not exist in our records.
   http_status: 403
 
+- name: InvalidAttributeName
+  code: InvalidAttributeName
+  description: Invalid attribute name specified.
+  http_status: 400
+
 - name: InvalidContentSHA256
   code: InvalidArgument
   description: x-amz-content-sha256 must be UNSIGNED-PAYLOAD, STREAMING-AWS4-HMAC-SHA256-PAYLOAD, or a valid sha256 value.
@@ -317,6 +322,11 @@
   code: SignatureDoesNotMatch
   description: The request signature we calculated does not match the signature you provided. Check your key and signing method.
   http_status: 403
+
+- name: UnsupportedAttributeName
+  code: NotImplemented
+  description: Unsupported attribute name specified.
+  http_status: 400
 
 - name: UnsupportedECDSAP256SHA256
   code: NotImplemented

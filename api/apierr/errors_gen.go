@@ -20,6 +20,7 @@ const (
 	CodeIncorrectContinuationToken
 	CodeInternal
 	CodeInvalidAccessKeyID
+	CodeInvalidAttributeName
 	CodeInvalidContentMD5
 	CodeInvalidContentSHA256
 	CodeInvalidCopySource
@@ -70,6 +71,7 @@ const (
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
 	CodeSignatureDoesNotMatch
+	CodeUnsupportedAttributeName
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
 )
@@ -144,6 +146,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidAccessKeyID",
 		Description:    "The access key ID that you provided does not exist in our records.",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeInvalidAttributeName: {
+		Code:           "InvalidAttributeName",
+		Description:    "Invalid attribute name specified.",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidContentMD5: {
 		Code:           "InvalidDigest",
@@ -394,6 +401,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "SignatureDoesNotMatch",
 		Description:    "The request signature we calculated does not match the signature you provided. Check your key and signing method.",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeUnsupportedAttributeName: {
+		Code:           "NotImplemented",
+		Description:    "Unsupported attribute name specified.",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeUnsupportedECDSAP256SHA256: {
 		Code:           "NotImplemented",
