@@ -21,6 +21,7 @@
 package api
 
 import (
+	"encoding/xml"
 	"errors"
 	"io"
 	"net/http"
@@ -554,4 +555,50 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
 
 	api.writeSuccessResponseHeadersOnly(w, r)
+}
+
+// GetObjectAclHandler is the HTTP handler for the GetObjectAclHandler operation,
+// which returns an object's access control list.
+//
+// This is a dummy handler. It always returns a default access control list
+// because we do not support placing them on objects.
+func (api *API) GetObjectAclHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObjectAcl")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	acl := &accessControlPolicy{}
+	acl.AccessControlList.Grants = append(acl.AccessControlList.Grants, grant{
+		Grantee: grantee{
+			XMLNS:  "http://www.w3.org/2001/XMLSchema-instance",
+			XMLXSI: "CanonicalUser",
+			Type:   "CanonicalUser",
+		},
+		Permission: "FULL_CONTROL",
+	})
+	if err := xml.NewEncoder(w).Encode(acl); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
