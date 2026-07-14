@@ -740,3 +740,45 @@ func (api *API) GetObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 	}
 	api.writeSuccessResponseXML(w, r, encodedResp)
 }
+
+// GetObjectTaggingHandler is the HTTP handler for the GetObjectTagging operation,
+// which returns the set of tags associated with an object.
+func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObjectTagging")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	tags, err := api.objectAPI.GetObjectTags(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if versionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{versionID}
+	}
+
+	encodedResponse, err := encodeResponse(tags)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	api.writeSuccessResponseXML(w, r, encodedResponse)
+}
