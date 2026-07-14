@@ -782,3 +782,46 @@ func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	api.writeSuccessResponseXML(w, r, encodedResponse)
 }
+
+// GetObjectRetentionHandler is the HTTP handler for the GetObjectRetention operation,
+// which returns an object's retention configuration.
+func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObjectRetention")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	retention, err := api.objectAPI.GetObjectRetention(ctx, bucketName, objectKey, versionID)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if !retention.Mode.Valid() {
+		api.writeErrorResponse(w, r, apierr.CodeNoSuchObjectLockConfiguration)
+		return
+	}
+
+	encodedResp, err := encodeResponse(retention)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	api.writeSuccessResponseXML(w, r, encodedResp)
+}
