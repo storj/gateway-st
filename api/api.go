@@ -123,6 +123,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 		objRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetObjectAclHandler)
 		objRouter.Methods(http.MethodGet).Queries("attributes", "").HandlerFunc(api.GetObjectAttributesHandler)
+		objRouter.Methods(http.MethodGet).Queries("legal-hold", "").HandlerFunc(api.GetObjectLegalHoldHandler)
 
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)

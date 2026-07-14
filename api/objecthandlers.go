@@ -697,3 +697,46 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 	}
 	api.writeSuccessResponseXML(w, r, encodedResp)
 }
+
+// GetObjectLegalHoldHandler is the HTTP handler for the GetObjectLegalHold operation,
+// which returns an object's legal hold configuration.
+func (api *API) GetObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObjectLegalHold")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	legalHold, err := api.objectAPI.GetObjectLegalHold(ctx, bucketName, objectKey, versionID)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if legalHold.IsEmpty() {
+		api.writeErrorResponse(w, r, apierr.CodeNoSuchObjectLockConfiguration)
+		return
+	}
+
+	encodedResp, err := encodeResponse(legalHold)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	api.writeSuccessResponseXML(w, r, encodedResp)
+}

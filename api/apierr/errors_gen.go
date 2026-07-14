@@ -47,6 +47,7 @@ const (
 	CodeMissingSecurityHeader
 	CodeNegativeExpires
 	CodeNoSuchCORSConfiguration
+	CodeNoSuchObjectLockConfiguration
 	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
@@ -281,6 +282,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "NoSuchCORSConfiguration",
 		Description:    "The CORS configuration does not exist",
 		HTTPStatusCode: http.StatusNotFound,
+	},
+	CodeNoSuchObjectLockConfiguration: {
+		Code:           "NoSuchObjectLockConfiguration",
+		Description:    "The specified object does not have an ObjectLock configuration",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeNoSuchVersion: {
 		Code:           "NoSuchVersion",

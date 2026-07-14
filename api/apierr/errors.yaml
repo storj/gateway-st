@@ -203,6 +203,11 @@
   description: The CORS configuration does not exist
   http_status: 404
 
+- name: NoSuchObjectLockConfiguration
+  code: NoSuchObjectLockConfiguration
+  description: The specified object does not have an ObjectLock configuration
+  http_status: 400
+
 - name: NoSuchVersion
   code: NoSuchVersion
   description: The specified version does not exist.
