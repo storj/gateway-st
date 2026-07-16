@@ -212,8 +212,10 @@ integration-services-start:
 	storj-up network unset minimal,db default && \
 	storj-up env setenv satellite-api STORJ_METAINFO_DELETE_OBJECTS_ENABLED=true && \
 	storj-up env setenv satellite-api STORJ_METAINFO_BUCKET_TAGGING_ENABLED=true && \
+	storj-up port remove postgres 5432 && \
+	storj-up port add postgres 5432 -e 5433 && \
 	$(INTEGRATION_COMPOSE) up -d && \
-	storj-up health
+	storj-up health -p 5433
 
 	$$($(INTEGRATION_CREDENTIALS) -p) && \
 	docker run \
