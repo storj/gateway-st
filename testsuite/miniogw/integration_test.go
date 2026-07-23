@@ -610,11 +610,8 @@ func TestVersioning(t *testing.T) {
 				result := removed[i]
 				require.NoError(t, result.Err)
 				require.Equal(t, "objectA", result.ObjectName)
-				// TODO: Deleted delete markers are incorrectly reported as having been regular objects.
-				// Uncomment this code once libuplink has been fixed and the gateway has taken advantage of the fix,
-				// setting DeleteMarker and DeleteMarkerVersionID accordingly.
-				// require.True(t, result.DeleteMarker)
-				// require.Equal(t, objects[i].VersionID, result.DeleteMarkerVersionID)
+				require.True(t, result.DeleteMarker)
+				require.Equal(t, objects[i].VersionID, result.DeleteMarkerVersionID)
 			}
 
 			result := removed[2]

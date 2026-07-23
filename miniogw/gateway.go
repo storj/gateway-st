@@ -942,6 +942,10 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 				ObjectName: result.ObjectKey,
 			}
 			if result.Removed != nil {
+				if result.Removed.IsDeleteMarker {
+					deleted.DeleteMarker = true
+					deleted.DeleteMarkerVersionID = encodeVersionID(result.Removed.Version)
+				}
 				deleted.VersionID = encodeVersionID(result.Removed.Version)
 			}
 			if result.Marker != nil {
