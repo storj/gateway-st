@@ -33,6 +33,9 @@ pipeline {
                         checkout scm
                         sh 'git restore-mtime'
 
+                        sh 'service postgresql start'
+                        sh 'psql -U postgres -c \'create database teststorj;\''
+
                         sh 'go mod download'
                         dir('testsuite') {
                             sh 'go mod download'
@@ -67,13 +70,6 @@ pipeline {
                             environment {
                                 JSON = true
                                 SHORT = false
-                                STORJ_TEST_COCKROACH = 'omit'
-                                STORJ_TEST_POSTGRES = 'omit'
-                                STORJ_TEST_SPANNER = 'run:/usr/local/bin/spanner_emulator --override_change_stream_partition_token_alive_seconds=1'
-                                STORJ_TEST_LOG_LEVEL = 'info'
-                                STORJ_HASHSTORE_TABLE_DEFAULT_KIND = 'memtbl'
-                                SPANNER_DISABLE_BUILTIN_METRICS = 'true'
-                                GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS = 'true'
                             }
                             steps {
                                 sh 'make test-main 2>&1 | tee .build/tests.json | go-junit-report -parser gojson -out .build/tests.xml'
@@ -91,13 +87,11 @@ pipeline {
                             environment {
                                 JSON = true
                                 SHORT = false
+                                STORJ_TEST_POSTGRES = 'postgres://postgres@localhost/teststorj?sslmode=disable'
                                 STORJ_TEST_COCKROACH = 'omit'
-                                STORJ_TEST_POSTGRES = 'omit'
-                                STORJ_TEST_SPANNER = 'run:/usr/local/bin/spanner_emulator --override_change_stream_partition_token_alive_seconds=1'
+                                STORJ_TEST_TIDB = 'omit'
                                 STORJ_TEST_LOG_LEVEL = 'info'
                                 STORJ_HASHSTORE_TABLE_DEFAULT_KIND = 'memtbl'
-                                SPANNER_DISABLE_BUILTIN_METRICS = 'true'
-                                GOOGLE_CLOUD_SPANNER_DISABLE_LOG_CLIENT_OPTIONS = 'true'
                             }
                             steps {
                                 // Exhaust ports 1024-10000 so tests fail loudly if they hard-code one.
