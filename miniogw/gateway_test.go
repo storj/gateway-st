@@ -27,7 +27,6 @@ func TestVerifyIfNoneMatch(t *testing.T) {
 		{"invalue values", []string{"something", "else"}, unimplementedErr},
 	}
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			require.ErrorIs(t, verifyIfNoneMatch(tc.input), tc.err)
 		})

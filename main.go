@@ -114,7 +114,7 @@ func cmdSetup(cmd *cobra.Command, args []string) (err error) {
 		return Error.Wrap(err)
 	}
 
-	overrides := map[string]interface{}{}
+	overrides := map[string]any{}
 
 	accessKeyFlag := cmd.Flag("minio.access-key")
 	if !accessKeyFlag.Changed {
@@ -267,7 +267,7 @@ func (flags *GatewayFlags) newUplinkConfig(ctx context.Context) uplink.Config {
 }
 
 // interactive creates the configuration of the gateway interactively.
-func (flags GatewayFlags) interactive(cmd *cobra.Command, setupDir string, overrides map[string]interface{}) error {
+func (flags GatewayFlags) interactive(cmd *cobra.Command, setupDir string, overrides map[string]any) error {
 	ctx, _ := process.Ctx(cmd)
 
 	satelliteAddress, err := wizard.PromptForSatellite(cmd)
@@ -324,7 +324,7 @@ Some things to try next:
 }
 
 // nonInteractive creates the configuration of the gateway non-interactively.
-func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, overrides map[string]interface{}) (err error) {
+func (flags GatewayFlags) nonInteractive(cmd *cobra.Command, setupDir string, overrides map[string]any) (err error) {
 	ctx, _ := process.Ctx(cmd)
 
 	var access *uplink.Access
@@ -422,8 +422,7 @@ func setUsageFunc(cmd *cobra.Command) {
 
 func findBoolFlagEarly(flagName string) bool {
 	for i, arg := range os.Args {
-		arg := arg
-		argHasPrefix := func(format string, args ...interface{}) bool {
+		argHasPrefix := func(format string, args ...any) bool {
 			return strings.HasPrefix(arg, fmt.Sprintf(format, args...))
 		}
 

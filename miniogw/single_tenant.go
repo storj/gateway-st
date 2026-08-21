@@ -87,7 +87,7 @@ func minioError(err error) bool {
 	case errors.As(err, &miniogo.ErrorResponse{}):
 		return true
 	default:
-		return reflect.TypeOf(err).ConvertibleTo(reflect.TypeOf(minio.GenericError{}))
+		return reflect.TypeOf(err).ConvertibleTo(reflect.TypeFor[minio.GenericError]())
 	}
 }
 

@@ -30,8 +30,8 @@ func ValidateBucket(ctx context.Context, bucket string) (err error) {
 
 	// Regexp not used because benchmark shows it will be slower for valid bucket names
 	// https://gist.github.com/mniewrzal/49de3af95f36e63e88fac24f565e444c
-	labels := strings.Split(bucket, ".")
-	for _, label := range labels {
+	labels := strings.SplitSeq(bucket, ".")
+	for label := range labels {
 		err = validateBucketLabel(label)
 		if err != nil {
 			return err

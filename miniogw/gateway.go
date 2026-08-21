@@ -999,7 +999,6 @@ func (layer *gatewayLayer) deleteObjectsFallback(ctx context.Context, bucket str
 		defer close(resultCh)
 
 		for i, object := range objects {
-			i, object := i, object
 			opts := opts
 			opts.VersionID = object.VersionID
 
