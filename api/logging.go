@@ -52,7 +52,7 @@ func (log *zapLogger) getCommonFields(r *http.Request) []zap.Field {
 	}
 	return []zap.Field{
 		zap.String("operation", reqInfo.API),
-		zap.String("amz-request-id", reqInfo.RequestID),
+		zap.String("amz_request_id", reqInfo.RequestID),
 	}
 }
 
