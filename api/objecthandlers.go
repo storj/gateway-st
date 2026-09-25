@@ -34,6 +34,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
@@ -269,14 +270,6 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			// TODO: Support checksum options
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
-		}
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -332,6 +325,7 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	// clients expect the ETag header key to be literally "ETag" - not "Etag" (case-sensitive).
 	// Therefore, we have to set the ETag directly as a map entry.
 	w.Header()[xhttp.ETag] = []string{"\"" + partInfo.ETag + "\""}
+	setChecksumHeaders(w, r.Header, body)
 
 	api.writeSuccessResponseHeadersOnly(w, r)
 }
@@ -354,13 +348,6 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	} {
 		if _, ok := r.Header[header]; ok {
 			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-			return
-		}
-	}
-
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
 			return
 		}
 	}
@@ -472,14 +459,6 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			// TODO: Support checksum options
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
-		}
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -580,6 +559,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+	setChecksumHeaders(w, r.Header, body)
 	if objInfo.VersionID != "" {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
@@ -1311,13 +1291,6 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
-		}
-	}
-
 	vars := mux.Vars(r)
 	dstBucket := vars["bucket"]
 	dstObject, err := unescapePath(vars["object"])
@@ -1542,13 +1515,6 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
-		}
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -1635,13 +1601,6 @@ var completeMultipartUploadKeepAliveInterval = 10 * time.Second
 func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "CompleteMultipartUpload")
 
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
-		}
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -1650,7 +1609,25 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, err := api.verifyWithBody(r, false)
+	// X-Amz-Checksum-<algorithm> headers of this request carry the checksum of the whole
+	// object rather than of the request body, so only Content-MD5 is verified here.
+	// ponytail: full-object checksums are ignored because the object layer doesn't store
+	// checksums; verify them once it does.
+	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	var checksumReqs []awsig.ChecksumRequest
+	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if hasContentMD5 {
+		checksumReqs = append(checksumReqs, checksumReq)
+	}
+	body, err := vr.Reader(checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

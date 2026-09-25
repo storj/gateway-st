@@ -100,6 +100,87 @@ func getContentMD5ChecksumRequest(h http.Header) (checksumReq awsig.ChecksumRequ
 	return req, true, nil
 }
 
+// checksumHeaders maps the X-Amz-Checksum-<algorithm> headers to the algorithms they carry.
+var checksumHeaders = map[string]awsig.ChecksumAlgorithm{
+	"X-Amz-Checksum-Crc32":     awsig.AlgorithmCRC32,
+	"X-Amz-Checksum-Crc32c":    awsig.AlgorithmCRC32C,
+	"X-Amz-Checksum-Crc64nvme": awsig.AlgorithmCRC64NVME,
+	"X-Amz-Checksum-Sha1":      awsig.AlgorithmSHA1,
+	"X-Amz-Checksum-Sha256":    awsig.AlgorithmSHA256,
+}
+
+// getChecksumRequests returns the checksum requests for verifying a request body: its
+// Content-MD5 header, and at most one X-Amz-Checksum-<algorithm> header or X-Amz-Trailer.
+func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
+	var reqs []awsig.ChecksumRequest
+	req, present, err := getContentMD5ChecksumRequest(h)
+	if err != nil {
+		return nil, err
+	}
+	if present {
+		reqs = append(reqs, req)
+	}
+
+	var checksums int
+	for header, algorithm := range checksumHeaders {
+		value := h.Get(header)
+		if value == "" {
+			continue
+		}
+		req, err := awsig.NewChecksumRequest(algorithm, value)
+		if err != nil {
+			return nil, apierr.CodeInvalidRequest
+		}
+		reqs = append(reqs, req)
+		checksums++
+	}
+
+	// A trailing checksum needs a streaming payload with trailers, and such a payload must
+	// declare its trailer.
+	trailer := h.Get("X-Amz-Trailer")
+	if (trailer != "") != strings.HasSuffix(h.Get("X-Amz-Content-Sha256"), "-TRAILER") {
+		return nil, apierr.CodeInvalidRequest
+	}
+	if trailer != "" {
+		algorithm, ok := checksumHeaders[http.CanonicalHeaderKey(strings.TrimSpace(trailer))]
+		if !ok {
+			return nil, apierr.CodeInvalidRequest
+		}
+		req, err := awsig.NewTrailingChecksumRequest(algorithm)
+		if err != nil {
+			return nil, apierr.CodeInvalidRequest
+		}
+		reqs = append(reqs, req)
+		checksums++
+	}
+
+	// S3 rejects requests that specify more than one checksum algorithm.
+	if checksums > 1 {
+		return nil, apierr.CodeInvalidRequest
+	}
+
+	return reqs, nil
+}
+
+// setChecksumHeaders sets the X-Amz-Checksum-<algorithm> response headers for the checksums
+// that the request header h asked to verify while reading a request body. The SHA-256 of a
+// signed payload isn't echoed unless it was asked for.
+func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader) {
+	sums, err := body.Checksums()
+	if err != nil {
+		return
+	}
+	trailer := http.CanonicalHeaderKey(strings.TrimSpace(h.Get("X-Amz-Trailer")))
+	for header, algorithm := range checksumHeaders {
+		if _, requested := h[header]; !requested && header != trailer {
+			continue
+		}
+		if sum, ok := sums[algorithm]; ok {
+			w.Header().Set(header, base64.StdEncoding.EncodeToString(sum))
+		}
+	}
+}
+
 func s3EncodeName(name string, encodingType string) (result string) {
 	if strings.ToLower(encodingType) == urlEncodingType {
 		return s3URLEncode(name)

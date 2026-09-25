@@ -794,31 +794,8 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	for header := range r.Header {
-		if strings.HasPrefix(header, xAmzChecksumPrefix) {
-			// TODO: Support checksum options
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
-		}
-	}
-
-	checksumReq, present, err := getContentMD5ChecksumRequest(r.Header)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-	if !present {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentMD5)
-		return
-	}
-
-	body, err := vr.Reader(checksumReq)
+	// DeleteObjects requires either Content-MD5 or an X-Amz-Checksum-<algorithm> header.
+	body, err := api.verifyWithBody(r, true)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -830,7 +807,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deleteReq := &cmd.DeleteObjectsRequest{}
-	if err := xmlDecoder(body, deleteReq, maxDeleteObjectsBodySize); err != nil {
+	if err := decodeVerifiedXML(body, deleteReq, maxDeleteObjectsBodySize); err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
