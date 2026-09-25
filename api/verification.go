@@ -4,6 +4,8 @@
 package api
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"strings"
 
@@ -49,6 +51,16 @@ func (api *API) verifyWithBody(r *http.Request, requireContentMD5 bool) (awsig.R
 	}
 
 	return body, nil
+}
+
+// decodeVerifiedXML reads the entire bounded body before decoding it so that checksum
+// and signature errors are reported even when they occur after the XML root element.
+func decodeVerifiedXML(body awsig.Reader, v any, size int64) error {
+	data, err := io.ReadAll(NewLimitedAwsigReader(body, size))
+	if err != nil {
+		return err
+	}
+	return xmlDecoder(bytes.NewReader(data), v, 0)
 }
 
 type limitedAwsigReader struct {

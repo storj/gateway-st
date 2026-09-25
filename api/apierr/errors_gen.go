@@ -30,9 +30,12 @@ const (
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidMaxKeys
+	CodeInvalidMaxParts
 	CodeInvalidMaxUploads
 	CodeInvalidMetadataDirective
 	CodeInvalidPartNumber
+	CodeInvalidPartNumberMarker
+	CodeInvalidPartOrder
 	CodeInvalidRange
 	CodeInvalidRangePartNumber
 	CodeInvalidRequest
@@ -55,6 +58,7 @@ const (
 	CodeNoSuchCORSConfiguration
 	CodeNoSuchKey
 	CodeNoSuchObjectLockConfiguration
+	CodeNoSuchUpload
 	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
@@ -206,6 +210,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Provided max-keys not an integer or within integer range",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidMaxParts: {
+		Code:           "InvalidArgument",
+		Description:    "Argument max-parts must be an integer between 0 and 2147483647",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidMaxUploads: {
 		Code:           "InvalidArgument",
 		Description:    "Argument max-uploads must be an integer between 0 and 2147483647",
@@ -219,6 +228,16 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidPartNumber: {
 		Code:           "InvalidArgument",
 		Description:    "Part number must be an integer between 1 and 10000, inclusive",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidPartNumberMarker: {
+		Code:           "InvalidArgument",
+		Description:    "Argument partNumberMarker must be an integer.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidPartOrder: {
+		Code:           "InvalidPartOrder",
+		Description:    "The list of parts was not in ascending order. The parts list must be specified in order by part number.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidRange: {
@@ -330,6 +349,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "NoSuchObjectLockConfiguration",
 		Description:    "The specified object does not have an ObjectLock configuration",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeNoSuchUpload: {
+		Code:           "NoSuchUpload",
+		Description:    "The specified multipart upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.",
+		HTTPStatusCode: http.StatusNotFound,
 	},
 	CodeNoSuchVersion: {
 		Code:           "NoSuchVersion",

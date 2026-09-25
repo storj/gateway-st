@@ -45,14 +45,17 @@ func (testCredentialsProvider) Provide(_ context.Context, accessKeyID string) (s
 type fakeObjectLayer struct {
 	cmd.ObjectLayer
 
-	listBuckets          func(ctx context.Context) ([]cmd.BucketInfo, error)
-	getObjectInfo        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	getObjectNInfo       func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
-	copyObject           func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	deleteObject         func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	deleteObjectTags     func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	deleteObjects        func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
-	listMultipartUploads func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
+	listBuckets             func(ctx context.Context) ([]cmd.BucketInfo, error)
+	getObjectInfo           func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	getObjectNInfo          func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
+	copyObject              func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	deleteObject            func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	deleteObjectTags        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	deleteObjects           func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
+	newMultipartUpload      func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error)
+	completeMultipartUpload func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	abortMultipartUpload    func(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error
+	listMultipartUploads    func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
 
 func (f *fakeObjectLayer) ListBuckets(ctx context.Context) ([]cmd.BucketInfo, error) {
@@ -83,6 +86,18 @@ func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, obje
 	return f.deleteObjects(ctx, bucket, objects, opts)
 }
 
+func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error) {
+	return f.newMultipartUpload(ctx, bucket, object, opts)
+}
+
+func (f *fakeObjectLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return f.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
+}
+
+func (f *fakeObjectLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error {
+	return f.abortMultipartUpload(ctx, bucket, object, uploadID, opts)
+}
+
 func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error) {
 	return f.listMultipartUploads(ctx, bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
 }
@@ -104,8 +119,10 @@ func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, heade
 	for k, v := range header {
 		req.Header[k] = v
 	}
-	sum := sha256.Sum256(body)
-	req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum[:]))
+	if req.Header.Get("X-Amz-Content-Sha256") == "" {
+		sum := sha256.Sum256(body)
+		req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum[:]))
+	}
 	req = signer.SignV4(*req, testAccessKeyID, testSecretAccessKey, "", "us-east-1")
 
 	rec := httptest.NewRecorder()
@@ -857,4 +874,181 @@ func TestCopyObject(t *testing.T) {
 			require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
 		})
 	}
+}
+
+func TestCreateMultipartUpload(t *testing.T) {
+	var gotOpts cmd.ObjectOptions
+	objectAPI := &fakeObjectLayer{
+		newMultipartUpload: func(_ context.Context, _, _ string, opts cmd.ObjectOptions) (string, error) {
+			gotOpts = opts
+			return "upload-id", nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket/key?uploads", http.Header{
+		"X-Amz-Meta-Foo":               {"bar"},
+		"X-Amz-Tagging":                {"a=1"},
+		"X-Amz-Object-Lock-Legal-Hold": {"ON"},
+	}, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<InitiateMultipartUploadResult")
+	require.Contains(t, resp.Body, "<Bucket>bucket</Bucket><Key>key</Key><UploadId>upload-id</UploadId>")
+	require.Equal(t, map[string]string{
+		"Content-Type":   "binary/octet-stream",
+		"X-Amz-Meta-Foo": "bar",
+		"X-Amz-Tagging":  "a=1",
+	}, gotOpts.UserDefined)
+	require.NotNil(t, gotOpts.LegalHold)
+	require.EqualValues(t, "ON", *gotOpts.LegalHold)
+
+	resp = serve(t, objectAPI, http.MethodPost, "/bucket/key?uploads", http.Header{"X-Amz-Storage-Class": {"INVALID"}}, nil)
+	require.Contains(t, resp.Body, "The specified storage class is not valid.")
+}
+
+func TestCompleteMultipartUpload(t *testing.T) {
+	var gotParts []cmd.CompletePart
+	objectAPI := &fakeObjectLayer{
+		completeMultipartUpload: func(_ context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			if uploadID != "upload-id" {
+				return cmd.ObjectInfo{}, apierr.CodeNoSuchUpload
+			}
+			gotParts = parts
+			return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag-2", VersionID: "version"}, nil
+		},
+	}
+
+	complete := func(t *testing.T, uploadID, body string) response {
+		return serve(t, objectAPI, http.MethodPost, "/bucket/key?uploadId="+uploadID, nil, []byte(body))
+	}
+
+	t.Run("success", func(t *testing.T) {
+		resp := complete(t, "upload-id", `<CompleteMultipartUpload>`+
+			`<Part><PartNumber>1</PartNumber><ETag>"a"</ETag></Part>`+
+			`<Part><PartNumber>2</PartNumber><ETag>b</ETag></Part>`+
+			`</CompleteMultipartUpload>`)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<CompleteMultipartUploadResult")
+		require.Contains(t, resp.Body, "<Location>http://example.com/bucket/key</Location>")
+		require.Contains(t, resp.Body, "<ETag>&#34;etag-2&#34;</ETag>")
+		require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
+		require.Equal(t, `"etag-2"`, resp.Header.Get("ETag"))
+		require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
+		require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}}, gotParts)
+	})
+
+	for _, tt := range []struct {
+		name      string
+		uploadID  string
+		body      string
+		expStatus int
+		expCode   string
+	}{
+		{
+			name:      "parts out of order",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>2</PartNumber></Part><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidPartOrder",
+		},
+		{
+			name:      "no parts",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "MalformedXML",
+		},
+		{
+			name:      "malformed XML",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "MalformedXML",
+		},
+		{
+			name:      "nonexistent upload",
+			uploadID:  "other",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusNotFound,
+			expCode:   "NoSuchUpload",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := complete(t, tt.uploadID, tt.body)
+			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+		})
+	}
+
+	t.Run("keep-alive", func(t *testing.T) {
+		api.SetCompleteMultipartUploadKeepAliveInterval(t, time.Millisecond)
+
+		slowObjectAPI := &fakeObjectLayer{
+			completeMultipartUpload: func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				time.Sleep(20 * time.Millisecond)
+				return objectAPI.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
+			},
+		}
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`)
+
+		resp := serve(t, slowObjectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.True(t, strings.HasPrefix(resp.Body, xml.Header+" "), resp.Body)
+		require.Equal(t, 1, strings.Count(resp.Body, "<?xml"), resp.Body)
+		require.Contains(t, resp.Body, "<CompleteMultipartUploadResult")
+
+		// Errors are reported with a 200 OK status once whitespace has been sent.
+		resp = serve(t, slowObjectAPI, http.MethodPost, "/bucket/key?uploadId=other", nil, body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.True(t, strings.HasPrefix(resp.Body, xml.Header+" "), resp.Body)
+		require.Equal(t, 1, strings.Count(resp.Body, "<?xml"), resp.Body)
+		require.Contains(t, resp.Body, "<Error><Code>NoSuchUpload</Code>")
+	})
+
+	t.Run("keep-alive stops on panic", func(t *testing.T) {
+		api.SetCompleteMultipartUploadKeepAliveInterval(t, time.Millisecond)
+
+		panickingObjectAPI := &fakeObjectLayer{
+			completeMultipartUpload: func(context.Context, string, string, string, []cmd.CompletePart, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				time.Sleep(5 * time.Millisecond)
+				panic("object layer panic")
+			},
+		}
+		router := mux.NewRouter()
+		api.New(panickingObjectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bucket/key?uploadId=upload-id", bytes.NewReader(body))
+		sum := sha256.Sum256(body)
+		req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum[:]))
+		req = signer.SignV4(*req, testAccessKeyID, testSecretAccessKey, "", "us-east-1")
+
+		rec := httptest.NewRecorder()
+		require.Panics(t, func() { router.ServeHTTP(rec, req) })
+
+		// Nothing is written once the handler has returned.
+		n := rec.Body.Len()
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(t, n, rec.Body.Len())
+	})
+
+	t.Run("body too large", func(t *testing.T) {
+		body := append([]byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`), bytes.Repeat([]byte(" "), 5<<20)...)
+		resp := serve(t, objectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
+	})
+}
+
+func TestAbortMultipartUpload(t *testing.T) {
+	var gotUploadID string
+	objectAPI := &fakeObjectLayer{
+		abortMultipartUpload: func(_ context.Context, _, _, uploadID string, _ cmd.ObjectOptions) error {
+			gotUploadID = uploadID
+			return nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?uploadId=upload-id", nil, nil)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.Equal(t, "upload-id", gotUploadID)
 }

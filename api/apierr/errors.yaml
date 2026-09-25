@@ -113,6 +113,11 @@
   description: Provided max-keys not an integer or within integer range
   http_status: 400
 
+- name: InvalidMaxParts
+  code: InvalidArgument
+  description: Argument max-parts must be an integer between 0 and 2147483647
+  http_status: 400
+
 - name: InvalidMaxUploads
   code: InvalidArgument
   description: Argument max-uploads must be an integer between 0 and 2147483647
@@ -121,6 +126,16 @@
 - name: InvalidMetadataDirective
   code: InvalidArgument
   description: Unknown metadata directive.
+  http_status: 400
+
+- name: InvalidPartOrder
+  code: InvalidPartOrder
+  description: The list of parts was not in ascending order. The parts list must be specified in order by part number.
+  http_status: 400
+
+- name: InvalidPartNumberMarker
+  code: InvalidArgument
+  description: Argument partNumberMarker must be an integer.
   http_status: 400
 
 - name: InvalidPartNumber
@@ -242,6 +257,11 @@
   code: NoSuchObjectLockConfiguration
   description: The specified object does not have an ObjectLock configuration
   http_status: 400
+
+- name: NoSuchUpload
+  code: NoSuchUpload
+  description: The specified multipart upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.
+  http_status: 404
 
 - name: NoSuchVersion
   code: NoSuchVersion

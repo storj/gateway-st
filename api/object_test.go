@@ -165,12 +165,21 @@ func TestPreconditionsWithoutModTime(t *testing.T) {
 	}
 }
 
-func TestDeleteObjectRouting(t *testing.T) {
-	objectAPI := &fakeObjectLayer{}
+func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
+	resp := serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
+		`<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part>`+
+		`<Part><PartNumber>1</PartNumber><ETag>b</ETag></Part>`+
+		`</CompleteMultipartUpload>`))
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code>")
 
-	// AbortMultipartUpload isn't served as DeleteObject.
-	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?uploadId=abc", nil, nil)
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
+	// Comparing part numbers must not overflow.
+	resp = serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
+		`<Part><PartNumber>9223372036854775807</PartNumber><ETag>a</ETag></Part>`+
+		`<Part><PartNumber>-1</PartNumber><ETag>b</ETag></Part>`+
+		`</CompleteMultipartUpload>`))
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code>")
 }
 
 func TestCopyObjectStorageClass(t *testing.T) {

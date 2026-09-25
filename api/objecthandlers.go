@@ -21,6 +21,7 @@
 package api
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -52,6 +53,10 @@ const (
 	maxPartSize   = 5 * int64(memory.GiB)
 	minPartNumber = 1
 	maxPartNumber = 10000
+
+	// maxCompleteMultipartUploadBodySize is the maximum size of a CompleteMultipartUpload request body.
+	// 10,000 parts with an ETag and a checksum each take roughly 2-3 MB, more if pretty-printed.
+	maxCompleteMultipartUploadBodySize = 5 * int64(memory.MiB)
 )
 
 // PutObjectAclHandler is the HTTP handler for the PutObjectAcl operation,
@@ -1497,4 +1502,328 @@ func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, s
 		api.writeErrorResponse(w, r, apierr.CodePreconditionFailed)
 	}
 	return failed
+}
+
+// CreateMultipartUploadHandler is the HTTP handler for the CreateMultipartUpload operation,
+// which initiates a multipart upload.
+func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "CreateMultipartUpload")
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	switch r.Header.Get(xhttp.AmzStorageClass) {
+	case "", storageclass.STANDARD, storageclass.ONEZONE:
+	case storageclass.RRS:
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	default:
+		api.writeErrorResponse(w, r, apierr.CodeInvalidStorageClass)
+		return
+	}
+
+	metadata, err := extractMetadata(ctx, r)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	crypto.RemoveSensitiveEntries(metadata)
+
+	if val, exists := metadata[amzStorageClass]; exists && val == storageclass.ONEZONE {
+		delete(metadata, amzStorageClass)
+	}
+
+	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {
+		if _, err := tags.ParseObjectTags(objTags); err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+		metadata[xhttp.AmzObjectTagging] = objTags
+	}
+
+	opts := cmd.ObjectOptions{UserDefined: metadata}
+
+	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, bucketName, objectKey)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if retentionMode.Valid() {
+		opts.Retention = &objectlock.ObjectRetention{
+			Mode:            retentionMode,
+			RetainUntilDate: retentionDate,
+		}
+	}
+	if legalHold.Status.Valid() {
+		opts.LegalHold = &legalHold.Status
+	}
+
+	uploadID, err := api.objectAPI.NewMultipartUpload(ctx, bucketName, objectKey, opts)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	encodedResp, err := encodeResponse(cmd.InitiateMultipartUploadResponse{
+		Bucket:   bucketName,
+		Key:      objectKey,
+		UploadID: uploadID,
+	})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	api.writeSuccessResponseXML(w, r, encodedResp)
+}
+
+// completeMultipartUploadKeepAliveInterval is how often whitespace is sent to the client while
+// a multipart upload is being completed, preventing the connection from timing out.
+var completeMultipartUploadKeepAliveInterval = 10 * time.Second
+
+// CompleteMultipartUploadHandler is the HTTP handler for the CompleteMultipartUpload operation,
+// which completes a multipart upload by assembling its parts.
+func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "CompleteMultipartUpload")
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	body, err := api.verifyWithBody(r, false)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if r.ContentLength <= 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+		return
+	}
+
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+
+	var completeUpload cmd.CompleteMultipartUpload
+	if err := decodeVerifiedXML(body, &completeUpload, maxCompleteMultipartUploadBodySize); err != nil {
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
+		return
+	}
+
+	if len(completeUpload.Parts) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+		return
+	}
+
+	// Part numbers must be strictly ascending, which also rules out duplicates.
+	for i := 1; i < len(completeUpload.Parts); i++ {
+		if completeUpload.Parts[i-1].PartNumber >= completeUpload.Parts[i].PartNumber {
+			api.writeErrorResponse(w, r, apierr.CodeInvalidPartOrder)
+			return
+		}
+	}
+
+	if objectlock.IsObjectLockRequested(r.Header) || objectlock.IsObjectLockGovernanceBypassSet(r.Header) {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidRequest)
+		return
+	}
+
+	for i := range completeUpload.Parts {
+		completeUpload.Parts[i].ETag = strings.Trim(completeUpload.Parts[i].ETag, `"`)
+	}
+
+	// Completing an upload may take a while, so whitespace is sent periodically to keep the
+	// connection alive. Once whitespace has been sent, the status code can no longer be changed,
+	// so errors are reported in the body of a 200 OK response, like S3 does.
+	// The ETag and x-amz-version-id headers are lost once whitespace has been sent, but the ETag
+	// is still in the body.
+	w.Header().Set(xhttp.ContentType, "text/event-stream")
+	w.Header().Set(xhttp.CacheControl, "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	kw := &keepAliveWriter{ResponseWriter: w}
+	stopKeepAlive := kw.start(ctx, completeMultipartUploadKeepAliveInterval)
+	// Stop the keep-alive even if the object layer panics, so that it can't write to a finished
+	// response and crash the process.
+	defer stopKeepAlive()
+
+	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, completeUpload.Parts, cmd.ObjectOptions{
+		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
+	})
+	keepAliveSent := stopKeepAlive()
+	if err != nil {
+		if keepAliveSent {
+			api.writeErrorResponseAfterKeepAlive(kw, r, err)
+		} else {
+			api.writeErrorResponse(kw, r, err)
+		}
+		return
+	}
+
+	response := cmd.CompleteMultipartUploadResponse{
+		Location: GetObjectURL(r, objectKey),
+		Bucket:   bucketName,
+		Key:      objectKey,
+		ETag:     `"` + objInfo.ETag + `"`,
+	}
+
+	var encodedResp []byte
+	if keepAliveSent {
+		// The XML header has already been sent.
+		encodedResp, err = xml.Marshal(response)
+	} else {
+		encodedResp, err = encodeResponse(response)
+	}
+	if err != nil {
+		if keepAliveSent {
+			api.writeErrorResponseAfterKeepAlive(kw, r, err)
+		} else {
+			api.writeErrorResponse(kw, r, err)
+		}
+		return
+	}
+
+	if objInfo.ETag != "" {
+		w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+	}
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+	}
+
+	api.writeSuccessResponseXML(kw, r, encodedResp)
+}
+
+// keepAliveWriter is an http.ResponseWriter that can periodically send whitespace to the client
+// while a response is being prepared. Once anything has been written, it ignores status codes.
+type keepAliveWriter struct {
+	http.ResponseWriter
+	written bool
+}
+
+// Write implements http.ResponseWriter.
+func (w *keepAliveWriter) Write(b []byte) (int, error) {
+	w.written = true
+	return w.ResponseWriter.Write(b)
+}
+
+// WriteHeader implements http.ResponseWriter.
+func (w *keepAliveWriter) WriteHeader(statusCode int) {
+	if !w.written {
+		w.ResponseWriter.WriteHeader(statusCode)
+	}
+}
+
+// Flush implements http.Flusher.
+func (w *keepAliveWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// start begins sending an XML header followed by whitespace at the given interval. The returned
+// function stops sending and reports whether anything was sent. It may be called more than once.
+// The writer must not be used until the returned function has been called. Sending also stops
+// when ctx is done.
+func (w *keepAliveWriter) start(ctx context.Context, interval time.Duration) (stop func() bool) {
+	done := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		ctxDone := ctx.Done()
+		sent := false
+		for {
+			select {
+			case <-ctxDone:
+				// The client is gone, so stop writing to it.
+				ticker.Stop()
+				ctxDone = nil
+			case <-ticker.C:
+				if !sent {
+					_, _ = w.Write([]byte(xml.Header))
+					sent = true
+				}
+				_, _ = w.Write([]byte(" "))
+				w.Flush()
+			case done <- sent:
+				return
+			}
+		}
+	}()
+	return sync.OnceValue(func() bool { return <-done })
+}
+
+// writeErrorResponseAfterKeepAlive writes an error response to a client that has already been
+// sent a status code and an XML header by a keepAliveWriter.
+func (api *API) writeErrorResponseAfterKeepAlive(w http.ResponseWriter, r *http.Request, err error) {
+	resp, matched := errToResponse(err)
+	if !matched {
+		api.log.Error(r, "unexpected error", err)
+		resp, _ = apierr.CodeInternal.ToResponse()
+	}
+
+	encodedResp, err := xml.Marshal(newErrorResponse(w, r, resp))
+	if err != nil {
+		api.log.Error(r, "error encoding XML error response", err)
+		return
+	}
+	if _, err := w.Write(encodedResp); err != nil {
+		api.log.Error(r, "error writing response", err)
+	}
+}
+
+// AbortMultipartUploadHandler is the HTTP handler for the AbortMultipartUpload operation,
+// which aborts a multipart upload.
+func (api *API) AbortMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "AbortMultipartUpload")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+	if err := api.objectAPI.AbortMultipartUpload(ctx, bucketName, objectKey, uploadID, cmd.ObjectOptions{}); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeSuccessNoContent(w, r)
 }
