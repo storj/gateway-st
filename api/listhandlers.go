@@ -85,13 +85,9 @@ type listObjectsParams struct {
 }
 
 func getListObjectsParams(values url.Values) (params listObjectsParams, err error) {
-	var maxKeys int
-	if maxKeysStr := values.Get("max-keys"); maxKeysStr != "" {
-		if maxKeys, err = strconv.Atoi(maxKeysStr); err != nil {
-			return listObjectsParams{}, apierr.CodeInvalidMaxKeys
-		}
-	} else {
-		maxKeys = maxObjectList
+	maxKeys, err := getMaxKeys(values)
+	if err != nil {
+		return listObjectsParams{}, err
 	}
 	return listObjectsParams{
 		prefix:       values.Get("prefix"),
@@ -100,6 +96,19 @@ func getListObjectsParams(values url.Values) (params listObjectsParams, err erro
 		maxKeys:      maxKeys,
 		encodingType: values.Get("encoding-type"),
 	}, nil
+}
+
+// getMaxKeys returns the max-keys parameter, defaulting to and capped at maxObjectList.
+func getMaxKeys(values url.Values) (int, error) {
+	maxKeysStr := values.Get("max-keys")
+	if maxKeysStr == "" {
+		return maxObjectList, nil
+	}
+	maxKeys, err := strconv.Atoi(maxKeysStr)
+	if err != nil {
+		return 0, apierr.CodeInvalidMaxKeys
+	}
+	return min(maxKeys, maxObjectList), nil
 }
 
 func validateListObjectsParams(maxKeys int, encodingType string) error {
@@ -174,13 +183,9 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 		}
 	}
 
-	var maxKeys int
-	if maxKeysStr := values.Get("max-keys"); maxKeysStr != "" {
-		if maxKeys, err = strconv.Atoi(maxKeysStr); err != nil {
-			return listObjectsV2Params{}, apierr.CodeInvalidMaxKeys
-		}
-	} else {
-		maxKeys = maxObjectList
+	maxKeys, err := getMaxKeys(values)
+	if err != nil {
+		return listObjectsV2Params{}, err
 	}
 
 	return listObjectsV2Params{
@@ -243,13 +248,9 @@ type listObjectVersionsParams struct {
 }
 
 func getListObjectVersionsParams(values url.Values) (params listObjectVersionsParams, err error) {
-	var maxKeys int
-	if maxKeysStr := values.Get("max-keys"); maxKeysStr != "" {
-		if maxKeys, err = strconv.Atoi(maxKeysStr); err != nil {
-			return listObjectVersionsParams{}, apierr.CodeInvalidMaxKeys
-		}
-	} else {
-		maxKeys = maxObjectList
+	maxKeys, err := getMaxKeys(values)
+	if err != nil {
+		return listObjectVersionsParams{}, err
 	}
 
 	return listObjectVersionsParams{

@@ -31,7 +31,17 @@ type bucketObjectLayer struct {
 	makeBucketWithLocation func(ctx context.Context, bucket string, opts cmd.BucketOptions) error
 	setBucketTagging       func(ctx context.Context, bucket string, t *tags.Tags) error
 	getBucketInfo          func(ctx context.Context, bucket string) (cmd.BucketInfo, error)
+	listObjects            func(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (cmd.ListObjectsInfo, error)
+	listObjectVersions     func(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (cmd.ListObjectVersionsInfo, error)
 	listObjectsV2          func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
+}
+
+func (f *bucketObjectLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (cmd.ListObjectsInfo, error) {
+	return f.listObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
+}
+
+func (f *bucketObjectLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (cmd.ListObjectVersionsInfo, error) {
+	return f.listObjectVersions(ctx, bucket, prefix, marker, versionMarker, delimiter, maxKeys)
 }
 
 func (f *bucketObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error) {
@@ -210,4 +220,31 @@ func TestGetBucketAcl(t *testing.T) {
 	require.Contains(t, resp.Body, `<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
 	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
 	require.Contains(t, resp.Body, "<ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Grantee>")
+}
+
+func TestListMaxKeysClamped(t *testing.T) {
+	var got int
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		listObjects: func(_ context.Context, _, _, _, _ string, maxKeys int) (cmd.ListObjectsInfo, error) {
+			got = maxKeys
+			return cmd.ListObjectsInfo{}, nil
+		},
+		listObjectsV2: func(_ context.Context, _, _, _, _ string, maxKeys int, _ bool, _ string) (cmd.ListObjectsV2Info, error) {
+			got = maxKeys
+			return cmd.ListObjectsV2Info{}, nil
+		},
+		listObjectVersions: func(_ context.Context, _, _, _, _, _ string, maxKeys int) (cmd.ListObjectVersionsInfo, error) {
+			got = maxKeys
+			return cmd.ListObjectVersionsInfo{}, nil
+		},
+	}
+
+	for _, target := range []string{"/bucket?max-keys=5000", "/bucket?list-type=2&max-keys=5000", "/bucket?versions&max-keys=5000"} {
+		got = 0
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, 1000, got, target)
+		require.Contains(t, resp.Body, "<MaxKeys>1000</MaxKeys>", target)
+	}
 }
