@@ -502,6 +502,13 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only whole-object checksums are verified, so a request for another type is rejected rather
+	// than answered with FULL_OBJECT.
+	if checksumType := r.Header.Get("X-Amz-Checksum-Type"); checksumType != "" && !strings.EqualFold(checksumType, "FULL_OBJECT") {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidRequest)
+		return
+	}
+
 	switch r.Header.Get(xhttp.AmzStorageClass) {
 	case "", storageclass.STANDARD, storageclass.ONEZONE:
 	case storageclass.RRS:
@@ -588,7 +595,9 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
-	setChecksumHeaders(w, r.Header, body)
+	if setChecksumHeaders(w, r.Header, body) {
+		w.Header().Set("X-Amz-Checksum-Type", "FULL_OBJECT")
+	}
 	if objInfo.VersionID != "" {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
@@ -1684,6 +1693,10 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if _, _, err := checksumValueHeaders(r.Header); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
 	var checksumReqs []awsig.ChecksumRequest
 	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {

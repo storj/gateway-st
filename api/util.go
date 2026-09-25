@@ -21,13 +21,19 @@
 package api
 
 import (
+	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
+	"hash/crc32"
+	"hash/crc64"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/amwolff/awsig"
@@ -136,8 +142,70 @@ var checksumHeaders = map[string]awsig.ChecksumAlgorithm{
 	"X-Amz-Checksum-Sha256":    awsig.AlgorithmSHA256,
 }
 
+// unimplementedChecksumHeaders are X-Amz-Checksum-<algorithm> headers of algorithms that awsig
+// can't verify. They're rejected with NotImplemented rather than InvalidChecksumAlgorithm, which
+// S3 may answer instead, so that a client sending one sees why its request fails.
+// ponytail: accept them once awsig verifies them.
+var unimplementedChecksumHeaders = []string{
+	"X-Amz-Checksum-Sha512",
+	"X-Amz-Checksum-Md5",
+	"X-Amz-Checksum-Xxhash64",
+	"X-Amz-Checksum-Xxhash3",
+	"X-Amz-Checksum-Xxhash128",
+}
+
+// checksumHeaderAlgorithm returns the algorithm of an X-Amz-Checksum-<algorithm> header.
+func checksumHeaderAlgorithm(header string) (awsig.ChecksumAlgorithm, error) {
+	header = http.CanonicalHeaderKey(header)
+	if algorithm, ok := checksumHeaders[header]; ok {
+		return algorithm, nil
+	}
+	if slices.Contains(unimplementedChecksumHeaders, header) {
+		return 0, apierr.CodeChecksumsUnsupported
+	}
+	return 0, apierr.CodeInvalidChecksumAlgorithm
+}
+
+// checksumSize returns the decoded size of a checksum.
+func checksumSize(algorithm awsig.ChecksumAlgorithm) int {
+	switch algorithm {
+	case awsig.AlgorithmCRC32, awsig.AlgorithmCRC32C:
+		return crc32.Size
+	case awsig.AlgorithmCRC64NVME:
+		return crc64.Size
+	case awsig.AlgorithmSHA1:
+		return sha1.Size
+	case awsig.AlgorithmSHA256:
+		return sha256.Size
+	default:
+		return 0
+	}
+}
+
+// checksumValueHeaders returns the X-Amz-Checksum-<algorithm> headers of h, sorted, and
+// the algorithms they carry. It rejects unknown and unsupported algorithms.
+func checksumValueHeaders(h http.Header) (headers []string, algorithms []awsig.ChecksumAlgorithm, err error) {
+	for _, header := range slices.Sorted(maps.Keys(h)) {
+		switch canonical := http.CanonicalHeaderKey(header); {
+		case !strings.HasPrefix(canonical, xAmzChecksumPrefix),
+			canonical == "X-Amz-Checksum-Type",
+			canonical == "X-Amz-Checksum-Algorithm",
+			canonical == "X-Amz-Checksum-Mode":
+			continue
+		}
+		algorithm, err := checksumHeaderAlgorithm(header)
+		if err != nil {
+			return nil, nil, err
+		}
+		headers = append(headers, header)
+		algorithms = append(algorithms, algorithm)
+	}
+	return headers, algorithms, nil
+}
+
 // getChecksumRequests returns the checksum requests for verifying a request body: its
-// Content-MD5 header, and at most one X-Amz-Checksum-<algorithm> header or X-Amz-Trailer.
+// Content-MD5 header, and at most one X-Amz-Checksum-<algorithm> header or X-Amz-Trailer,
+// which X-Amz-Sdk-Checksum-Algorithm must match if present.
 func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
 	var reqs []awsig.ChecksumRequest
 	req, present, err := getContentMD5ChecksumRequest(h)
@@ -148,54 +216,84 @@ func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
 		reqs = append(reqs, req)
 	}
 
-	var checksums int
-	for header, algorithm := range checksumHeaders {
-		value := h.Get(header)
-		if value == "" {
-			continue
+	headers, algorithms, err := checksumValueHeaders(h)
+	if err != nil {
+		return nil, err
+	}
+	for i, header := range headers {
+		invalid := apierr.Response{
+			Code:           "InvalidRequest",
+			Description:    "Value for x-amz-checksum-" + algorithms[i].String() + " header is invalid.",
+			HTTPStatusCode: http.StatusBadRequest,
 		}
-		req, err := awsig.NewChecksumRequest(algorithm, value)
+		values := h[header]
+		if len(values) != 1 {
+			return nil, invalid
+		}
+		// awsig checks only the encoded length, which lets through values with extra padding.
+		// TODO: decode strictly in awsig, so this check is not needed here.
+		decoded, err := base64.StdEncoding.Strict().DecodeString(values[0])
+		if err != nil || len(decoded) != checksumSize(algorithms[i]) {
+			return nil, invalid
+		}
+		req, err := awsig.NewChecksumRequest(algorithms[i], values[0])
 		if err != nil {
-			return nil, apierr.CodeInvalidRequest
+			return nil, invalid
 		}
 		reqs = append(reqs, req)
-		checksums++
 	}
 
 	// A trailing checksum needs a streaming payload with trailers, and such a payload must
 	// declare its trailer.
-	trailer := h.Get("X-Amz-Trailer")
+	trailer := strings.TrimSpace(h.Get("X-Amz-Trailer"))
 	if (trailer != "") != strings.HasSuffix(h.Get("X-Amz-Content-Sha256"), "-TRAILER") {
 		return nil, apierr.CodeInvalidRequest
 	}
 	if trailer != "" {
-		algorithm, ok := checksumHeaders[http.CanonicalHeaderKey(strings.TrimSpace(trailer))]
-		if !ok {
+		if !strings.HasPrefix(http.CanonicalHeaderKey(trailer), xAmzChecksumPrefix) {
 			return nil, apierr.CodeInvalidRequest
+		}
+		algorithm, err := checksumHeaderAlgorithm(trailer)
+		if err != nil {
+			return nil, err
 		}
 		req, err := awsig.NewTrailingChecksumRequest(algorithm)
 		if err != nil {
 			return nil, apierr.CodeInvalidRequest
 		}
 		reqs = append(reqs, req)
-		checksums++
+		algorithms = append(algorithms, algorithm)
 	}
 
 	// S3 rejects requests that specify more than one checksum algorithm.
-	if checksums > 1 {
-		return nil, apierr.CodeInvalidRequest
+	if len(algorithms) > 1 {
+		return nil, apierr.CodeMultipleChecksums
+	}
+
+	if sdkAlgorithm := h.Get("X-Amz-Sdk-Checksum-Algorithm"); sdkAlgorithm != "" {
+		algorithm, err := checksumHeaderAlgorithm(xAmzChecksumPrefix + sdkAlgorithm)
+		switch {
+		case errors.Is(err, apierr.CodeChecksumsUnsupported):
+			return nil, err
+		case err != nil:
+			return nil, apierr.CodeInvalidSdkChecksumAlgorithm
+		case len(algorithms) == 0:
+			return nil, apierr.CodeMissingChecksumForSdkAlgorithm
+		case algorithm != algorithms[0]:
+			return nil, apierr.CodeInvalidSdkChecksumAlgorithm
+		}
 	}
 
 	return reqs, nil
 }
 
 // setChecksumHeaders sets the X-Amz-Checksum-<algorithm> response headers for the checksums
-// that the request header h asked to verify while reading a request body. The SHA-256 of a
-// signed payload isn't echoed unless it was asked for.
-func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader) {
+// that the request header h asked to verify while reading a request body and reports whether
+// it set any. The SHA-256 of a signed payload isn't echoed unless it was asked for.
+func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader) (set bool) {
 	sums, err := body.Checksums()
 	if err != nil {
-		return
+		return false
 	}
 	trailer := http.CanonicalHeaderKey(strings.TrimSpace(h.Get("X-Amz-Trailer")))
 	for header, algorithm := range checksumHeaders {
@@ -204,8 +302,10 @@ func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader)
 		}
 		if sum, ok := sums[algorithm]; ok {
 			w.Header().Set(header, base64.StdEncoding.EncodeToString(sum))
+			set = true
 		}
 	}
+	return set
 }
 
 func s3EncodeName(name string, encodingType string) (result string) {

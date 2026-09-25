@@ -24,6 +24,7 @@ const (
 	CodeInternal
 	CodeInvalidAccessKeyID
 	CodeInvalidAttributeName
+	CodeInvalidChecksumAlgorithm
 	CodeInvalidContentMD5
 	CodeInvalidContentSHA256
 	CodeInvalidCopyDest
@@ -43,6 +44,7 @@ const (
 	CodeInvalidRange
 	CodeInvalidRangePartNumber
 	CodeInvalidRequest
+	CodeInvalidSdkChecksumAlgorithm
 	CodeInvalidStorageClass
 	CodeInvalidTagDirective
 	CodeInvalidTaggingHeader
@@ -58,11 +60,13 @@ const (
 	CodeMalformedXML
 	CodeMaximumExpires
 	CodeMethodNotAllowed
+	CodeMissingChecksumForSdkAlgorithm
 	CodeMissingContentLength
 	CodeMissingContentMD5
 	CodeMissingObjectAttributes
 	CodeMissingPOSTPolicy
 	CodeMissingSecurityHeader
+	CodeMultipleChecksums
 	CodeNegativeExpires
 	CodeNoSuchCORSConfiguration
 	CodeNoSuchKey
@@ -188,6 +192,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Invalid attribute name specified.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidChecksumAlgorithm: {
+		Code:           "InvalidRequest",
+		Description:    "The algorithm type you specified in x-amz-checksum- header is invalid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidContentMD5: {
 		Code:           "InvalidDigest",
 		Description:    "The Content-MD5 you specified was invalid.",
@@ -283,6 +292,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The request is invalid.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidSdkChecksumAlgorithm: {
+		Code:           "InvalidRequest",
+		Description:    "Value for x-amz-sdk-checksum-algorithm header is invalid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidStorageClass: {
 		Code:           "InvalidStorageClass",
 		Description:    "The storage class you specified is not valid",
@@ -358,6 +372,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The specified method is not allowed against this resource.",
 		HTTPStatusCode: 405,
 	},
+	CodeMissingChecksumForSdkAlgorithm: {
+		Code:           "InvalidRequest",
+		Description:    "x-amz-sdk-checksum-algorithm specified, but no corresponding x-amz-checksum-* or x-amz-trailer headers were found.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMissingContentLength: {
 		Code:           "MissingContentLength",
 		Description:    "You must provide the Content-Length HTTP header.",
@@ -381,6 +400,11 @@ var codeToResponse = map[Code]Response{
 	CodeMissingSecurityHeader: {
 		Code:           "MissingSecurityHeader",
 		Description:    "Your request is missing a required header.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMultipleChecksums: {
+		Code:           "InvalidRequest",
+		Description:    "Expecting a single x-amz-checksum- header. Multiple checksum Types are not allowed.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeNegativeExpires: {

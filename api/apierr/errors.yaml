@@ -48,6 +48,26 @@
   description: Checksum options are not supported at this time.
   http_status: 501
 
+- name: InvalidChecksumAlgorithm
+  code: InvalidRequest
+  description: The algorithm type you specified in x-amz-checksum- header is invalid.
+  http_status: 400
+
+- name: InvalidSdkChecksumAlgorithm
+  code: InvalidRequest
+  description: Value for x-amz-sdk-checksum-algorithm header is invalid.
+  http_status: 400
+
+- name: MissingChecksumForSdkAlgorithm
+  code: InvalidRequest
+  description: x-amz-sdk-checksum-algorithm specified, but no corresponding x-amz-checksum-* or x-amz-trailer headers were found.
+  http_status: 400
+
+- name: MultipleChecksums
+  code: InvalidRequest
+  description: Expecting a single x-amz-checksum- header. Multiple checksum Types are not allowed.
+  http_status: 400
+
 - name: EmptyVersionID
   code: InvalidArgument
   description: Version id cannot be the empty string
