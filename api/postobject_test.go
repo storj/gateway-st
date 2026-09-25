@@ -12,6 +12,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,23 +115,31 @@ func TestPostObjectRedirect(t *testing.T) {
 func TestPostObjectFilenameKey(t *testing.T) {
 	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
 	resp := postObject(t, objectAPI, "/bucket",
-		[]any{[]string{"eq", "$key", "uploads/photo.jpg"}},
+		[]any{map[string]string{"bucket": "bucket"}, []string{"eq", "$key", "uploads/photo.jpg"}},
 		[][2]string{{"key", "uploads/${filename}"}}, "data")
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "uploads/photo.jpg", objectAPI.object)
 }
 
 func TestPostObjectContentLengthRange(t *testing.T) {
-	upload := func(file string) response {
+	upload := func(file string, ranges ...[]any) response {
+		conditions := []any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "photo.jpg"}}
+		for _, r := range ranges {
+			conditions = append(conditions, append([]any{"content-length-range"}, r...))
+		}
 		return postObject(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket",
-			[]any{map[string]string{"key": "photo.jpg"}, []any{"content-length-range", 0, 4}},
-			[][2]string{{"key", "photo.jpg"}}, file)
+			conditions, [][2]string{{"key", "photo.jpg"}}, file)
 	}
 
-	resp := upload("data")
+	resp := upload("data", []any{0, 4})
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 
-	resp = upload("data!")
+	resp = upload("data!", []any{0, 4})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
+
+	// Multiple ranges intersect; a later wider range doesn't override an earlier one.
+	resp = upload(strings.Repeat("x", 30), []any{10, 20}, []any{0, 100})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
 }

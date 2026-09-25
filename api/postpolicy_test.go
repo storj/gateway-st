@@ -200,6 +200,19 @@ func TestPostPolicyUnmarshal(t *testing.T) {
 			Valid: true,
 		}, form.Conditions.ContentLengthRange)
 	})
+
+	t.Run("content-length-range intersects multiple conditions", func(t *testing.T) {
+		form, err := unmarshalPolicy(`{
+			"expiration": "` + expirationStr + `",
+			"conditions": [["content-length-range", 10, 20], ["content-length-range", 0, 100]]
+		}`)
+		require.NoError(t, err)
+		require.Equal(t, api.ContentLengthRange{
+			Min:   10,
+			Max:   20,
+			Valid: true,
+		}, form.Conditions.ContentLengthRange)
+	})
 }
 
 func TestCheckPostForm(t *testing.T) {
@@ -339,6 +352,48 @@ func TestCheckPostForm(t *testing.T) {
 			})
 		})
 
+		t.Run("Every list entry must match", func(t *testing.T) {
+			form := newSigV4PostForm()
+			form.Set("Content-Type", awsig.PostFormElement{Value: "image/png"})
+			form.Add("Content-Type", awsig.PostFormElement{Value: "text/html"})
+
+			err := api.CheckPostForm(policy, form, "my-bucket")
+			require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
+				Condition: `["starts-with","$content-type","image/"]`,
+			})
+
+			form.Set("Content-Type", awsig.PostFormElement{Value: "image/png, image/jpeg"})
+			require.NoError(t, api.CheckPostForm(policy, form, "my-bucket"))
+		})
+
+		t.Run("Repeated fields are joined", func(t *testing.T) {
+			form := newSigV4PostForm()
+			form.Set("Content-Type", awsig.PostFormElement{Value: "image/png"})
+			form.Set("x-amz-meta-foo", awsig.PostFormElement{Value: "a1"})
+			form.Add("x-amz-meta-foo", awsig.PostFormElement{Value: "zzz"})
+
+			for _, tt := range []struct {
+				cond api.PostPolicyCondition
+				ok   bool
+			}{
+				{api.PostPolicyCondition{api.PostPolicyOperatorStartsWith, "$x-amz-meta-foo", "a"}, true},
+				{api.PostPolicyCondition{api.PostPolicyOperatorEqual, "$x-amz-meta-foo", "a1,zzz"}, true},
+				{api.PostPolicyCondition{api.PostPolicyOperatorEqual, "$x-amz-meta-foo", "a1"}, false},
+			} {
+				policy := newSigV4PostPolicy()
+				policy.Conditions.Items = append(policy.Conditions.Items,
+					api.PostPolicyCondition{api.PostPolicyOperatorStartsWith, "$content-type", "image/"},
+					tt.cond)
+
+				err := api.CheckPostForm(policy, form, "my-bucket")
+				if tt.ok {
+					assert.NoError(t, err, tt.cond)
+				} else {
+					assert.ErrorAs(t, err, &apierr.PostFormConditionFailedError{}, tt.cond)
+				}
+			}
+		})
+
 		t.Run("Empty prefix matches anything", func(t *testing.T) {
 			policy := newSigV4PostPolicy()
 			policy.Conditions.Items = append(policy.Conditions.Items, api.PostPolicyCondition{
@@ -368,6 +423,19 @@ func TestCheckPostForm(t *testing.T) {
 		err := api.CheckPostForm(policy, form, "my-bucket")
 		require.ErrorIs(t, err, apierr.PostFormExtraFieldsError{
 			FieldName: "a",
+		})
+	})
+
+	t.Run("Missing bucket condition", func(t *testing.T) {
+		policy := newSigV4PostPolicy()
+		policy.Conditions.Items = policy.Conditions.Items[1:]
+
+		form := newSigV4PostForm()
+		form.Del("bucket")
+
+		err := api.CheckPostForm(policy, form, "my-bucket")
+		require.ErrorIs(t, err, apierr.PostFormExtraFieldsError{
+			FieldName: "bucket",
 		})
 	})
 
@@ -420,6 +488,20 @@ func TestCheckPostForm(t *testing.T) {
 
 			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.ErrorIs(t, err, apierr.PostFormMissingFieldError{FieldName: "signature"})
+		})
+
+		t.Run("Policy field", func(t *testing.T) {
+			policy := newSigV4PostPolicy()
+			policy.Conditions.Items = append(policy.Conditions.Items, api.PostPolicyCondition{
+				Operator: api.PostPolicyOperatorEqual,
+				Key:      "$x-amz-meta-foo",
+				Value:    "bar",
+			})
+
+			err := api.CheckPostForm(policy, newSigV4PostForm(), "my-bucket")
+			require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
+				Condition: `["eq","$x-amz-meta-foo","bar"]`,
+			})
 		})
 
 		t.Run("Missing signature version fields", func(t *testing.T) {

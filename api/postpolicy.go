@@ -222,19 +222,24 @@ func (conds *PostPolicyConditions) addMatchCondition(op PostPolicyOperator, rawK
 }
 
 func (conds *PostPolicyConditions) addLengthRange(rawMin, rawMax any) error {
-	min, err := conditionArgToInt64(rawMin)
+	lo, err := conditionArgToInt64(rawMin)
 	if err != nil {
 		return err
 	}
 
-	max, err := conditionArgToInt64(rawMax)
+	hi, err := conditionArgToInt64(rawMax)
 	if err != nil {
 		return err
 	}
 
+	// Several ranges must all hold, so use their intersection. A contradictory intersection
+	// (Min > Max) rejects every upload.
+	if r := conds.ContentLengthRange; r.Valid {
+		lo, hi = max(lo, r.Min), min(hi, r.Max)
+	}
 	conds.ContentLengthRange = ContentLengthRange{
-		Min:   min,
-		Max:   max,
+		Min:   lo,
+		Max:   hi,
 		Valid: true,
 	}
 	return nil
@@ -349,7 +354,7 @@ func CheckPostForm(policy PostPolicy, postForm awsig.PostForm, bucket string) er
 		if strings.EqualFold(trimmedKey, "bucket") {
 			formVal = bucket
 		}
-		if !evalCondition(cond.Operator, formVal, cond.Value) {
+		if !evalCondition(cond.Operator, trimmedKey, formVal, cond.Value) {
 			return newConditionFailedError(string(cond.Operator), cond.Key, cond.Value)
 		}
 	}
@@ -367,7 +372,6 @@ func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition)
 		}
 		policyKeysMap[strings.ToLower(after)] = struct{}{}
 	}
-	policyKeys := slices.Collect(maps.Keys(policyKeysMap))
 
 	formKeysMap := make(map[string]struct{}, len(postForm))
 	for key, elements := range postForm {
@@ -401,14 +405,6 @@ func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition)
 		}
 	}
 
-	for _, key := range policyKeys {
-		if _, ok := formKeysMap[key]; !ok && key != "bucket" {
-			return apierr.PostFormMissingFieldError{
-				FieldName: key,
-			}
-		}
-	}
-
 	for _, key := range requiredFormKeys {
 		if _, ok := formKeysMap[key]; !ok {
 			return apierr.PostFormMissingFieldError{
@@ -437,6 +433,14 @@ func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition)
 		}
 	} else {
 		return apierr.CodeAccessDenied
+	}
+
+	// The bucket is an implicit form field, so it needs a policy condition even when the form
+	// omits it. Policy fields missing from the form are evaluated as "" by CheckPostForm.
+	if _, ok := policyKeysMap["bucket"]; !ok {
+		return apierr.PostFormExtraFieldsError{
+			FieldName: "bucket",
+		}
 	}
 
 	return nil
@@ -477,11 +481,20 @@ func getPostFormValue(postForm awsig.PostForm, key string) string {
 	}
 }
 
-func evalCondition(op PostPolicyOperator, input, expected string) bool {
+func evalCondition(op PostPolicyOperator, key, input, expected string) bool {
 	switch op {
 	case PostPolicyOperatorEqual:
 		return input == expected
 	case PostPolicyOperatorStartsWith:
+		// Content-Type may be a comma-separated list, and every entry must match.
+		if strings.EqualFold(key, "content-type") {
+			for entry := range strings.SplitSeq(input, ",") {
+				if !strings.HasPrefix(strings.TrimSpace(entry), expected) {
+					return false
+				}
+			}
+			return true
+		}
 		return strings.HasPrefix(input, expected)
 	default:
 		return false
