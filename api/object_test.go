@@ -296,6 +296,61 @@ func TestGetObjectAcl(t *testing.T) {
 	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
 }
 
+func TestPutAcl(t *testing.T) {
+	ownerGrant := `<Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="CanonicalUser"><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Grantee><Permission>FULL_CONTROL</Permission></Grant>`
+	publicGrant := `<Grant><Grantee xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="Group"><URI>http://acs.amazonaws.com/groups/global/AllUsers</URI></Grantee><Permission>READ</Permission></Grant>`
+	policy := func(grants ...string) string {
+		return `<AccessControlPolicy><AccessControlList>` + strings.Join(grants, "") + `</AccessControlList></AccessControlPolicy>`
+	}
+
+	for _, tt := range []struct {
+		name     string
+		header   http.Header
+		body     string
+		wantCode string
+	}{
+		{name: "owner", body: policy(ownerGrant)},
+		{name: "owner twice", body: policy(ownerGrant, ownerGrant)},
+		{name: "owner and public", body: policy(ownerGrant, publicGrant), wantCode: "AccessControlListNotSupported"},
+		{name: "no grants", body: policy(), wantCode: "AccessControlListNotSupported"},
+		{name: "private", header: http.Header{"X-Amz-Acl": {"private"}}},
+		{name: "bucket-owner-full-control", header: http.Header{"X-Amz-Acl": {"bucket-owner-full-control"}}},
+		{name: "public-read", header: http.Header{"X-Amz-Acl": {"public-read"}}, wantCode: "AccessControlListNotSupported"},
+		{name: "bogus canned", header: http.Header{"X-Amz-Acl": {"bogus"}}, wantCode: "AccessControlListNotSupported"},
+		{name: "canned and body", header: http.Header{"X-Amz-Acl": {"private"}}, body: policy(ownerGrant), wantCode: "InvalidRequest"},
+		{name: "canned and grant", header: http.Header{"X-Amz-Acl": {"private"}, "X-Amz-Grant-Read": {"id=x"}}, wantCode: "InvalidRequest"},
+		{name: "grant", header: http.Header{"X-Amz-Grant-Read": {"id=x"}}, wantCode: "AccessControlListNotSupported"},
+	} {
+		for _, target := range []string{"/bucket/key?acl", "/bucket?acl"} {
+			t.Run(tt.name+" "+target, func(t *testing.T) {
+				resp := serve(t, newBodyObjectLayer(), http.MethodPut, target, tt.header, []byte(tt.body))
+				if tt.wantCode != "" {
+					require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+					require.Contains(t, resp.Body, "<Code>"+tt.wantCode+"</Code>")
+					return
+				}
+				require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+				require.Equal(t, "0", resp.Header.Get("Content-Length"))
+				require.NotEmpty(t, resp.Header.Get("Server"))
+			})
+		}
+	}
+}
+
+func TestObjectAclVersionID(t *testing.T) {
+	const versionID = "00000000000000000000000000000001"
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		var got string
+		objectAPI := &fakeObjectLayer{getObjectInfo: func(_ context.Context, _, _ string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			got = opts.VersionID
+			return cmd.ObjectInfo{}, nil
+		}}
+		resp := serve(t, objectAPI, method, "/bucket/key?acl&versionId="+versionID, http.Header{"X-Amz-Acl": {"private"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, versionID, got, method)
+	}
+}
+
 // versionedCopyPartLayer models the storage layer selecting the latest version when
 // CopyObjectPart is called without an explicit source version.
 type versionedCopyPartLayer struct {

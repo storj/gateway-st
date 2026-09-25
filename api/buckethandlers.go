@@ -25,8 +25,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -156,37 +154,12 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	aclHeader := r.Header.Get(xhttp.AmzACL)
-	if aclHeader == "" {
-		acl := &accessControlPolicy{}
-		if err = xmlDecoder(bytes.NewReader(data), acl); err != nil {
-			if errors.Is(err, io.EOF) {
-				api.writeErrorResponse(w, r, apierr.CodeMissingSecurityHeader)
-				return
-			}
-			api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
-			return
-		}
-
-		if len(acl.AccessControlList.Grants) == 0 {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-			return
-		}
-
-		if acl.AccessControlList.Grants[0].Permission != "FULL_CONTROL" {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-			return
-		}
-	}
-
-	if aclHeader != "" && aclHeader != "private" {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+	if err := checkACL(r.Header, data); err != nil {
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
+	api.writeSuccessResponseHeadersOnly(w, r)
 }
 
 // PutBucketNotificationConfigurationHandler is the HTTP handler for the PutBucketNotificationConfiguration

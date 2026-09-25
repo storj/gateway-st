@@ -90,7 +90,7 @@ func base64CRC32(b []byte) string {
 }
 
 const (
-	aclBody      = `<AccessControlPolicy><AccessControlList><Grant><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`
+	aclBody      = `<AccessControlPolicy><AccessControlList><Grant><Grantee><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Grantee><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`
 	completeBody = `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`
 )
 

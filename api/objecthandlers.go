@@ -87,43 +87,69 @@ func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{})
+	versionID, err := extractVersionID(r.URL.Query())
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	aclHeader := r.Header.Get(xhttp.AmzACL)
-	if aclHeader == "" {
-		acl := &accessControlPolicy{}
-		if err = xmlDecoder(bytes.NewReader(data), acl); err != nil {
-			if errors.Is(err, io.EOF) {
-				api.writeErrorResponse(w, r, apierr.CodeMissingSecurityHeader)
-				return
-			}
-			api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
-			return
-		}
-
-		if len(acl.AccessControlList.Grants) == 0 {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-			return
-		}
-
-		if acl.AccessControlList.Grants[0].Permission != "FULL_CONTROL" {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-			return
-		}
-	}
-
-	if aclHeader != "" && aclHeader != "private" {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
+	if err := checkACL(r.Header, data); err != nil {
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
+		return
 	}
+
+	api.writeSuccessResponseHeadersOnly(w, r)
+}
+
+// checkACL accepts only the access control lists the gateway already applies: the canned
+// private and bucket-owner-full-control ACLs, or a policy that grants nothing but the
+// owner's FULL_CONTROL.
+func checkACL(h http.Header, body []byte) error {
+	hasGrants := false
+	for name := range h {
+		if strings.HasPrefix(strings.ToLower(name), "x-amz-grant-") {
+			hasGrants = true
+		}
+	}
+
+	if canned := h.Get(xhttp.AmzACL); canned != "" {
+		if hasGrants || len(body) > 0 {
+			return apierr.CodeInvalidRequest
+		}
+		if canned != "private" && canned != "bucket-owner-full-control" {
+			return apierr.CodeAccessControlListNotSupported
+		}
+		return nil
+	}
+
+	if hasGrants {
+		return apierr.CodeAccessControlListNotSupported
+	}
+
+	acl := &accessControlPolicy{}
+	if err := xmlDecoder(bytes.NewReader(body), acl); err != nil {
+		if errors.Is(err, io.EOF) {
+			return apierr.CodeMissingSecurityHeader
+		}
+		return err
+	}
+
+	grants := acl.AccessControlList.Grants
+	if len(grants) == 0 {
+		return apierr.CodeAccessControlListNotSupported
+	}
+	for _, g := range grants {
+		if g.Permission != "FULL_CONTROL" || g.Grantee.ID != defaultOwnerID || g.Grantee.URI != "" {
+			return apierr.CodeAccessControlListNotSupported
+		}
+	}
+	return nil
 }
 
 // PutObjectLegalHoldHandler is the HTTP handler for the PutObjectLegalHold operation,
@@ -620,7 +646,13 @@ func (api *API) GetObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{})
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
