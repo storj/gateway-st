@@ -110,3 +110,12 @@ func TestPostObjectRedirect(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Key>photo.jpg</Key>")
 }
+
+func TestPostObjectFilenameKey(t *testing.T) {
+	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp := postObject(t, objectAPI, "/bucket",
+		[]any{[]string{"eq", "$key", "uploads/photo.jpg"}},
+		[][2]string{{"key", "uploads/${filename}"}}, "data")
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.Equal(t, "uploads/photo.jpg", objectAPI.object)
+}

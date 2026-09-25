@@ -663,6 +663,12 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Substitute ${filename} before checking the policy so that $key conditions apply to the final key.
+	keys := postForm.Values("key")
+	for i := range keys {
+		keys[i].Value = strings.ReplaceAll(keys[i].Value, "${filename}", postForm.FileName())
+	}
+
 	if err = CheckPostForm(postPolicy, postForm, bucketName); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -710,7 +716,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	pReader := cmd.NewPutObjReader(hashReader)
 
-	objectKey := strings.ReplaceAll(postForm.Get("key").Value, "${filename}", postForm.FileName())
+	objectKey := postForm.Get("key").Value
 	objInfo, err := api.objectAPI.PutObject(ctx, bucketName, objectKey, pReader, opts)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
