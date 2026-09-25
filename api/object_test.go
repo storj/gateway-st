@@ -4,15 +4,19 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/iotest"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api"
 	"storj.io/minio/cmd"
 )
 
@@ -206,4 +210,30 @@ func TestCopyObjectStorageClass(t *testing.T) {
 			}
 		}
 	}
+}
+
+type taggingObjectLayer struct {
+	*fakeObjectLayer
+	gotTags string
+}
+
+func (l *taggingObjectLayer) PutObjectTags(_ context.Context, bucket, object, tags string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	l.gotTags = tags
+	return cmd.ObjectInfo{Bucket: bucket, Name: object}, nil
+}
+
+func TestPutObjectTaggingUnknownContentLength(t *testing.T) {
+	objectAPI := &taggingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+	body := []byte(`<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag></TagSet></Tagging>`)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/bucket/key?tagging", bytes.NewReader(body))
+	req.ContentLength = -1
+	signV4(req, body, time.Now())
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "a=1", objectAPI.gotTags)
 }

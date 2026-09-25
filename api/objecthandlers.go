@@ -57,6 +57,8 @@ const (
 	// maxCompleteMultipartUploadBodySize is the maximum size of a CompleteMultipartUpload request body.
 	// 10,000 parts with an ETag and a checksum each take roughly 2-3 MB, more if pretty-printed.
 	maxCompleteMultipartUploadBodySize = 5 * int64(memory.MiB)
+	// maxPutObjectTaggingBodySize is the maximum size of a PutObjectTagging request body.
+	maxPutObjectTaggingBodySize = int64(memory.MiB)
 )
 
 // PutObjectAclHandler is the HTTP handler for the PutObjectAcl operation,
@@ -224,7 +226,7 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := tags.ParseObjectXML(io.LimitReader(body, r.ContentLength))
+	tags, err := tags.ParseObjectXML(io.LimitReader(body, maxPutObjectTaggingBodySize))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
