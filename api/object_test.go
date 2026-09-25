@@ -303,6 +303,17 @@ func TestUploadPartCopySource(t *testing.T) {
 	}
 }
 
+func TestGetObjectAcl(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", ModTime: time.Now()}, "")
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?acl", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
+	require.True(t, strings.HasPrefix(resp.Body, `<?xml version="1.0" encoding="UTF-8"?>`), resp.Body)
+	require.Contains(t, resp.Body, `<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
+}
+
 // versionedCopyPartLayer models the storage layer selecting the latest version when
 // CopyObjectPart is called without an explicit source version.
 type versionedCopyPartLayer struct {
