@@ -98,13 +98,19 @@ func TestListObjectsV2(t *testing.T) {
 		fakeObjectLayer: &fakeObjectLayer{},
 		listObjectsV2: func(_ context.Context, _, _, continuationToken, _ string, _ int, _ bool, _ string) (cmd.ListObjectsV2Info, error) {
 			gotToken = continuationToken
-			return cmd.ListObjectsV2Info{}, nil
+			return cmd.ListObjectsV2Info{Objects: []cmd.ObjectInfo{{Name: "key"}}}, nil
 		},
 	}
 
 	resp := serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Empty(t, gotToken)
+	require.Contains(t, resp.Body, "<Key>key</Key>")
+	require.NotContains(t, resp.Body, "<Owner>")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&fetch-owner=true", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
 
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=dG9rZW4%3D", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)

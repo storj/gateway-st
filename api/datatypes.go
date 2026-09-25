@@ -48,3 +48,31 @@ type accessControlPolicy struct {
 		Grants []grant `xml:"Grant"`
 	} `xml:"AccessControlList"`
 }
+
+// listObjectsV2Response is cmd.ListObjectsV2Response with objects whose owner is optional.
+type listObjectsV2Response struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
+
+	Name                  string
+	Prefix                string
+	StartAfter            string `xml:"StartAfter,omitempty"`
+	ContinuationToken     string `xml:"ContinuationToken,omitempty"`
+	NextContinuationToken string `xml:"NextContinuationToken,omitempty"`
+	KeyCount              int
+	MaxKeys               int
+	Delimiter             string `xml:"Delimiter,omitempty"`
+	IsTruncated           bool
+	Contents              []listObjectsV2Object
+	CommonPrefixes        []cmd.CommonPrefix
+	EncodingType          string `xml:"EncodingType,omitempty"`
+}
+
+// listObjectsV2Object is cmd.Object whose owner is only encoded when requested with fetch-owner.
+type listObjectsV2Object struct {
+	Key          string
+	LastModified string
+	ETag         string
+	Size         int64
+	Owner        *cmd.Owner `xml:",omitempty"`
+	StorageClass string
+}

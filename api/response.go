@@ -373,10 +373,10 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 	return data
 }
 
-func generateListObjectsV2Response(bucketName string, params listObjectsV2Params, listInfo cmd.ListObjectsV2Info) cmd.ListObjectsV2Response {
-	data := cmd.ListObjectsV2Response{
+func generateListObjectsV2Response(bucketName string, params listObjectsV2Params, listInfo cmd.ListObjectsV2Info) listObjectsV2Response {
+	data := listObjectsV2Response{
 		Name:                  bucketName,
-		Contents:              make([]cmd.Object, 0, len(listInfo.Objects)),
+		Contents:              make([]listObjectsV2Object, 0, len(listInfo.Objects)),
 		EncodingType:          params.encodingType,
 		StartAfter:            s3EncodeName(params.startAfter, params.encodingType),
 		Delimiter:             s3EncodeName(params.delimiter, params.encodingType),
@@ -393,14 +393,17 @@ func generateListObjectsV2Response(bucketName string, params listObjectsV2Params
 			continue
 		}
 
-		content := cmd.Object{
+		content := listObjectsV2Object{
 			Key:          s3EncodeName(object.Name, params.encodingType),
 			LastModified: object.ModTime.UTC().Format(iso8601Milli),
 			Size:         object.Size,
-			Owner: cmd.Owner{
+		}
+
+		if params.fetchOwner {
+			content.Owner = &cmd.Owner{
 				ID:          defaultOwnerID,
 				DisplayName: defaultOwnerDisplayName,
-			},
+			}
 		}
 
 		if object.ETag != "" {
