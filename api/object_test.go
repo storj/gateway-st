@@ -252,3 +252,97 @@ func TestPutObjectVersionID(t *testing.T) {
 	require.Equal(t, `"etag"`, resp.Header.Get("ETag"))
 	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
 }
+
+type copyPartObjectLayer struct {
+	*fakeObjectLayer
+	gotSrcInfo cmd.ObjectInfo
+}
+
+func (l *copyPartObjectLayer) CopyObjectPart(_ context.Context, _, _, _, _, _ string, partID int, _, _ int64, srcInfo cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+	l.gotSrcInfo = srcInfo
+	return cmd.PartInfo{PartNumber: partID, ETag: "partetag"}, nil
+}
+
+func TestUploadPartCopySource(t *testing.T) {
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	small := cmd.ObjectInfo{Bucket: "bucket", Name: "small", ModTime: modTime, Size: 10, ETag: "etag"}
+	large := cmd.ObjectInfo{Bucket: "bucket", Name: "large", ModTime: modTime, Size: 5<<30 + 1, ETag: "etag"}
+	objectAPI := &copyPartObjectLayer{fakeObjectLayer: &fakeObjectLayer{
+		getObjectInfo: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			if object == large.Name {
+				return large, nil
+			}
+			return small, nil
+		},
+	}}
+
+	for _, tt := range []struct {
+		name      string
+		header    http.Header
+		expStatus int
+		expCode   string
+	}{
+		{name: "if-match match", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-If-Match": {`"etag"`}}, expStatus: http.StatusOK},
+		{name: "if-match mismatch", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-If-Match": {`"other"`}}, expStatus: http.StatusPreconditionFailed, expCode: "PreconditionFailed"},
+		{name: "range within source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-Range": {"bytes=0-9"}}, expStatus: http.StatusOK},
+		{name: "range past end of source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-Range": {"bytes=5-10"}}, expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+		{name: "whole source too large", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}}, expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
+		{name: "range of large source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}, "X-Amz-Copy-Source-Range": {"bytes=0-9"}}, expStatus: http.StatusOK},
+		{name: "range length overflows", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}, "X-Amz-Copy-Source-Range": {"bytes=0-9223372036854775807"}}, expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectAPI.gotSrcInfo = cmd.ObjectInfo{}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload", tt.header, nil)
+			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
+			if tt.expCode != "" {
+				require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+			} else {
+				require.Equal(t, "etag", objectAPI.gotSrcInfo.ETag)
+			}
+		})
+	}
+}
+
+// versionedCopyPartLayer models the storage layer selecting the latest version when
+// CopyObjectPart is called without an explicit source version.
+type versionedCopyPartLayer struct {
+	*fakeObjectLayer
+	versions      map[string]string
+	latestVersion string
+	copied        string
+}
+
+func (l *versionedCopyPartLayer) CopyObjectPart(_ context.Context, _, _, _, _, _ string, partID int, _, _ int64, _ cmd.ObjectInfo, srcOpts, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+	version := srcOpts.VersionID
+	if version == "" {
+		version = l.latestVersion
+	}
+	l.copied = l.versions[version]
+	return cmd.PartInfo{PartNumber: partID, ETag: "partetag"}, nil
+}
+
+func TestUploadPartCopySourceVersion(t *testing.T) {
+	const oldVersion = "00000000-0000-0000-0000-000000000001"
+	const newVersion = "00000000-0000-0000-0000-000000000002"
+	for _, source := range []string{"/bucket/src", "/bucket/src?versionId=" + oldVersion} {
+		t.Run(source, func(t *testing.T) {
+			layer := &versionedCopyPartLayer{
+				fakeObjectLayer: &fakeObjectLayer{},
+				versions:        map[string]string{oldVersion: "old contents", newVersion: "new contents"},
+				latestVersion:   oldVersion,
+			}
+			layer.getObjectInfo = func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				info := cmd.ObjectInfo{VersionID: oldVersion, ETag: "old-etag", Size: 12, ModTime: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
+				// Another writer replaces the source after stat but before the part download.
+				layer.latestVersion = newVersion
+				return info, nil
+			}
+			resp := serve(t, layer, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=id", http.Header{
+				"X-Amz-Copy-Source":          {source},
+				"X-Amz-Copy-Source-If-Match": {`"old-etag"`},
+			}, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+			require.Equal(t, "old contents", layer.copied)
+		})
+	}
+}

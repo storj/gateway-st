@@ -342,10 +342,6 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "UploadPartCopy")
 
 	for _, header := range []string{
-		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfModifiedSince),
-		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfUnmodifiedSince),
-		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfNoneMatch),
-		http.CanonicalHeaderKey(xhttp.AmzCopySourceIfMatch),
 		xhttp.AmzServerSideEncryptionCustomerAlgorithm,
 		xhttp.AmzServerSideEncryptionCustomerKey,
 		xhttp.AmzServerSideEncryptionCustomerKeyMD5,
@@ -397,20 +393,47 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startOffset, length := int64(0), int64(-1)
-
+	var rangeSpec *cmd.HTTPRangeSpec
 	if rangeHeader := r.Header.Get(xhttp.AmzCopySourceRange); rangeHeader != "" {
-		if rangeSpec, err := parseRangeForCopy(rangeHeader); err != nil {
+		rangeSpec, err = parseRangeForCopy(rangeHeader)
+		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
-		} else if rangeSpec != nil {
-			startOffset, length = rangeSpec.Start, rangeSpec.End-rangeSpec.Start+1
 		}
 	}
 
+	srcOpts := cmd.ObjectOptions{VersionID: srcVersionID}
+	srcInfo, err := api.objectAPI.GetObjectInfo(ctx, srcBucket, srcObject, srcOpts)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if api.checkCopyPreconditions(w, r, srcInfo) {
+		return
+	}
+
+	startOffset, length := int64(0), srcInfo.Size
+	if rangeSpec != nil {
+		// Check the bounds before computing the length, so that it can't overflow.
+		if rangeSpec.Start >= srcInfo.Size || rangeSpec.End >= srcInfo.Size {
+			api.writeErrorResponse(w, r, apierr.CodeInvalidRange)
+			return
+		}
+		startOffset, length = rangeSpec.Start, rangeSpec.End-rangeSpec.Start+1
+	}
 	if length > maxPartSize {
 		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
 		return
+	}
+	if rangeSpec == nil {
+		length = -1 // Copy until the end of the source.
+	}
+
+	// Copy the version whose metadata and preconditions were checked, even if the
+	// source is overwritten between GetObjectInfo and the part download.
+	if srcInfo.VersionID != "" {
+		srcOpts.VersionID = srcInfo.VersionID
 	}
 
 	partInfo, err := api.objectAPI.CopyObjectPart(
@@ -418,8 +441,8 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		srcBucket, srcObject, dstBucket, dstObject, uploadID,
 		partNumber,
 		startOffset, length,
-		cmd.ObjectInfo{},
-		cmd.ObjectOptions{VersionID: srcVersionID}, cmd.ObjectOptions{},
+		srcInfo,
+		srcOpts, cmd.ObjectOptions{},
 	)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
