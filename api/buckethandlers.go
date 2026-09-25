@@ -356,7 +356,7 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.(http.Flusher).Flush()
+	_ = http.NewResponseController(w).Flush()
 }
 
 // GetBucketCorsHandler is the HTTP handler for the GetBucketCors operation,

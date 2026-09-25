@@ -129,6 +129,24 @@ func TestVirtualHostedRequestsDoNotFallThroughToPathStyle(t *testing.T) {
 	}
 }
 
+func TestResponseWriterWithoutFlusher(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listBuckets: func(context.Context) ([]cmd.BucketInfo, error) {
+			return []cmd.BucketInfo{{Name: "bucket"}}, nil
+		},
+	}
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	signV4(req, nil, time.Now())
+	rec := httptest.NewRecorder()
+	// Hide the recorder's Flush method, like a middleware wrapping the writer would.
+	router.ServeHTTP(struct{ http.ResponseWriter }{rec}, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
 func TestUnmatchedRoutes(t *testing.T) {
 	for _, tt := range []struct {
 		method, target string

@@ -69,7 +69,7 @@ func (api *API) writeResponse(w http.ResponseWriter, r *http.Request, statusCode
 		if err != nil {
 			api.log.Error(r, "error writing response", err)
 		}
-		w.(http.Flusher).Flush()
+		_ = http.NewResponseController(w).Flush()
 	}
 }
 
