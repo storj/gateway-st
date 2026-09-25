@@ -160,6 +160,19 @@ func TestRequestIDsAreRandom(t *testing.T) {
 	require.NotEqual(t, first.Get("X-Amz-Id-2"), second.Get("X-Amz-Id-2"))
 }
 
+func TestHeadErrorHasNoBody(t *testing.T) {
+	router := mux.NewRouter()
+	api.New(&fakeObjectLayer{}, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+	// The request is unsigned, so authentication fails.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/bucket", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Empty(t, rec.Body.String())
+}
+
 func TestUnmatchedRoutes(t *testing.T) {
 	for _, tt := range []struct {
 		method, target string

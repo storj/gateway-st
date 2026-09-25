@@ -121,6 +121,12 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 
+	// Responses to HEAD requests must not have a body.
+	if r.Method == http.MethodHead {
+		api.writeResponse(w, r, resp.HTTPStatusCode, nil, mimeNone)
+		return
+	}
+
 	encodedResp, xmlErr := encodeResponse(newErrorResponse(w, r, resp))
 	if xmlErr != nil {
 		api.log.Error(r, "error encoding XML error response", xmlErr)
