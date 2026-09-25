@@ -77,6 +77,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 	for fetchedCount < int64(limit) && list.Next() {
 		fetchedCount++
 		object := list.Item()
+		nextKeyMarker = object.Key
 
 		if object.IsPrefix {
 			prefixes = append(prefixes, object.Key)
@@ -84,8 +85,6 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		}
 
 		uploads = append(uploads, minioMultipartInfo(bucket, object))
-
-		nextKeyMarker = object.Key
 	}
 	if list.Err() != nil {
 		return result, convertMultipartError(list.Err(), bucket, "", "")

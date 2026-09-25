@@ -2583,6 +2583,13 @@ func TestListMultipartUploads(t *testing.T) {
 				delimiter:  "/",
 				maxUploads: 2,
 			}, {
+				name:       "Basic non-recursive with max uploads limit of 1 ending in a prefix",
+				marker:     "l",
+				delimiter:  "/",
+				maxUploads: 1,
+				more:       true,
+				prefixes:   []string{"m/"},
+			}, {
 				name:       "Prefix non-recursive",
 				prefix:     "a/",
 				delimiter:  "/",
@@ -2625,6 +2632,26 @@ func TestListMultipartUploads(t *testing.T) {
 				}
 			}
 		}
+
+		// Paging one entry at a time must visit every upload and prefix once.
+		var paged []string
+		for marker := ""; ; {
+			result, err := layer.ListMultipartUploads(ctx, testBucket, "", marker, "", "/", 1)
+			require.NoError(t, err)
+			for _, upload := range result.Uploads {
+				paged = append(paged, upload.Object)
+			}
+			paged = append(paged, result.CommonPrefixes...)
+			if !result.IsTruncated {
+				break
+			}
+			require.NotEqual(t, marker, result.NextKeyMarker)
+			marker = result.NextKeyMarker
+		}
+		assert.Equal(t, []string{
+			"a", "a/", "aa", "b", "b/", "bb", "c", "i", "i/", "ii", "j", "j/",
+			"k", "kk", "l", "m/", "mm", "n/", "oo",
+		}, paged)
 	})
 }
 
