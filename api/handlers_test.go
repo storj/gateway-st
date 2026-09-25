@@ -1396,3 +1396,64 @@ func TestServeHTTP(t *testing.T) {
 		})
 	}
 }
+
+func TestIfMatchNotImplemented(t *testing.T) {
+	deleteBody := []byte(`<Delete><Object><Key>key</Key><ETag>"etag"</ETag></Object></Delete>`)
+	deleteSum := md5.Sum(deleteBody)
+	deleteSizeBody := []byte(`<Delete><Object><Key>key</Key><Size>5</Size></Object></Delete>`)
+	deleteSizeSum := md5.Sum(deleteSizeBody)
+	deleteTimeBody := []byte(`<Delete><Object><Key>key</Key><LastModifiedTime>2025-01-01T00:00:00.000Z</LastModifiedTime></Object></Delete>`)
+	deleteTimeSum := md5.Sum(deleteTimeBody)
+	completeBody := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`)
+
+	for _, tt := range []struct {
+		name, method, target string
+		header               http.Header
+		body                 []byte
+	}{
+		{"PutObject", http.MethodPut, "/bucket/key", http.Header{"If-Match": {`"etag"`}}, []byte("data")},
+		{"CopyObject", http.MethodPut, "/bucket/key", http.Header{"If-Match": {`"etag"`}, "X-Amz-Copy-Source": {"/bucket/src"}}, nil},
+		{"CompleteMultipartUpload", http.MethodPost, "/bucket/key?uploadId=upload-id", http.Header{"If-Match": {`"etag"`}}, completeBody},
+		{"DeleteObject", http.MethodDelete, "/bucket/key", http.Header{"If-Match": {`"etag"`}}, nil},
+		{"DeleteObject size", http.MethodDelete, "/bucket/key", http.Header{"X-Amz-If-Match-Size": {"5"}}, nil},
+		{"DeleteObject last modified", http.MethodDelete, "/bucket/key", http.Header{"X-Amz-If-Match-Last-Modified-Time": {"Wed, 01 Jan 2025 00:00:00 GMT"}}, nil},
+		{"DeleteObjects", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteSum[:])}}, deleteBody},
+		{"DeleteObjects size", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteSizeSum[:])}}, deleteSizeBody},
+		{"DeleteObjects last modified", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteTimeSum[:])}}, deleteTimeBody},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectAPI := &fakeObjectLayer{}
+			resp := serveHTTP(t, objectAPI, tt.method, tt.target, tt.header, tt.body)
+			require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>NotImplemented</Code>")
+			// The keep-alive of CompleteMultipartUpload changes the content type once started.
+			require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
+			require.Empty(t, objectAPI.Calls())
+		})
+	}
+
+	t.Run("If-None-Match and copy source If-Match pass through", func(t *testing.T) {
+		objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", ETag: "etag"}, "")
+		var gotCopyOpts, gotCompleteOpts cmd.ObjectOptions
+		objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			gotCopyOpts = dstOpts
+			return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject}, nil
+		}
+		objectAPI.completeMultipartUpload = func(_ context.Context, bucket, object, _ string, _ []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			gotCompleteOpts = opts
+			return cmd.ObjectInfo{Bucket: bucket, Name: object}, nil
+		}
+
+		resp := serveHTTP(t, objectAPI, http.MethodPut, "/bucket/key", http.Header{
+			"If-None-Match":              {"*"},
+			"X-Amz-Copy-Source":          {"/bucket/src"},
+			"X-Amz-Copy-Source-If-Match": {`"etag"`},
+		}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, []string{"*"}, gotCopyOpts.IfNoneMatch)
+
+		resp = serveHTTP(t, objectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", http.Header{"If-None-Match": {"*"}}, completeBody)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, []string{"*"}, gotCompleteOpts.IfNoneMatch)
+	})
+}

@@ -850,15 +850,34 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleteReq := &cmd.DeleteObjectsRequest{}
-	if err := decodeVerifiedXML(body, deleteReq, maxDeleteObjectsBodySize); err != nil {
+	// cmd.ObjectToDelete has no condition fields, so decode into a type that keeps them.
+	var req struct {
+		Quiet   bool
+		Objects []struct {
+			cmd.ObjectToDelete
+			ETag             string
+			Size             string
+			LastModifiedTime string
+		} `xml:"Object"`
+	}
+	if err := decodeVerifiedXML(body, &req, maxDeleteObjectsBodySize); err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
-	if len(deleteReq.Objects) == 0 || len(deleteReq.Objects) > maxDeleteList {
+	if len(req.Objects) == 0 || len(req.Objects) > maxDeleteList {
 		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 		return
+	}
+
+	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]cmd.ObjectToDelete, 0, len(req.Objects))}
+	for _, object := range req.Objects {
+		// ponytail: conditional deletes are refused like If-Match on DeleteObject.
+		if object.ETag != "" || object.Size != "" || object.LastModifiedTime != "" {
+			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+			return
+		}
+		deleteReq.Objects = append(deleteReq.Objects, object.ObjectToDelete)
 	}
 
 	type bucketObjectLocation struct {

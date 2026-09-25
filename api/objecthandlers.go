@@ -498,6 +498,10 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if api.rejectIfMatch(w, r) {
+		return
+	}
+
 	switch r.Header.Get(xhttp.AmzStorageClass) {
 	case "", storageclass.STANDARD, storageclass.ONEZONE:
 	case storageclass.RRS:
@@ -1219,6 +1223,20 @@ func etagMatchesList(etag, list string, weak bool) bool {
 	return false
 }
 
+// rejectIfMatch writes a NotImplemented error and returns true if r has an If-Match,
+// x-amz-if-match-size or x-amz-if-match-last-modified-time header.
+// ponytail: the object layer can't check these conditions atomically, so writes and deletes
+// refuse them rather than ignore them; support them once cmd.ObjectOptions has such fields.
+func (api *API) rejectIfMatch(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get(xhttp.IfMatch) == "" &&
+		r.Header.Get("X-Amz-If-Match-Size") == "" &&
+		r.Header.Get("X-Amz-If-Match-Last-Modified-Time") == "" {
+		return false
+	}
+	api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+	return true
+}
+
 // modifiedSince returns whether modTime is after t. HTTP dates have a precision of one second,
 // so modTime is truncated to seconds, like the Last-Modified header, before comparing.
 func modifiedSince(modTime, t time.Time) bool {
@@ -1245,6 +1263,10 @@ func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if api.rejectIfMatch(w, r) {
 		return
 	}
 
@@ -1340,6 +1362,10 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if api.rejectIfMatch(w, r) {
 		return
 	}
 
@@ -1651,6 +1677,11 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		api.writeErrorResponse(w, r, err)
 		return
 	}
+
+	if api.rejectIfMatch(w, r) {
+		return
+	}
+
 	var checksumReqs []awsig.ChecksumRequest
 	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
 	if err != nil {
