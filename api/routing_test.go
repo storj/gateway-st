@@ -53,3 +53,17 @@ func TestUnsupportedSubresourceOnObject(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "key", deleted)
 }
+
+func TestRequestPathIsNotCleaned(t *testing.T) {
+	var gotKey string
+	objectAPI := &fakeObjectLayer{
+		deleteObject: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			gotKey = object
+			return cmd.ObjectInfo{}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/a//b/../c", nil, nil)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.Equal(t, "a//b/../c", gotKey)
+}

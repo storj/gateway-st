@@ -95,6 +95,8 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	// SkipClean disables path cleaning. This is required because signature verification must use
 	// the raw path.
 	// See: https://github.com/minio/minio/issues/3256
+	// Cleaning happens in the ServeHTTP of the outermost router, so it must be disabled there too.
+	router.SkipClean(true)
 	apiRouter.SkipClean(true)
 
 	apiRouter.Use(requestIDMiddleware)
