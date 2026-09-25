@@ -14,18 +14,21 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"testing/iotest"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
+	"github.com/zeebo/errs"
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/apierr"
@@ -44,9 +47,15 @@ func (testCredentialsProvider) Provide(_ context.Context, accessKeyID string) (s
 }
 
 // fakeObjectLayer is a cmd.ObjectLayer whose methods panic unless overridden
-// by a test.
+// by a test. Overridable methods are recorded in calls, and return err instead
+// of calling the override when err is set.
 type fakeObjectLayer struct {
 	cmd.ObjectLayer
+
+	err error
+
+	mu    sync.Mutex
+	calls []string
 
 	listBuckets             func(ctx context.Context) ([]cmd.BucketInfo, error)
 	getObjectInfo           func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
@@ -62,51 +71,106 @@ type fakeObjectLayer struct {
 	listMultipartUploads    func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
 
+func (f *fakeObjectLayer) record(method string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, method)
+	return f.err
+}
+
+// Calls returns the names of the methods called so far.
+func (f *fakeObjectLayer) Calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+// storageErrors returns err as miniogw may return it: bare and wrapped.
+func storageErrors(err error) map[string]error {
+	return map[string]error{"bare": err, "wrapped": errs.Wrap(err)}
+}
+
 func (f *fakeObjectLayer) ListBuckets(ctx context.Context) ([]cmd.BucketInfo, error) {
+	if err := f.record("ListBuckets"); err != nil {
+		return nil, err
+	}
 	return f.listBuckets(ctx)
 }
 
 func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	if err := f.record("GetObjectInfo"); err != nil {
+		return cmd.ObjectInfo{}, err
+	}
 	return f.getObjectInfo(ctx, bucket, object, opts)
 }
 
 func (f *fakeObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+	if err := f.record("GetObjectNInfo"); err != nil {
+		return nil, err
+	}
 	return f.getObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
 }
 
 func (f *fakeObjectLayer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	if err := f.record("CopyObject"); err != nil {
+		return cmd.ObjectInfo{}, err
+	}
 	return f.copyObject(ctx, srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts)
 }
 
 func (f *fakeObjectLayer) DeleteObject(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	if err := f.record("DeleteObject"); err != nil {
+		return cmd.ObjectInfo{}, err
+	}
 	return f.deleteObject(ctx, bucket, object, opts)
 }
 
 func (f *fakeObjectLayer) DeleteObjectTags(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	if err := f.record("DeleteObjectTags"); err != nil {
+		return cmd.ObjectInfo{}, err
+	}
 	return f.deleteObjectTags(ctx, bucket, object, opts)
 }
 
 func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+	if err := f.record("DeleteObjects"); err != nil {
+		return nil, nil, err
+	}
 	return f.deleteObjects(ctx, bucket, objects, opts)
 }
 
 func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error) {
+	if err := f.record("NewMultipartUpload"); err != nil {
+		return "", err
+	}
 	return f.newMultipartUpload(ctx, bucket, object, opts)
 }
 
 func (f *fakeObjectLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	if err := f.record("CompleteMultipartUpload"); err != nil {
+		return cmd.ObjectInfo{}, err
+	}
 	return f.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
 }
 
 func (f *fakeObjectLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error {
+	if err := f.record("AbortMultipartUpload"); err != nil {
+		return err
+	}
 	return f.abortMultipartUpload(ctx, bucket, object, uploadID, opts)
 }
 
 func (f *fakeObjectLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+	if err := f.record("ListObjectParts"); err != nil {
+		return cmd.ListPartsInfo{}, err
+	}
 	return f.listObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts, opts)
 }
 
 func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+	if err := f.record("ListMultipartUploads"); err != nil {
+		return cmd.ListMultipartsInfo{}, err
+	}
 	return f.listMultipartUploads(ctx, bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
 }
 
@@ -116,12 +180,18 @@ type response struct {
 	Body       string
 }
 
+func newTestRouter(objectAPI cmd.ObjectLayer) *mux.Router {
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+	return router
+}
+
 // serve sends a signed request to an API backed by objectAPI and returns the response.
+// The request body is an in-memory reader; use serveHTTP where body delivery matters.
 func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, header http.Header, body []byte) response {
 	t.Helper()
 
-	router := mux.NewRouter()
-	api.New(objectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+	router := newTestRouter(objectAPI)
 
 	req := httptest.NewRequestWithContext(t.Context(), method, target, bytes.NewReader(body))
 	for k, v := range header {
@@ -142,6 +212,35 @@ func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, heade
 		StatusCode: rec.Code,
 		Header:     canonical,
 		Body:       rec.Body.String(),
+	}
+}
+
+// serveHTTP is like serve, but sends the request over a real connection to an
+// httptest.Server, so the handler reads a production net/http request body.
+// To sign a payload other than body, set X-Amz-Content-Sha256 in header.
+func serveHTTP(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, header http.Header, body []byte) response {
+	t.Helper()
+
+	srv := httptest.NewServer(newTestRouter(objectAPI))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), method, srv.URL+target, bytes.NewReader(body))
+	require.NoError(t, err)
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	signV4(req, body, time.Now())
+
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	return response{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header,
+		Body:       string(respBody),
 	}
 }
 
@@ -1239,8 +1338,7 @@ func TestListPartsLimits(t *testing.T) {
 }
 
 func TestSignatureVerification(t *testing.T) {
-	router := mux.NewRouter()
-	api.New(&fakeObjectLayer{}, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+	router := newTestRouter(&fakeObjectLayer{})
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	signV4(req, nil, time.Now())
@@ -1255,4 +1353,45 @@ func TestSignatureVerification(t *testing.T) {
 	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "other"}, "")
 	resp := serve(t, objectAPI, http.MethodHead, "/bucket/a+=(),:;@!$'*~%20key", nil, nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestServeHTTP(t *testing.T) {
+	newLayer := func() *fakeObjectLayer {
+		return &fakeObjectLayer{
+			completeMultipartUpload: func(_ context.Context, bucket, object, _ string, parts []cmd.CompletePart, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				if !slices.Equal([]cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, parts) {
+					return cmd.ObjectInfo{}, fmt.Errorf("unexpected parts %v", parts)
+				}
+				return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
+			},
+		}
+	}
+
+	t.Run("request body", func(t *testing.T) {
+		objectAPI := newLayer()
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
+		resp := serveHTTP(t, objectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<CompleteMultipartUploadResult")
+		require.Equal(t, `"etag"`, resp.Header.Get("ETag"))
+		require.Equal(t, []string{"CompleteMultipartUpload"}, objectAPI.Calls())
+	})
+
+	t.Run("rejected before storage", func(t *testing.T) {
+		objectAPI := newLayer()
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>2</PartNumber></Part><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`)
+		resp := serveHTTP(t, objectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code>")
+		require.Empty(t, objectAPI.Calls())
+	})
+
+	for name, storageErr := range storageErrors(cmd.ObjectNotFound{Bucket: "bucket", Object: "missing"}) {
+		t.Run("storage error/"+name, func(t *testing.T) {
+			objectAPI := &fakeObjectLayer{err: storageErr}
+			resp := serveHTTP(t, objectAPI, http.MethodDelete, "/bucket/missing", nil, nil)
+			require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+			require.Equal(t, []string{"DeleteObject"}, objectAPI.Calls())
+		})
+	}
 }
