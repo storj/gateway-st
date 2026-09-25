@@ -213,6 +213,17 @@ func TestLimitedAwsigReader(t *testing.T) {
 		require.ErrorIs(t, err, underlyingErr)
 	})
 
+	t.Run("Probe returning (n, io.EOF) triggers EntityTooLarge", func(t *testing.T) {
+		src := newScriptedAwsigReader([]readResult{
+			{data: contents[:5]},
+			{data: contents[5:6], err: io.EOF},
+		})
+
+		reader := api.NewLimitedAwsigReader(src, 5)
+		_, err := io.Copy(io.Discard, reader)
+		require.ErrorIs(t, err, apierr.CodeEntityTooLarge)
+	})
+
 	t.Run("Checksum propagation", func(t *testing.T) {
 		src := newMockAwsigReader(contents)
 		reader := api.NewLimitedAwsigReader(src, 50)

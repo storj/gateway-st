@@ -5,6 +5,7 @@ package api
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -111,7 +112,8 @@ func (lr *limitedAwsigReader) Read(p []byte) (n int, err error) {
 	if probeN > 0 {
 		lr.limitErr = apierr.CodeEntityTooLarge
 	}
-	if probeErr != nil {
+	// Readers may return the last bytes together with io.EOF, which still means the limit was exceeded.
+	if probeErr != nil && (probeN == 0 || !errors.Is(probeErr, io.EOF)) {
 		lr.limitErr = probeErr
 	}
 
