@@ -166,7 +166,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Header.Set(xhttp.AmzRequestID, fmt.Sprintf("%X", time.Now().UnixNano()))
+		w.Header().Set(xhttp.AmzRequestID, fmt.Sprintf("%X", time.Now().UnixNano()))
 		next.ServeHTTP(w, r)
 	})
 }
