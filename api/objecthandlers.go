@@ -557,6 +557,9 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+	}
 
 	api.writeSuccessResponseHeadersOnly(w, r)
 }

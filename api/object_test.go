@@ -237,3 +237,18 @@ func TestPutObjectTaggingUnknownContentLength(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Equal(t, "a=1", objectAPI.gotTags)
 }
+
+type putObjectLayer struct {
+	*fakeObjectLayer
+}
+
+func (putObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag", VersionID: "version"}, nil
+}
+
+func TestPutObjectVersionID(t *testing.T) {
+	resp := serve(t, putObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"3"}}, []byte("abc"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, `"etag"`, resp.Header.Get("ETag"))
+	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
+}
