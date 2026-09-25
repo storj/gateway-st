@@ -188,7 +188,8 @@ func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter,
 
 	config, err := event.ParseConfig(io.LimitReader(body, maxPutBucketNotificationConfigBodySize))
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		// The parsers also return plain errors, such as for an unsupported XML encoding.
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
@@ -215,7 +216,8 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 
 	config, err := objectlock.ParseObjectLockConfig(body)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		// The parsers also return plain errors, such as for an unsupported XML encoding.
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
@@ -269,7 +271,8 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 	v, err := versioning.ParseConfig(io.LimitReader(body, maxPutBucketVersioningBodySize))
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		// The parsers also return plain errors, such as for an unsupported XML encoding.
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 

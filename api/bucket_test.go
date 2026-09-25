@@ -6,6 +6,8 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -102,4 +104,39 @@ func TestListObjectsV2(t *testing.T) {
 
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=%21", nil, nil)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+}
+
+func TestBucketConfigurationErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name, target, body, code string
+	}{
+		{"versioning status", "/bucket?versioning", `<VersioningConfiguration><Status>Bogus</Status></VersioningConfiguration>`, "IllegalVersioningConfigurationException"},
+		{"versioning element", "/bucket?versioning", `<Bogus/>`, "MalformedXML"},
+		{"versioning empty", "/bucket?versioning", ``, "MalformedXML"},
+		{"object lock", "/bucket?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Bogus</ObjectLockEnabled></ObjectLockConfiguration>`, "MalformedXML"},
+		{"object lock period", "/bucket?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>-1</Days></DefaultRetention></Rule></ObjectLockConfiguration>`, "InvalidArgument"},
+		{"notification", "/bucket?notification", `<NotificationConfiguration><QueueConfiguration><Queue>arn:minio:sqs::1:webhook</Queue><Event>s3:Bogus</Event></QueueConfiguration></NotificationConfiguration>`, "InvalidArgument"},
+		{"notification without event", "/bucket?notification", `<NotificationConfiguration><QueueConfiguration><Queue>arn:gcp:pubsub::project:topic</Queue></QueueConfiguration></NotificationConfiguration>`, "MalformedXML"},
+		{"versioning encoding", "/bucket?versioning", `<?xml version="1.0" encoding="bogus"?><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"object lock encoding", "/bucket?object-lock", `<?xml version="1.0" encoding="bogus"?><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`, "MalformedXML"},
+		{"notification encoding", "/bucket?notification", `<?xml version="1.0" encoding="bogus"?><NotificationConfiguration></NotificationConfiguration>`, "MalformedXML"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, tt.target, nil, []byte(tt.body))
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
+		})
+	}
+}
+
+func TestBackendEOFIsInternalError(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{}, fmt.Errorf("metainfo: %w", io.EOF)
+		},
+	}
+
+	// An io.EOF from the object layer isn't an XML parsing error.
+	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key", nil, nil)
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }

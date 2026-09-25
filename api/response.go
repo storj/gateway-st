@@ -41,6 +41,9 @@ import (
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
+	"storj.io/minio/pkg/bucket/versioning"
+	"storj.io/minio/pkg/event"
 )
 
 const (
@@ -241,11 +244,82 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		}, true
 	}
 
-	if xmlErr := (*xml.SyntaxError)(nil); errors.As(err, &xmlErr) {
+	if versioningErr := (versioning.Error{}); errors.As(err, &versioningErr) {
+		return apierr.Response{
+			Code:           "IllegalVersioningConfigurationException",
+			Description:    "Versioning configuration specified in the request is invalid. (" + versioningErr.Error() + ")",
+			HTTPStatusCode: http.StatusBadRequest,
+		}, true
+	}
+
+	if code, ok := minioErrToAPIErrorCode(err); ok {
+		apiErr := cmd.GetAPIError(code)
+		return apierr.Response{
+			Code:           apiErr.Code,
+			Description:    apiErr.Description,
+			HTTPStatusCode: apiErr.HTTPStatusCode,
+		}, true
+	}
+
+	// io.EOF isn't mapped here, because the object layer can return it too. Handlers that decode an
+	// empty XML body get MalformedXML from writeErrorResponseWithFallback.
+	if errors.As(err, new(*xml.SyntaxError)) || errors.As(err, new(xml.UnmarshalError)) {
 		return apierr.CodeMalformedXML.ToResponse()
 	}
 
 	return apierr.Response{}, false
+}
+
+// minioErrToAPIErrorCode maps the object lock and event notification configuration errors
+// to MinIO API error codes the same way MinIO does.
+func minioErrToAPIErrorCode(err error) (cmd.APIErrorCode, bool) {
+	switch {
+	case errors.Is(err, objectlock.ErrInvalidRetentionDate):
+		return cmd.ErrInvalidRetentionDate, true
+	case errors.Is(err, objectlock.ErrPastObjectLockRetainDate):
+		return cmd.ErrPastObjectLockRetainDate, true
+	case errors.Is(err, objectlock.ErrUnknownWORMModeDirective):
+		return cmd.ErrUnknownWORMModeDirective, true
+	case errors.Is(err, objectlock.ErrObjectLockInvalidHeaders):
+		return cmd.ErrObjectLockInvalidHeaders, true
+	case errors.Is(err, objectlock.ErrMalformedXML), errors.Is(err, objectlock.ErrMalformedBucketObjectConfig):
+		return cmd.ErrMalformedXML, true
+	case errors.Is(err, objectlock.ErrInvalidRetentionPeriod):
+		return cmd.ErrInvalidRetentionPeriod, true
+	case errors.Is(err, objectlock.ErrRetentionPeriodTooLarge):
+		return cmd.ErrRetentionPeriodTooLarge, true
+	}
+
+	switch {
+	case errorAs[*event.ErrInvalidEventName](err):
+		return cmd.ErrEventNotification, true
+	case errorAs[*event.ErrInvalidARN](err), errorAs[*event.ErrARNNotFound](err):
+		return cmd.ErrARNNotification, true
+	case errorAs[*event.ErrUnknownRegion](err):
+		return cmd.ErrRegionNotification, true
+	case errorAs[*event.ErrInvalidFilterName](err):
+		return cmd.ErrFilterNameInvalid, true
+	case errorAs[*event.ErrFilterNamePrefix](err):
+		return cmd.ErrFilterNamePrefix, true
+	case errorAs[*event.ErrFilterNameSuffix](err):
+		return cmd.ErrFilterNameSuffix, true
+	case errorAs[*event.ErrInvalidFilterValue](err):
+		return cmd.ErrFilterValueInvalid, true
+	case errorAs[*event.ErrDuplicateEventName](err):
+		return cmd.ErrOverlappingConfigs, true
+	case errorAs[*event.ErrDuplicateQueueConfiguration](err), errorAs[*event.ErrDuplicateTopicConfiguration](err):
+		return cmd.ErrOverlappingFilterNotification, true
+	case errorAs[*event.ErrUnsupportedConfiguration](err):
+		return cmd.ErrUnsupportedNotification, true
+	}
+
+	return 0, false
+}
+
+// errorAs reports whether err wraps an error of type T.
+func errorAs[T error](err error) bool {
+	var target T
+	return errors.As(err, &target)
 }
 
 func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo cmd.ListObjectsInfo) cmd.ListObjectsResponse {
