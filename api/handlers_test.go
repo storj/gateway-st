@@ -33,6 +33,7 @@ import (
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 )
 
@@ -641,6 +642,7 @@ func TestGetAndHeadObject(t *testing.T) {
 			header:    http.Header{"If-Match": {`"other"`}},
 			expStatus: http.StatusPreconditionFailed,
 			expCode:   "PreconditionFailed",
+			expBody:   "<Condition>If-Match</Condition>",
 		},
 		{
 			name:      "if-match match",
@@ -708,6 +710,7 @@ func TestGetAndHeadObject(t *testing.T) {
 			header:    http.Header{"If-Unmodified-Since": {before}},
 			expStatus: http.StatusPreconditionFailed,
 			expCode:   "PreconditionFailed",
+			expBody:   "<Condition>If-Unmodified-Since</Condition>",
 		},
 		{
 			name:      "response header overrides",
@@ -760,6 +763,21 @@ func TestGetAndHeadObject(t *testing.T) {
 	}
 }
 
+func TestGetObjectUnsatisfiableRange(t *testing.T) {
+	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10}
+	// The object layer ignores the range, so the handler has to reject it.
+	objectAPI := &fakeObjectLayer{
+		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+			return cmd.NewGetObjectReaderFromReader(strings.NewReader("0123456789"), objInfo, opts)
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key", http.Header{"Range": {"bytes=10-"}}, nil)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidRange</Code>")
+	require.Contains(t, resp.Body, "<ActualObjectSize>10</ActualObjectSize><RangeRequested>bytes=10-</RangeRequested>")
+}
+
 func TestHeadObjectUnsatisfiableRange(t *testing.T) {
 	objectAPI := singleObjectLayer(cmd.ObjectInfo{
 		Bucket:      "bucket",
@@ -776,6 +794,7 @@ func TestHeadObjectUnsatisfiableRange(t *testing.T) {
 		require.Empty(t, resp.Header.Get(k), k)
 	}
 }
+
 func TestGetObjectFirstReadFailure(t *testing.T) {
 	objInfo := cmd.ObjectInfo{
 		Bucket:          "bucket",
@@ -1255,6 +1274,34 @@ func TestUploadPartCopy(t *testing.T) {
 	}
 }
 
+func TestCopyPreconditionCondition(t *testing.T) {
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	before := modTime.Add(-time.Hour).Format(http.TimeFormat)
+	after := modTime.Add(time.Hour).Format(http.TimeFormat)
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: 10, ETag: "etag", ModTime: modTime}, "")
+
+	for _, tt := range []struct {
+		header, value, condition string
+	}{
+		{"X-Amz-Copy-Source-If-Match", `"other"`, "x-amz-copy-source-if-match"},
+		{"X-Amz-Copy-Source-If-Unmodified-Since", before, "x-amz-copy-source-if-unmodified-since"},
+		{"X-Amz-Copy-Source-If-None-Match", `"etag"`, "x-amz-copy-source-if-none-match"},
+		{"X-Amz-Copy-Source-If-Modified-Since", after, "x-amz-copy-source-if-modified-since"},
+	} {
+		for name, target := range map[string]string{
+			"CopyObject":     "/bucket/dst",
+			"UploadPartCopy": "/bucket/dst?partNumber=1&uploadId=upload-id",
+		} {
+			t.Run(name+"/"+tt.header, func(t *testing.T) {
+				header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, tt.header: {tt.value}}
+				resp := serve(t, objectAPI, http.MethodPut, target, header, nil)
+				require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode, resp.Body)
+				require.Contains(t, resp.Body, "<Condition>"+tt.condition+"</Condition>")
+			})
+		}
+	}
+}
+
 func TestCreateMultipartUpload(t *testing.T) {
 	var gotOpts cmd.ObjectOptions
 	objectAPI := &fakeObjectLayer{
@@ -1391,6 +1438,20 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			require.Contains(t, resp.Body, tt.expBody)
 		})
 	}
+
+	t.Run("if-none-match", func(t *testing.T) {
+		failingObjectAPI := &fakeObjectLayer{err: miniogw.ErrFailedPrecondition}
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
+		resp := serve(t, failingObjectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", http.Header{"If-None-Match": {"*"}}, body)
+		require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>PreconditionFailed</Code>")
+		require.Contains(t, resp.Body, "<Condition>If-None-Match</Condition>")
+
+		// Without the header, the failed condition isn't named.
+		resp = serve(t, failingObjectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
+		require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode, resp.Body)
+		require.NotContains(t, resp.Body, "<Condition>")
+	})
 
 	t.Run("keep-alive", func(t *testing.T) {
 		api.SetCompleteMultipartUploadKeepAliveInterval(t, time.Millisecond)

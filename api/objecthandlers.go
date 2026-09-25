@@ -602,7 +602,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	objInfo, err := api.objectAPI.PutObject(ctx, bucketName, objectKey, putReader, opts)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponse(w, r, withIfNoneMatchCondition(err, r))
 		return
 	}
 
@@ -973,6 +973,12 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	partial, err := setObjectHeaders(w, reader.ObjInfo, rangeSpec, opts.PartNumber)
 	if err != nil {
+		if errors.Is(err, apierr.CodeInvalidRange) {
+			resp, _ := apierr.CodeInvalidRange.ToResponse()
+			resp.ActualObjectSize = strconv.FormatInt(reader.ObjInfo.Size, 10)
+			resp.RangeRequested = r.Header.Get(xhttp.Range)
+			err = resp
+		}
 		writeError(err)
 		return
 	}
@@ -1161,7 +1167,12 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 	) {
 	case http.StatusPreconditionFailed:
 		writeHeaders()
-		writeError(apierr.CodePreconditionFailed)
+		// If-Unmodified-Since is ignored when If-Match is present.
+		condition := xhttp.IfUnmodifiedSince
+		if r.Header.Get(xhttp.IfMatch) != "" {
+			condition = xhttp.IfMatch
+		}
+		writeError(withCondition(apierr.CodePreconditionFailed, condition))
 		return true
 	case http.StatusNotModified:
 		writeHeaders()
@@ -1494,7 +1505,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	objInfo, err := api.objectAPI.CopyObject(ctx, srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponse(w, r, withIfNoneMatchCondition(err, r))
 		return
 	}
 
@@ -1584,11 +1595,24 @@ func isDirectiveValid(directive string) bool {
 // its source object. If the request should not proceed, it writes the response and returns true.
 func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, srcInfo cmd.ObjectInfo) bool {
 	// Unlike GetObject, a copy request whose source matches X-Amz-Copy-Source-If-None-Match fails.
-	failed := evaluatePreconditions(srcInfo,
+	var condition string
+	switch evaluatePreconditions(srcInfo,
 		r.Header.Get(xhttp.AmzCopySourceIfMatch), r.Header.Get(xhttp.AmzCopySourceIfUnmodifiedSince),
 		r.Header.Get(xhttp.AmzCopySourceIfNoneMatch), r.Header.Get(xhttp.AmzCopySourceIfModifiedSince),
-	) != 0
+	) {
+	case http.StatusPreconditionFailed:
+		condition = xhttp.AmzCopySourceIfUnmodifiedSince
+		if r.Header.Get(xhttp.AmzCopySourceIfMatch) != "" {
+			condition = xhttp.AmzCopySourceIfMatch
+		}
+	case http.StatusNotModified:
+		condition = xhttp.AmzCopySourceIfModifiedSince
+		if r.Header.Get(xhttp.AmzCopySourceIfNoneMatch) != "" {
+			condition = xhttp.AmzCopySourceIfNoneMatch
+		}
+	}
 
+	failed := condition != ""
 	if failed {
 		setCommonHeaders(w)
 		if validModTime(srcInfo.ModTime) {
@@ -1597,7 +1621,7 @@ func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, s
 		if srcInfo.ETag != "" {
 			w.Header()[xhttp.ETag] = []string{`"` + srcInfo.ETag + `"`}
 		}
-		api.writeErrorResponse(w, r, apierr.CodePreconditionFailed)
+		api.writeErrorResponse(w, r, withCondition(apierr.CodePreconditionFailed, condition))
 	}
 	return failed
 }
@@ -1802,6 +1826,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	})
 	keepAliveSent := stopKeepAlive()
 	if err != nil {
+		err = withIfNoneMatchCondition(err, r)
 		if keepAliveSent {
 			api.writeErrorResponseAfterKeepAlive(kw, r, err)
 		} else {

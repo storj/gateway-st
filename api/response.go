@@ -153,6 +153,10 @@ type errorResponse struct {
 
 	ArgumentName  string `xml:",omitempty"`
 	ArgumentValue string `xml:",omitempty"`
+
+	Condition        string `xml:",omitempty"`
+	ActualObjectSize string `xml:",omitempty"`
+	RangeRequested   string `xml:",omitempty"`
 }
 
 func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Response) errorResponse {
@@ -171,6 +175,10 @@ func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Respon
 
 		ArgumentName:  resp.ArgumentName,
 		ArgumentValue: resp.ArgumentValue,
+
+		Condition:        resp.Condition,
+		ActualObjectSize: resp.ActualObjectSize,
+		RangeRequested:   resp.RangeRequested,
 	}
 }
 
@@ -181,6 +189,24 @@ func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWr
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 	api.writeResponse(w, r, resp.HTTPStatusCode, nil, mimeNone)
+}
+
+// withCondition names condition as the failed precondition of a PreconditionFailed error.
+func withCondition(err error, condition string) error {
+	if resp, ok := errToResponse(err); ok && resp.Code == "PreconditionFailed" {
+		resp.Condition = condition
+		return resp
+	}
+	return err
+}
+
+// withIfNoneMatchCondition names If-None-Match as the condition of a PreconditionFailed error if
+// the request has that header. The object layer may fail a precondition for another reason.
+func withIfNoneMatchCondition(err error, r *http.Request) error {
+	if len(r.Header.Values(xhttp.IfNoneMatch)) == 0 {
+		return err
+	}
+	return withCondition(err, xhttp.IfNoneMatch)
 }
 
 func errToResponse(err error) (resp apierr.Response, matched bool) {

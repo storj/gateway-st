@@ -36,6 +36,13 @@ type Response struct {
 	// ArgumentName and ArgumentValue optionally identify the invalid argument.
 	ArgumentName  string
 	ArgumentValue string
+
+	// Condition optionally names the header of a failed precondition.
+	Condition string
+
+	// ActualObjectSize and RangeRequested optionally describe an unsatisfiable range.
+	ActualObjectSize string
+	RangeRequested   string
 }
 
 // Error implements the error interface.
