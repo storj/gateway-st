@@ -36,9 +36,11 @@ var (
 	}
 
 	// allowedExtraFormKeys contains POST form keys that are allowed to have no corresponding
-	// POST policy condition.
+	// POST policy condition. Keys prefixed with "x-ignore-" are also allowed.
 	allowedExtraFormKeys = map[string]struct{}{
-		"file": {},
+		"file":           {},
+		"policy":         {},
+		"awsaccesskeyid": {},
 		// While a POST form must include the signature field, a POST policy is allowed to omit it.
 		// This is because it is cryptographically impossible to construct a meaningful policy condition
 		// that references the signature, which is a hash of the policy itself.
@@ -380,7 +382,7 @@ func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition)
 	formKeys := slices.Collect(maps.Keys(formKeysMap))
 
 	for _, key := range formKeys {
-		if _, ok := allowedExtraFormKeys[key]; ok {
+		if _, ok := allowedExtraFormKeys[key]; ok || strings.HasPrefix(key, "x-ignore-") {
 			continue
 		}
 		if _, ok := policyKeysMap[key]; !ok {

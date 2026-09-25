@@ -238,6 +238,9 @@ func TestCheckPostForm(t *testing.T) {
 			"Bucket": {{Value: "my-bucket"}},
 			"Key":    {{Value: "photo.jpg"}},
 			"File":   {{Value: "vacation_photo.jpg"}},
+			// Fields exempt from policy conditions.
+			"Policy":          {{Value: "cG9saWN5"}},
+			"X-Ignore-Submit": {{Value: "Upload"}},
 		}
 	}
 
@@ -323,6 +326,11 @@ func TestCheckPostForm(t *testing.T) {
 			err := api.CheckPostForm(policy, form)
 			require.NoError(t, err)
 		})
+	})
+
+	t.Run("SigV2 exempt fields", func(t *testing.T) {
+		err := api.CheckPostForm(newPostPolicy(), newSigV2PostForm())
+		require.NoError(t, err)
 	})
 
 	t.Run("Extra form field", func(t *testing.T) {
