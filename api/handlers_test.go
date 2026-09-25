@@ -6,6 +6,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,15 +14,17 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"testing/iotest"
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/minio/minio-go/v7/pkg/signer"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
@@ -124,11 +127,7 @@ func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, heade
 	for k, v := range header {
 		req.Header[k] = v
 	}
-	if req.Header.Get("X-Amz-Content-Sha256") == "" {
-		sum := sha256.Sum256(body)
-		req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum[:]))
-	}
-	req = signer.SignV4(*req, testAccessKeyID, testSecretAccessKey, "", "us-east-1")
+	signV4(req, body, time.Now())
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -144,6 +143,93 @@ func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, heade
 		Header:     canonical,
 		Body:       rec.Body.String(),
 	}
+}
+
+// signV4 signs a request with AWS Signature Version 4 using the test credentials, following the
+// AWS specification. Every header present on the request is signed. X-Amz-Content-Sha256 is set
+// to the hash of body unless the request already has it.
+//
+// TODO: awsig differs from the specification for repeated headers (a line per value instead of
+// comma-joined values), runs of spaces inside header values (kept instead of collapsed) and
+// repeated values of the first query parameter (not separated by '&'). Requests with those are
+// rejected with 403 until awsig is fixed.
+func signV4(req *http.Request, body []byte, now time.Time) {
+	const region, service = "us-east-1", "s3"
+
+	amzDate := now.UTC().Format("20060102T150405Z")
+	date := amzDate[:8]
+	req.Header.Set("X-Amz-Date", amzDate)
+	if req.Header.Get("X-Amz-Content-Sha256") == "" {
+		req.Header.Set("X-Amz-Content-Sha256", hexSHA256(body))
+	}
+
+	headers := map[string]string{"host": req.Host}
+	for k, v := range req.Header {
+		trimmed := make([]string, len(v))
+		for i := range v {
+			trimmed[i] = strings.Join(strings.Fields(v[i]), " ")
+		}
+		headers[strings.ToLower(k)] = strings.Join(trimmed, ",")
+	}
+	names := slices.Sorted(maps.Keys(headers))
+	var canonicalHeaders strings.Builder
+	for _, name := range names {
+		canonicalHeaders.WriteString(name + ":" + headers[name] + "\n")
+	}
+	signedHeaders := strings.Join(names, ";")
+
+	uriEncode := func(s string) string {
+		return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+	}
+	// Parameters are sorted by name, then by value.
+	query := req.URL.Query()
+	var queryParams []string
+	for _, k := range slices.Sorted(maps.Keys(query)) {
+		for _, v := range slices.Sorted(slices.Values(query[k])) {
+			queryParams = append(queryParams, uriEncode(k)+"="+uriEncode(v))
+		}
+	}
+
+	canonicalRequest := strings.Join([]string{
+		req.Method,
+		// Like the verifier, encode everything in the path except unreserved characters and '/'.
+		strings.ReplaceAll(uriEncode(req.URL.Path), "%2F", "/"),
+		strings.Join(queryParams, "&"),
+		canonicalHeaders.String(),
+		signedHeaders,
+		req.Header.Get("X-Amz-Content-Sha256"),
+	}, "\n")
+
+	scope := date + "/" + region + "/" + service + "/aws4_request"
+	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hexSHA256([]byte(canonicalRequest))
+
+	key := []byte("AWS4" + testSecretAccessKey)
+	for _, part := range []string{date, region, service, "aws4_request"} {
+		key = hmacSHA256(key, part)
+	}
+	signature := hex.EncodeToString(hmacSHA256(key, stringToSign))
+
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+testAccessKeyID+"/"+scope+
+		", SignedHeaders="+signedHeaders+", Signature="+signature)
+}
+
+func hexSHA256(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func hmacSHA256(key []byte, data string) []byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(data))
+	return mac.Sum(nil)
+}
+
+func TestSignV4QueryOrder(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+
+	// Sorting "a-b=1" and "a=2" as strings would put a-b first, but parameters are sorted by name.
+	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key?a-b=1&a=2", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRequestID(t *testing.T) {
@@ -1023,9 +1109,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 
 		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bucket/key?uploadId=upload-id", bytes.NewReader(body))
-		sum := sha256.Sum256(body)
-		req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum[:]))
-		req = signer.SignV4(*req, testAccessKeyID, testSecretAccessKey, "", "us-east-1")
+		signV4(req, body, time.Now())
 
 		rec := httptest.NewRecorder()
 		require.Panics(t, func() { router.ServeHTTP(rec, req) })
@@ -1152,4 +1236,23 @@ func TestListPartsLimits(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
 		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>", query)
 	}
+}
+
+func TestSignatureVerification(t *testing.T) {
+	router := mux.NewRouter()
+	api.New(&fakeObjectLayer{}, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	signV4(req, nil, time.Now())
+	req.URL.RawQuery = "tampered"
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Contains(t, rec.Body.String(), "<Code>SignatureDoesNotMatch</Code>")
+
+	// Keys with characters that Go leaves unescaped in paths are signed like the verifier expects.
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "other"}, "")
+	resp := serve(t, objectAPI, http.MethodHead, "/bucket/a+=(),:;@!$'*~%20key", nil, nil)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
