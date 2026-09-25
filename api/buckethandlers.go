@@ -60,6 +60,8 @@ const (
 	// maxDeleteObjectsBodySize is the maximum size of a DeleteObjects request body.
 	// This value is a little more than the theoretical worst-case size.
 	maxDeleteObjectsBodySize = 21000000
+	// maxDeleteList is the maximum number of objects that can be deleted in a DeleteObjects request.
+	maxDeleteList = 1000
 
 	xAmzChecksumPrefix = "X-Amz-Checksum-"
 	nullVersionID      = "null"
@@ -824,7 +826,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(deleteReq.Objects) == 0 {
+	if len(deleteReq.Objects) == 0 || len(deleteReq.Objects) > maxDeleteList {
 		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 		return
 	}
@@ -894,6 +896,11 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	if len(internalErrs) > 0 {
 		api.log.Error(r, "unexpected errors", internalErrs...)
+	}
+
+	// The object layer may ignore Quiet, so enforce it here.
+	if deleteReq.Quiet {
+		deletedObjects = nil
 	}
 
 	encodedSuccessResponse, err := encodeResponse(cmd.DeleteObjectsResponse{

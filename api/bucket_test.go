@@ -6,10 +6,13 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,4 +142,43 @@ func TestBackendEOFIsInternalError(t *testing.T) {
 	// An io.EOF from the object layer isn't an XML parsing error.
 	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key", nil, nil)
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+}
+
+func TestDeleteObjectsLimits(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			deleted := make([]cmd.DeletedObject, len(objects))
+			for i, object := range objects {
+				deleted[i] = cmd.DeletedObject{ObjectName: object.ObjectName}
+			}
+			return deleted, nil, nil
+		},
+	}
+
+	deleteRequest := func(quiet bool, n int) response {
+		var body strings.Builder
+		fmt.Fprintf(&body, "<Delete><Quiet>%t</Quiet>", quiet)
+		for i := range n {
+			fmt.Fprintf(&body, "<Object><Key>key%d</Key></Object>", i)
+		}
+		body.WriteString("</Delete>")
+		sum := md5.Sum([]byte(body.String()))
+		header := http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(sum[:])}}
+		return serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, []byte(body.String()))
+	}
+
+	resp := deleteRequest(false, 1)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Deleted><Key>key0</Key>")
+
+	resp = deleteRequest(true, 1)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.NotContains(t, resp.Body, "<Deleted>")
+
+	resp = deleteRequest(false, 1000)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+
+	resp = deleteRequest(false, 1001)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>MalformedXML</Code>")
 }
