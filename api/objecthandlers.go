@@ -797,6 +797,7 @@ func (api *API) GetObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	legalHold.XMLNS = s3XMLNS
 	encodedResp, err := encodeResponse(legalHold)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -839,7 +840,7 @@ func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		w.Header()[xhttp.AmzVersionID] = []string{versionID}
 	}
 
-	encodedResponse, err := encodeResponse(tags)
+	encodedResponse, err := encodeResponse(taggingResponse{XMLNS: s3XMLNS, Tags: tags})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -882,6 +883,7 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	retention.XMLNS = s3XMLNS
 	encodedResp, err := encodeResponse(retention)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

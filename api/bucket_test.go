@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,9 @@ import (
 	"storj.io/gateway/api"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
+	"storj.io/minio/pkg/bucket/versioning"
+	"storj.io/minio/pkg/event"
 	"storj.io/minio/pkg/tags"
 )
 
@@ -407,4 +411,131 @@ func TestListObjectVersionsVersionIDMarker(t *testing.T) {
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?versions&version-id-marker=00000000000000000000000000000001", nil, nil)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
+}
+
+func TestListBuckets(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listBuckets: func(context.Context) ([]cmd.BucketInfo, error) {
+			return []cmd.BucketInfo{{Name: "b2"}, {Name: "other"}, {Name: "b1"}, {Name: "b3"}}, nil
+		},
+	}
+	list := func(query string) response {
+		resp := serve(t, objectAPI, http.MethodGet, "/?"+query, nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		return resp
+	}
+	const date = "<CreationDate>0001-01-01T00:00:00.000Z</CreationDate>"
+
+	resp := list("")
+	require.Contains(t, resp.Body, "<Name>b1</Name>"+date+"</Bucket><Bucket><Name>b2</Name>"+date+"</Bucket><Bucket><Name>b3</Name>"+date+"</Bucket><Bucket><Name>other</Name>")
+	require.NotContains(t, resp.Body, "<ContinuationToken>")
+	require.NotContains(t, resp.Body, "<Prefix>")
+
+	resp = list("prefix=b&max-buckets=2")
+	require.Contains(t, resp.Body, "<Buckets><Bucket><Name>b1</Name>"+date+"</Bucket><Bucket><Name>b2</Name>"+date+"</Bucket></Buckets>")
+	token := base64.StdEncoding.EncodeToString([]byte("b2"))
+	require.Contains(t, resp.Body, "<ContinuationToken>"+token+"</ContinuationToken><Prefix>b</Prefix>")
+
+	resp = list("prefix=b&max-buckets=2&continuation-token=" + url.QueryEscape(token))
+	require.Contains(t, resp.Body, "<Buckets><Bucket><Name>b3</Name>"+date+"</Bucket></Buckets>")
+	require.NotContains(t, resp.Body, "<ContinuationToken>")
+
+	resp = list("bucket-region=us-east-1")
+	require.Contains(t, resp.Body, "<Name>b1</Name>")
+
+	resp = list("bucket-region=eu-west-1")
+	require.NotContains(t, resp.Body, "<Bucket>")
+
+	for _, query := range []string{"max-buckets=0", "max-buckets=10001", "max-buckets=x", "continuation-token=%21"} {
+		resp := serve(t, objectAPI, http.MethodGet, "/?"+query, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>", query)
+	}
+}
+
+func TestHeadBucketRegionAndPolicyStatus(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		getBucketInfo: func(_ context.Context, bucket string) (cmd.BucketInfo, error) {
+			return cmd.BucketInfo{Name: bucket}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodHead, "/bucket", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, "us-east-1", resp.Header.Get("X-Amz-Bucket-Region"))
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?policyStatus", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<IsPublic>false</IsPublic>")
+}
+
+func TestCreateBucketVirtualHostedLocation(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		makeBucketWithLocation: func(context.Context, string, cmd.BucketOptions) error {
+			return nil
+		},
+	}
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{Domains: []string{"example.com"}}).RegisterHandlers(router)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "http://bucket.example.com/", nil)
+	signV4(req, nil, time.Now())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "/bucket", rec.Header().Get("Location"))
+}
+
+// configObjectLayer returns fixed bucket and object configurations.
+type configObjectLayer struct {
+	*fakeObjectLayer
+}
+
+func (configObjectLayer) GetBucketNotificationConfig(context.Context, string) (*event.Config, error) {
+	return &event.Config{}, nil
+}
+
+func (configObjectLayer) GetObjectLockConfig(context.Context, string) (*objectlock.Config, error) {
+	return &objectlock.Config{ObjectLockEnabled: "Enabled"}, nil
+}
+
+func (configObjectLayer) GetBucketTagging(context.Context, string) (*tags.Tags, error) {
+	return tags.NewTags(map[string]string{"k": "v"}, false)
+}
+
+func (configObjectLayer) GetBucketVersioning(context.Context, string) (*versioning.Versioning, error) {
+	return &versioning.Versioning{Status: versioning.Enabled}, nil
+}
+
+func (configObjectLayer) GetObjectLegalHold(context.Context, string, string, string) (*objectlock.ObjectLegalHold, error) {
+	return &objectlock.ObjectLegalHold{Status: objectlock.LegalHoldOn}, nil
+}
+
+func (configObjectLayer) GetObjectTags(context.Context, string, string, cmd.ObjectOptions) (*tags.Tags, error) {
+	return tags.NewTags(map[string]string{"k": "v"}, true)
+}
+
+func (configObjectLayer) GetObjectRetention(context.Context, string, string, string) (*objectlock.ObjectRetention, error) {
+	return &objectlock.ObjectRetention{Mode: objectlock.RetGovernance}, nil
+}
+
+func TestConfigurationResponseNamespace(t *testing.T) {
+	for _, tt := range []struct{ target, root string }{
+		{"/bucket?notification", "NotificationConfiguration"},
+		{"/bucket?object-lock", "ObjectLockConfiguration"},
+		{"/bucket?tagging", "Tagging"},
+		{"/bucket?versioning", "VersioningConfiguration"},
+		{"/bucket/key?legal-hold", "LegalHold"},
+		{"/bucket/key?tagging", "Tagging"},
+		{"/bucket/key?retention", "Retention"},
+	} {
+		resp := serve(t, configObjectLayer{&fakeObjectLayer{}}, http.MethodGet, tt.target, nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.True(t, strings.HasPrefix(resp.Body, `<?xml version="1.0" encoding="UTF-8"?>`+"\n<"+tt.root+` xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`), resp.Body)
+		if tt.root == "Tagging" {
+			require.Contains(t, resp.Body, "<TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>")
+		}
+	}
 }

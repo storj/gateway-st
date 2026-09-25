@@ -33,6 +33,7 @@ const (
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidListType
+	CodeInvalidMaxBuckets
 	CodeInvalidMaxKeys
 	CodeInvalidMaxParts
 	CodeInvalidMaxUploads
@@ -235,6 +236,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidListType: {
 		Code:           "InvalidArgument",
 		Description:    "Invalid List Type specified in Request",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidMaxBuckets: {
+		Code:           "InvalidArgument",
+		Description:    "Argument max-buckets must be an integer between 1 and 10000",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidMaxKeys: {

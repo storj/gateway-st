@@ -111,6 +111,7 @@ func TestPostObjectRedirect(t *testing.T) {
 	resp = upload("not-a-url")
 	require.Equal(t, http.StatusCreated, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Key>photo.jpg</Key>")
+	require.Contains(t, resp.Body, `<PostResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
 }
 
 func TestPostObjectFilenameKey(t *testing.T) {

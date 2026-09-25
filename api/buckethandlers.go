@@ -65,6 +65,10 @@ const (
 
 	xAmzChecksumPrefix = "X-Amz-Checksum-"
 	nullVersionID      = "null"
+
+	// bucketRegion is the region of every bucket. GetBucketLocation reports it as an empty
+	// LocationConstraint, which means us-east-1.
+	bucketRegion = "us-east-1"
 )
 
 // CreateBucketHandler is the HTTP handler for the CreateBucket operation, which creates a bucket.
@@ -119,11 +123,9 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the path where the client can reach the newly-created bucket,
-	// which is the same as the path used to perform this operation.
-	if cp := pathClean(r.URL.Path); cp != "" {
-		w.Header().Set(xhttp.Location, cp)
-	}
+	// Return the path-style location of the newly-created bucket, also for
+	// virtual-hosted-style requests.
+	w.Header().Set(xhttp.Location, "/"+bucket)
 
 	api.writeSuccessResponseHeadersOnly(w, r)
 }
@@ -313,6 +315,7 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set(xhttp.AmzBucketRegion, bucketRegion)
 	api.writeSuccessResponseHeadersOnly(w, r)
 }
 
@@ -478,7 +481,8 @@ func (api *API) GetBucketNotificationConfigurationHandler(w http.ResponseWriter,
 		return
 	}
 
-	configData, err := xml.Marshal(config)
+	config.XMLNS = s3XMLNS
+	configData, err := encodeResponse(config)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -505,7 +509,8 @@ func (api *API) GetObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	configData, err := xml.Marshal(config)
+	config.XMLNS = s3XMLNS
+	configData, err := encodeResponse(config)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -535,7 +540,7 @@ func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Requ
 
 	encodedSuccessResponse, err := encodeResponse(cmd.PolicyStatus{
 		// Our buckets are never public.
-		IsPublic: "FALSE",
+		IsPublic: "false",
 	})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -586,7 +591,7 @@ func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	responseBytes, err := xml.Marshal(tags)
+	responseBytes, err := encodeResponse(taggingResponse{XMLNS: s3XMLNS, Tags: tags})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -613,7 +618,8 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	configData, err := xml.Marshal(config)
+	config.XMLNS = s3XMLNS
+	configData, err := encodeResponse(config)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -783,12 +789,12 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch successStatus {
 	case "201":
-		resp, err := encodeResponse(cmd.PostResponse{
+		resp, err := encodeResponse(postResponse{PostResponse: cmd.PostResponse{
 			Bucket:   objInfo.Bucket,
 			Key:      objInfo.Name,
 			ETag:     `"` + objInfo.ETag + `"`,
 			Location: w.Header().Get(xhttp.Location),
-		})
+		}})
 		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
@@ -863,7 +869,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	var filteredIndex int
 
-	deleteErrs := make([]cmd.DeleteError, 0, len(deleteReq.Objects))
+	deleteErrs := make([]deleteError, 0, len(deleteReq.Objects))
 	for _, object := range deleteReq.Objects {
 		loc := bucketObjectLocation{
 			key:       object.ObjectName,
@@ -878,7 +884,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		if err := validateVersionID(object.VersionID); object.VersionID != "" && err != nil {
 			// Like the single-object operations.
 			resp, _ := errToResponse(err)
-			deleteErrs = append(deleteErrs, cmd.DeleteError{
+			deleteErrs = append(deleteErrs, deleteError{
 				Code:      resp.Code,
 				Message:   resp.Description,
 				Key:       object.ObjectName,
@@ -913,7 +919,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 			internalErrs = append(internalErrs, deleteErr.Error)
 			resp, _ = apierr.CodeInternal.ToResponse()
 		}
-		deleteErrs = append(deleteErrs, cmd.DeleteError{
+		deleteErrs = append(deleteErrs, deleteError{
 			Code:      resp.Code,
 			Message:   resp.Description,
 			Key:       deleteErr.ObjectName,
@@ -930,7 +936,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		deletedObjects = nil
 	}
 
-	encodedSuccessResponse, err := encodeResponse(cmd.DeleteObjectsResponse{
+	encodedSuccessResponse, err := encodeResponse(deleteObjectsResponse{
 		DeletedObjects: deletedObjects,
 		Errors:         deleteErrs,
 	})

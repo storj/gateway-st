@@ -143,6 +143,11 @@
   description: Invalid List Type specified in Request
   http_status: 400
 
+- name: InvalidMaxBuckets
+  code: InvalidArgument
+  description: Argument max-buckets must be an integer between 1 and 10000
+  http_status: 400
+
 - name: InvalidMaxKeys
   code: InvalidArgument
   description: Provided max-keys not an integer or within integer range

@@ -24,6 +24,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -37,6 +38,7 @@ import (
 const (
 	maxObjectList = 1000
 	maxPartsList  = 1000
+	maxBucketList = 10000
 )
 
 // ListObjectsHandler is the HTTP handler for the ListObjects operation, which lists the objects in a bucket.
@@ -375,13 +377,54 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	values := r.URL.Query()
+	prefix := values.Get("prefix")
+
+	maxBuckets := 0 // unlimited
+	if maxBucketsStr := values.Get("max-buckets"); maxBucketsStr != "" {
+		n, err := strconv.Atoi(maxBucketsStr)
+		if err != nil || n < 1 || n > maxBucketList {
+			api.writeErrorResponse(w, r, apierr.CodeInvalidMaxBuckets)
+			return
+		}
+		maxBuckets = n
+	}
+
+	var startAfter string
+	if token := values.Get("continuation-token"); token != "" {
+		decoded, err := base64.StdEncoding.DecodeString(token)
+		if err != nil {
+			api.writeErrorResponse(w, r, apierr.CodeIncorrectContinuationToken)
+			return
+		}
+		startAfter = string(decoded)
+	}
+
 	bucketInfos, err := api.objectAPI.ListBuckets(ctx)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	resp, err := encodeResponse(generateListBucketsResponse(bucketInfos))
+	// Every bucket is in bucketRegion, so any other region matches none.
+	if region := values.Get("bucket-region"); region != "" && region != bucketRegion {
+		bucketInfos = nil
+	}
+
+	bucketInfos = slices.DeleteFunc(bucketInfos, func(b cmd.BucketInfo) bool {
+		return !strings.HasPrefix(b.Name, prefix) || b.Name <= startAfter
+	})
+	slices.SortFunc(bucketInfos, func(a, b cmd.BucketInfo) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	var continuationToken string
+	if maxBuckets > 0 && len(bucketInfos) > maxBuckets {
+		bucketInfos = bucketInfos[:maxBuckets]
+		continuationToken = base64.StdEncoding.EncodeToString([]byte(bucketInfos[maxBuckets-1].Name))
+	}
+
+	resp, err := encodeResponse(generateListBucketsResponse(bucketInfos, prefix, continuationToken))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

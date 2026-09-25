@@ -24,7 +24,11 @@ import (
 	"encoding/xml"
 
 	"storj.io/minio/cmd"
+	"storj.io/minio/pkg/tags"
 )
+
+// s3XMLNS is the XML namespace of S3 responses.
+const s3XMLNS = "http://s3.amazonaws.com/doc/2006-03-01/"
 
 type grantee struct {
 	XMLNS       string `xml:"xmlns:xsi,attr"`
@@ -134,4 +138,44 @@ func (o objectVersion) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 		StorageClass string
 		Owner        cmd.Owner
 	}{o.Key, o.VersionID, o.IsLatest, o.LastModified, o.ETag, o.Size, o.StorageClass, o.Owner}, start)
+}
+
+// listBucketsResponse is cmd.ListBucketsResponse with pagination.
+type listBucketsResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListAllMyBucketsResult"`
+
+	Owner   cmd.Owner
+	Buckets struct {
+		Buckets []cmd.Bucket `xml:"Bucket"`
+	}
+	ContinuationToken string `xml:"ContinuationToken,omitempty"`
+	Prefix            string `xml:"Prefix,omitempty"`
+}
+
+// taggingResponse is tags.Tags with a namespace.
+type taggingResponse struct {
+	XMLNS string `xml:"xmlns,attr"`
+	*tags.Tags
+}
+
+// postResponse is cmd.PostResponse with a namespace.
+type postResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ PostResponse"`
+	cmd.PostResponse
+}
+
+// deleteError is cmd.DeleteError without an empty VersionId.
+type deleteError struct {
+	Code      string
+	Message   string
+	Key       string
+	VersionID string `xml:"VersionId,omitempty"`
+}
+
+// deleteObjectsResponse is cmd.DeleteObjectsResponse with deleteError errors.
+type deleteObjectsResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ DeleteResult"`
+
+	DeletedObjects []cmd.DeletedObject `xml:"Deleted,omitempty"`
+	Errors         []deleteError       `xml:"Error,omitempty"`
 }

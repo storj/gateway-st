@@ -635,12 +635,14 @@ func generateListPartsResponse(partsInfo cmd.ListPartsInfo, encodingType string)
 	return resp
 }
 
-func generateListBucketsResponse(bucketInfos []cmd.BucketInfo) cmd.ListBucketsResponse {
-	resp := cmd.ListBucketsResponse{
+func generateListBucketsResponse(bucketInfos []cmd.BucketInfo, prefix, continuationToken string) listBucketsResponse {
+	resp := listBucketsResponse{
 		Owner: cmd.Owner{
 			ID:          defaultOwnerID,
 			DisplayName: defaultOwnerDisplayName,
 		},
+		ContinuationToken: continuationToken,
+		Prefix:            prefix,
 	}
 	resp.Buckets.Buckets = make([]cmd.Bucket, 0, len(bucketInfos))
 

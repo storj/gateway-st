@@ -419,7 +419,7 @@ func TestDeleteObjectsErrors(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	respBody := resp.Body
 	require.Equal(t, http.StatusOK, resp.StatusCode, respBody)
-	require.Contains(t, respBody, "<Error><Code>AccessDenied</Code><Message>Access Denied</Message><Key>key</Key>")
+	require.Contains(t, respBody, "<Error><Code>AccessDenied</Code><Message>Access Denied</Message><Key>key</Key></Error>")
 }
 
 // singleObjectLayer returns a fake object layer containing a single object.

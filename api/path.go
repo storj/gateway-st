@@ -53,14 +53,6 @@ func pathJoin(elems ...string) string {
 	return path.Join(elems...) + trailingSlash
 }
 
-func pathClean(p string) string {
-	cp := path.Clean(p)
-	if cp == "." {
-		return ""
-	}
-	return cp
-}
-
 // unescapePath unescapes an object key taken from a request URL. S3 keeps keys verbatim, so the
 // result is not cleaned: "/bucket//a/../b" refers to the key "/a/../b".
 func unescapePath(p string) (string, error) {
