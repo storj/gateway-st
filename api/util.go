@@ -46,12 +46,8 @@ func nopCharsetConverter(_ string, input io.Reader) (io.Reader, error) {
 	return input, nil
 }
 
-func xmlDecoder(body io.Reader, v any, size int64) error {
-	limitedBody := body
-	if size > 0 {
-		limitedBody = io.LimitReader(body, size)
-	}
-	d := xml.NewDecoder(limitedBody)
+func xmlDecoder(body io.Reader, v any) error {
+	d := xml.NewDecoder(body)
 	d.CharsetReader = nopCharsetConverter
 	return d.Decode(v)
 }

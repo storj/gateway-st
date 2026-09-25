@@ -21,6 +21,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -55,6 +56,9 @@ const (
 	maxPutBucketTaggingBodySize = int64(memory.MiB)
 	// maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
 	maxPutBucketVersioningBodySize = int64(memory.MiB)
+	// maxConfigBodySize is the maximum size of other XML configuration request bodies,
+	// such as ACLs, object lock settings and CreateBucket's location configuration.
+	maxConfigBodySize = int64(memory.MiB)
 	// maxPostObjectSize is the maximum size of the object contents submitted in a POST Object request.
 	maxPostObjectSize = 5 * int64(memory.GB)
 	// maxDeleteObjectsBodySize is the maximum size of a DeleteObjects request body.
@@ -91,14 +95,20 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	data, err := readVerifiedBody(body, maxConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	// We read the body because, although we don't use the location provided in the body,
 	// we must return an error if the body contains malformed XML.
-	if r.ContentLength != 0 {
+	if len(data) != 0 {
 		type createBucketLocationConfiguration struct {
 			XMLName  xml.Name `xml:"CreateBucketConfiguration"`
 			Location string   `xml:"LocationConstraint"`
 		}
-		if err = xmlDecoder(body, &createBucketLocationConfiguration{}, r.ContentLength); err != nil {
+		if err = xmlDecoder(bytes.NewReader(data), &createBucketLocationConfiguration{}); err != nil {
 			api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 			return
 		}
@@ -137,6 +147,12 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	data, err := readVerifiedBody(body, maxConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	if _, err = api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -145,7 +161,7 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	aclHeader := r.Header.Get(xhttp.AmzACL)
 	if aclHeader == "" {
 		acl := &accessControlPolicy{}
-		if err = xmlDecoder(body, acl, r.ContentLength); err != nil {
+		if err = xmlDecoder(bytes.NewReader(data), acl); err != nil {
 			if errors.Is(err, io.EOF) {
 				api.writeErrorResponse(w, r, apierr.CodeMissingSecurityHeader)
 				return
@@ -188,7 +204,13 @@ func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter,
 		return
 	}
 
-	config, err := event.ParseConfig(io.LimitReader(body, maxPutBucketNotificationConfigBodySize))
+	data, err := readVerifiedBody(body, maxPutBucketNotificationConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	config, err := event.ParseConfig(bytes.NewReader(data))
 	if err != nil {
 		// The parsers also return plain errors, such as for an unsupported XML encoding.
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
@@ -216,7 +238,13 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	config, err := objectlock.ParseObjectLockConfig(body)
+	data, err := readVerifiedBody(body, maxConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	config, err := objectlock.ParseObjectLockConfig(bytes.NewReader(data))
 	if err != nil {
 		// The parsers also return plain errors, such as for an unsupported XML encoding.
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
@@ -244,7 +272,13 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := tags.ParseBucketXML(io.LimitReader(body, maxPutBucketTaggingBodySize))
+	data, err := readVerifiedBody(body, maxPutBucketTaggingBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	tags, err := tags.ParseBucketXML(bytes.NewReader(data))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -271,7 +305,13 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	v, err := versioning.ParseConfig(io.LimitReader(body, maxPutBucketVersioningBodySize))
+	data, err := readVerifiedBody(body, maxPutBucketVersioningBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	v, err := versioning.ParseConfig(bytes.NewReader(data))
 	if err != nil {
 		// The parsers also return plain errors, such as for an unsupported XML encoding.
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
@@ -801,8 +841,12 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.ContentLength <= 0 {
+	if r.ContentLength < 0 {
 		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+		return
+	}
+	if r.ContentLength == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 		return
 	}
 

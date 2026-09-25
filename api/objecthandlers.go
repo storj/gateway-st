@@ -21,6 +21,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -55,11 +56,11 @@ const (
 	minPartNumber = 1
 	maxPartNumber = 10000
 
+	// maxPutObjectTaggingBodySize is the maximum size of a PutObjectTagging request body.
+	maxPutObjectTaggingBodySize = int64(memory.MiB)
 	// maxCompleteMultipartUploadBodySize is the maximum size of a CompleteMultipartUpload request body.
 	// 10,000 parts with an ETag and a checksum each take roughly 2-3 MB, more if pretty-printed.
 	maxCompleteMultipartUploadBodySize = 5 * int64(memory.MiB)
-	// maxPutObjectTaggingBodySize is the maximum size of a PutObjectTagging request body.
-	maxPutObjectTaggingBodySize = int64(memory.MiB)
 )
 
 // PutObjectAclHandler is the HTTP handler for the PutObjectAcl operation,
@@ -81,6 +82,12 @@ func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	data, err := readVerifiedBody(body, maxConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -90,7 +97,7 @@ func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 	aclHeader := r.Header.Get(xhttp.AmzACL)
 	if aclHeader == "" {
 		acl := &accessControlPolicy{}
-		if err = xmlDecoder(body, acl, r.ContentLength); err != nil {
+		if err = xmlDecoder(bytes.NewReader(data), acl); err != nil {
 			if errors.Is(err, io.EOF) {
 				api.writeErrorResponse(w, r, apierr.CodeMissingSecurityHeader)
 				return
@@ -139,7 +146,13 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	legalHold, err := objectlock.ParseObjectLegalHold(body)
+	data, err := readVerifiedBody(body, maxConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	legalHold, err := objectlock.ParseObjectLegalHold(bytes.NewReader(data))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -178,7 +191,13 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	retention, err := objectlock.ParseObjectRetention(body)
+	data, err := readVerifiedBody(body, maxConfigBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	retention, err := objectlock.ParseObjectRetention(bytes.NewReader(data))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -227,7 +246,13 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := tags.ParseObjectXML(io.LimitReader(body, maxPutObjectTaggingBodySize))
+	data, err := readVerifiedBody(body, maxPutObjectTaggingBodySize)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	tags, err := tags.ParseObjectXML(bytes.NewReader(data))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -1641,8 +1666,12 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if r.ContentLength <= 0 {
+	if r.ContentLength < 0 {
 		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+		return
+	}
+	if r.ContentLength == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 		return
 	}
 

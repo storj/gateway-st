@@ -45,14 +45,21 @@ func (api *API) verifyWithBody(r *http.Request, requireChecksum bool) (awsig.Rea
 	return vr.Reader(checksumReqs...)
 }
 
+// readVerifiedBody reads the entire body, failing with apierr.CodeEntityTooLarge if it is
+// longer than limit. awsig verifies Content-MD5, x-amz-checksum-* and the signed payload
+// hash only at EOF, which parsers that stop at the XML root element never reach.
+func readVerifiedBody(body awsig.Reader, limit int64) ([]byte, error) {
+	return io.ReadAll(NewLimitedAwsigReader(body, limit))
+}
+
 // decodeVerifiedXML reads the entire bounded body before decoding it so that checksum
 // and signature errors are reported even when they occur after the XML root element.
-func decodeVerifiedXML(body awsig.Reader, v any, size int64) error {
-	data, err := io.ReadAll(NewLimitedAwsigReader(body, size))
+func decodeVerifiedXML(body awsig.Reader, v any, limit int64) error {
+	data, err := readVerifiedBody(body, limit)
 	if err != nil {
 		return err
 	}
-	return xmlDecoder(bytes.NewReader(data), v, 0)
+	return xmlDecoder(bytes.NewReader(data), v)
 }
 
 type limitedAwsigReader struct {

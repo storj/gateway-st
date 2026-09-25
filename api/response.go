@@ -26,6 +26,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -266,6 +267,12 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 			resp.Description = e.Err.Error()
 		}
 		return resp, true
+	}
+
+	// A body that ends before its declared chunk or content length.
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		apiErr := cmd.GetAPIError(cmd.ErrIncompleteBody)
+		return apierr.Response{Code: apiErr.Code, Description: apiErr.Description, HTTPStatusCode: apiErr.HTTPStatusCode}, true
 	}
 
 	// io.EOF isn't mapped here, because the object layer can return it too. Handlers that decode an
