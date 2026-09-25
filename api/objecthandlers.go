@@ -24,14 +24,19 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
+	"storj.io/common/errs2"
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
@@ -824,4 +829,365 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	api.writeSuccessResponseXML(w, r, encodedResp)
+}
+
+// GetObjectHandler is the HTTP handler for the GetObject operation, which downloads an object.
+func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetObject")
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeBadRequest)
+		return
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	opts, err := getObjectReadOptions(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	rangeSpec, err := parseRangeForGet(r.Header.Get(xhttp.Range))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if rangeSpec != nil && opts.PartNumber > 0 {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidRangePartNumber)
+		return
+	}
+
+	// Parts past the first are rejected before the object layer starts a download. HeadObject
+	// rejects them in checkPreconditions.
+	if opts.PartNumber > 1 {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumber)
+		return
+	}
+
+	var preconditionFailed bool
+	opts.CheckPrecondFn = func(objInfo cmd.ObjectInfo) bool {
+		preconditionFailed = api.checkPreconditions(w, r, objInfo, opts)
+		return preconditionFailed
+	}
+
+	// The lock type is ignored by our object layer.
+	var noLock cmd.LockType
+	reader, err := api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, rangeSpec, r.Header, noLock, opts)
+	if err == nil && rangeSpec != nil && !ifRangeMatches(reader.ObjInfo, r.Header.Get("If-Range")) {
+		// The object changed since the client got the validator, so the entire object is sent
+		// instead of the range. The object layer starts the ranged download before the object is
+		// known, so the object is downloaded again.
+		_ = reader.Close()
+		rangeSpec = nil
+		reader, err = api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, nil, r.Header, noLock, opts)
+	}
+	if err != nil {
+		if !preconditionFailed {
+			api.writeErrorResponse(w, r, err)
+		}
+		return
+	}
+	defer func() { _ = reader.Close() }()
+
+	// Errors are sent without the object's headers.
+	errorHeader := w.Header().Clone()
+	writeError := func(err error) {
+		clear(w.Header())
+		maps.Copy(w.Header(), errorHeader)
+		api.writeErrorResponse(w, r, err)
+	}
+
+	partial, err := setObjectHeaders(w, reader.ObjInfo, rangeSpec, opts.PartNumber)
+	if err != nil {
+		writeError(err)
+		return
+	}
+	setResponseHeaderOverrides(w, r.URL.Query())
+
+	dw := &deferredStatusWriter{ResponseWriter: w, status: http.StatusOK}
+	if partial {
+		dw.status = http.StatusPartialContent
+	}
+
+	buf := copyBufferPool.Get().(*[]byte)
+	_, err = io.CopyBuffer(dw, reader, *buf)
+	copyBufferPool.Put(buf)
+	switch {
+	case err != nil && isClientAbort(err):
+		// The client went away, so there is nobody to send an error to. It isn't a server fault,
+		// so it isn't logged either.
+		// TODO: log client aborts once Logger has a Debug level.
+	case dw.started:
+		if err != nil {
+			// Content-Length is set, so the client can detect the incomplete transfer.
+			api.log.Error(r, "error writing object data", err)
+		}
+	case err != nil:
+		writeError(err)
+	default:
+		// The object is empty.
+		w.WriteHeader(dw.status)
+	}
+}
+
+// isClientAbort returns whether err is caused by the client going away, such as a canceled
+// request or a closed connection.
+func isClientAbort(err error) bool {
+	return errs2.IsCanceled(err) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET)
+}
+
+// copyBufferPool holds the buffers for copying object data to responses, because
+// deferredStatusWriter hides the ResponseWriter's io.ReaderFrom.
+var copyBufferPool = sync.Pool{New: func() any {
+	buf := make([]byte, 32*1024)
+	return &buf
+}}
+
+// deferredStatusWriter writes the status on the first write, so that the response isn't
+// committed until there is data to send.
+type deferredStatusWriter struct {
+	http.ResponseWriter
+	status  int
+	started bool
+}
+
+func (w *deferredStatusWriter) Write(p []byte) (int, error) {
+	if !w.started {
+		w.started = true
+		w.ResponseWriter.WriteHeader(w.status)
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+// HeadObjectHandler is the HTTP handler for the HeadObject operation, which returns an object's
+// metadata without its data.
+func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "HeadObject")
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponseHeadersOnly(r, w, apierr.CodeBadRequest)
+		return
+	}
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
+	opts, err := getObjectReadOptions(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
+	rangeSpec, err := parseRangeForGet(r.Header.Get(xhttp.Range))
+	if err != nil {
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
+	if rangeSpec != nil && opts.PartNumber > 0 {
+		api.writeErrorResponseHeadersOnly(r, w, apierr.CodeInvalidRangePartNumber)
+		return
+	}
+
+	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, opts)
+	if err != nil {
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
+	if api.checkPreconditions(w, r, objInfo, opts) {
+		return
+	}
+
+	if rangeSpec != nil && !ifRangeMatches(objInfo, r.Header.Get("If-Range")) {
+		rangeSpec = nil
+	}
+
+	// Errors are sent without the object's headers.
+	errorHeader := w.Header().Clone()
+	partial, err := setObjectHeaders(w, objInfo, rangeSpec, opts.PartNumber)
+	if err != nil {
+		clear(w.Header())
+		maps.Copy(w.Header(), errorHeader)
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+	setResponseHeaderOverrides(w, r.URL.Query())
+
+	if partial {
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// getObjectReadOptions returns the object options specified by the query parameters of a
+// GetObject or HeadObject request.
+func getObjectReadOptions(query url.Values) (opts cmd.ObjectOptions, err error) {
+	if partNumberStr := query.Get(xhttp.PartNumber); partNumberStr != "" {
+		opts.PartNumber, err = strconv.Atoi(partNumberStr)
+		if err != nil || opts.PartNumber < minPartNumber || opts.PartNumber > maxPartNumber {
+			return cmd.ObjectOptions{}, apierr.CodeInvalidPartNumber
+		}
+	}
+
+	opts.VersionID, err = extractVersionID(query)
+	if err != nil {
+		return cmd.ObjectOptions{}, err
+	}
+
+	return opts, nil
+}
+
+// checkPreconditions evaluates the conditional headers of a GetObject or HeadObject request
+// against an object. If the request should not proceed, it writes the response and returns true.
+func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objInfo cmd.ObjectInfo, opts cmd.ObjectOptions) bool {
+	writeError := func(err error) {
+		if r.Method == http.MethodHead {
+			api.writeErrorResponseHeadersOnly(r, w, err)
+		} else {
+			api.writeErrorResponse(w, r, err)
+		}
+	}
+
+	// TODO: part numbers aren't mapped to byte ranges because our object layer doesn't report
+	// the parts of an object, so only part 1, which returns the entire object, is accepted. Add the
+	// mapping if the object layer starts reporting parts.
+	if opts.PartNumber > 1 {
+		writeError(apierr.CodeInvalidPartNumber)
+		return true
+	}
+
+	writeHeaders := func() {
+		setCommonHeaders(w)
+		if validModTime(objInfo.ModTime) {
+			w.Header().Set(xhttp.LastModified, objInfo.ModTime.UTC().Format(http.TimeFormat))
+		}
+		if objInfo.ETag != "" {
+			w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+		}
+	}
+
+	switch evaluatePreconditions(objInfo,
+		r.Header.Get(xhttp.IfMatch), r.Header.Get(xhttp.IfUnmodifiedSince),
+		r.Header.Get(xhttp.IfNoneMatch), r.Header.Get(xhttp.IfModifiedSince),
+	) {
+	case http.StatusPreconditionFailed:
+		writeHeaders()
+		writeError(apierr.CodePreconditionFailed)
+		return true
+	case http.StatusNotModified:
+		writeHeaders()
+		w.WriteHeader(http.StatusNotModified)
+		return true
+	}
+
+	return false
+}
+
+// validModTime returns whether an object has a modification time that is not obviously garbage.
+func validModTime(modTime time.Time) bool {
+	return !modTime.IsZero() && !modTime.Equal(time.Unix(0, 0))
+}
+
+// evaluatePreconditions evaluates conditional headers against an object in the order defined by
+// RFC 7232, section 6: If-Unmodified-Since is ignored if If-Match is present, and
+// If-Modified-Since is ignored if If-None-Match is present. Like S3, If-Modified-Since is also
+// ignored if If-Match is present and satisfied. It returns
+// http.StatusPreconditionFailed or http.StatusNotModified if the request should not proceed and
+// 0 otherwise. Unparsable dates, and all dates if the object has no valid modification time, are
+// ignored.
+func evaluatePreconditions(objInfo cmd.ObjectInfo, ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince string) int {
+	hasModTime := validModTime(objInfo.ModTime)
+
+	if ifMatch != "" {
+		if !etagMatchesList(objInfo.ETag, ifMatch, false) {
+			return http.StatusPreconditionFailed
+		}
+	} else if t, err := time.Parse(http.TimeFormat, ifUnmodifiedSince); err == nil && hasModTime && modifiedSince(objInfo.ModTime, t) {
+		return http.StatusPreconditionFailed
+	}
+
+	if ifNoneMatch != "" {
+		if etagMatchesList(objInfo.ETag, ifNoneMatch, true) {
+			return http.StatusNotModified
+		}
+	} else if t, err := time.Parse(http.TimeFormat, ifModifiedSince); err == nil && hasModTime && ifMatch == "" && !modifiedSince(objInfo.ModTime, t) {
+		return http.StatusNotModified
+	}
+
+	return 0
+}
+
+// ifRangeMatches returns whether a range request's If-Range value, which is empty if the
+// header is missing, matches an object, so that the range is served. Like net/http, an ETag must
+// match strongly and a date must equal the modification time to the second.
+func ifRangeMatches(objInfo cmd.ObjectInfo, ifRange string) bool {
+	if ifRange == "" {
+		return true
+	}
+	if strings.HasPrefix(ifRange, `"`) {
+		return isETagEqual(objInfo.ETag, ifRange)
+	}
+	if strings.HasPrefix(ifRange, "W/") {
+		return false
+	}
+	t, err := http.ParseTime(ifRange)
+	return err == nil && validModTime(objInfo.ModTime) && objInfo.ModTime.Unix() == t.Unix()
+}
+
+// etagMatchesList returns whether etag matches an If-Match or If-None-Match header value, which is
+// either "*" or a comma-separated list of ETags. Weak comparison ignores the W/ prefix of weak
+// ETags, while strong comparison never matches them.
+func etagMatchesList(etag, list string, weak bool) bool {
+	for candidate := range strings.SplitSeq(list, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" {
+			return true
+		}
+		if after, ok := strings.CutPrefix(candidate, "W/"); ok {
+			if !weak {
+				continue
+			}
+			candidate = after
+		}
+		if isETagEqual(etag, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+// modifiedSince returns whether modTime is after t. HTTP dates have a precision of one second,
+// so modTime is truncated to seconds, like the Last-Modified header, before comparing.
+func modifiedSince(modTime, t time.Time) bool {
+	return modTime.Truncate(time.Second).After(t)
+}
+
+// isETagEqual returns whether two ETags are equal, ignoring surrounding double quotes.
+func isETagEqual(a, b string) bool {
+	return strings.Trim(a, `"`) == strings.Trim(b, `"`)
 }

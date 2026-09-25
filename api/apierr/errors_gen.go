@@ -9,6 +9,7 @@ const (
 	CodeAccessDenied
 	CodeAuthorizationHeaderMalformed
 	CodeBadDigest
+	CodeBadRequest
 	CodeChecksumMismatch
 	CodeChecksumsUnsupported
 	CodeContentLengthWithTransferEncoding
@@ -30,6 +31,8 @@ const (
 	CodeInvalidMaxKeys
 	CodeInvalidMaxUploads
 	CodeInvalidPartNumber
+	CodeInvalidRange
+	CodeInvalidRangePartNumber
 	CodeInvalidRequest
 	CodeInvalidStorageClass
 	CodeMalformedCopySourceRange
@@ -47,6 +50,7 @@ const (
 	CodeMissingSecurityHeader
 	CodeNegativeExpires
 	CodeNoSuchCORSConfiguration
+	CodeNoSuchKey
 	CodeNoSuchObjectLockConfiguration
 	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
@@ -69,6 +73,7 @@ const (
 	CodePostPolicyMissingExpiration
 	CodePostPolicySimpleConditionInvalidValueType
 	CodePostPolicySimpleConditionTooManyProperties
+	CodePreconditionFailed
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
 	CodeSignatureDoesNotMatch
@@ -91,6 +96,11 @@ var codeToResponse = map[Code]Response{
 	CodeBadDigest: {
 		Code:           "BadDigest",
 		Description:    "The Content-MD5 or checksum value you specified did not match what we received.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeBadRequest: {
+		Code:           "BadRequest",
+		Description:    "400 BadRequest",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeChecksumMismatch: {
@@ -198,6 +208,16 @@ var codeToResponse = map[Code]Response{
 		Description:    "Part number must be an integer between 1 and 10000, inclusive",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidRange: {
+		Code:           "InvalidRange",
+		Description:    "The requested range is not satisfiable",
+		HTTPStatusCode: 416,
+	},
+	CodeInvalidRangePartNumber: {
+		Code:           "InvalidRequest",
+		Description:    "Cannot specify both Range header and partNumber query parameter",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidRequest: {
 		Code:           "InvalidRequest",
 		Description:    "The request is invalid.",
@@ -281,6 +301,11 @@ var codeToResponse = map[Code]Response{
 	CodeNoSuchCORSConfiguration: {
 		Code:           "NoSuchCORSConfiguration",
 		Description:    "The CORS configuration does not exist",
+		HTTPStatusCode: http.StatusNotFound,
+	},
+	CodeNoSuchKey: {
+		Code:           "NoSuchKey",
+		Description:    "The specified key does not exist.",
 		HTTPStatusCode: http.StatusNotFound,
 	},
 	CodeNoSuchObjectLockConfiguration: {
@@ -392,6 +417,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidPolicyDocument",
 		Description:    "",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePreconditionFailed: {
+		Code:           "PreconditionFailed",
+		Description:    "At least one of the pre-conditions you specified did not hold",
+		HTTPStatusCode: 412,
 	},
 	CodeRequestNotReadyYet: {
 		Code:           "AccessDenied",

@@ -25,7 +25,10 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -462,5 +465,125 @@ func generateCopyObjectPartResponse(partInfo cmd.PartInfo) cmd.CopyObjectPartRes
 	return cmd.CopyObjectPartResponse{
 		ETag:         "\"" + partInfo.ETag + "\"",
 		LastModified: partInfo.LastModified.UTC().Format(iso8601Milli),
+	}
+}
+
+// objectMetadataHeaders are the stored metadata keys, other than user-defined metadata, that
+// are returned as object response headers. Other keys, including internal ones, are not
+// returned.
+var objectMetadataHeaders = []string{
+	xhttp.CacheControl,
+	xhttp.ContentDisposition,
+	xhttp.ContentLanguage,
+	xhttp.ContentEncoding,
+	xhttp.Expires,
+	xhttp.AmzStorageClass,
+}
+
+// objectLockMetadataPrefix is the prefix of the object lock metadata keys that the object layer
+// returns in lower case.
+const objectLockMetadataPrefix = "x-amz-object-lock-"
+
+// setObjectHeaders sets the response headers describing an object, or the portion of it
+// selected by rangeSpec or partNumber, for GetObject and HeadObject responses. Content-Range is
+// set only for partial content, and partial reports whether it was set.
+func setObjectHeaders(w http.ResponseWriter, objInfo cmd.ObjectInfo, rangeSpec *cmd.HTTPRangeSpec, partNumber int) (partial bool, err error) {
+	setCommonHeaders(w)
+
+	h := w.Header()
+	if validModTime(objInfo.ModTime) {
+		h.Set(xhttp.LastModified, objInfo.ModTime.UTC().Format(http.TimeFormat))
+	}
+
+	if objInfo.ETag != "" {
+		h[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+	}
+	// Without a Content-Type, net/http would sniff one from the data, so browsers could render an
+	// object as HTML. The default is the one PutObject stores.
+	contentType := objInfo.ContentType
+	if contentType == "" {
+		contentType = "binary/octet-stream"
+	}
+	h.Set(xhttp.ContentType, contentType)
+	if objInfo.ContentEncoding != "" {
+		h.Set(xhttp.ContentEncoding, objInfo.ContentEncoding)
+	}
+	if !objInfo.Expires.IsZero() {
+		h.Set(xhttp.Expires, objInfo.Expires.UTC().Format(http.TimeFormat))
+	}
+
+	userTags := objInfo.UserTags
+	if userTags == "" {
+		// The object layer keeps tags in the metadata instead of UserTags.
+		userTags = objInfo.UserDefined["s3:tags"]
+	}
+	if userTags != "" {
+		if objTags, _ := url.ParseQuery(userTags); len(objTags) > 0 {
+			h[xhttp.AmzTagCount] = []string{strconv.Itoa(len(objTags))}
+		}
+	}
+
+	for k, v := range objInfo.UserDefined {
+		lowerK := strings.ToLower(k)
+		// https://github.com/google/security-research/security/advisories/GHSA-76wf-9vgp-pj7w
+		if strings.EqualFold(k, xhttp.AmzMetaUnencryptedContentLength) || strings.EqualFold(k, xhttp.AmzMetaUnencryptedContentMD5) {
+			continue
+		}
+		if slices.ContainsFunc(userMetadataKeyPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(lowerK, strings.ToLower(prefix))
+		}) {
+			// User-defined metadata keys are returned in lowercase, like S3 does.
+			h[lowerK] = []string{v}
+			continue
+		}
+		if strings.HasPrefix(lowerK, objectLockMetadataPrefix) || slices.ContainsFunc(objectMetadataHeaders, func(header string) bool {
+			return strings.EqualFold(k, header)
+		}) {
+			h.Set(k, v)
+		}
+	}
+
+	// TODO: part 1 is the entire object, because the object layer doesn't report parts. It's
+	// only a partial response if the object isn't empty.
+	if partNumber > 0 && objInfo.Size > 0 {
+		rangeSpec = &cmd.HTTPRangeSpec{Start: 0, End: -1}
+	}
+
+	start, length, err := rangeOffsetLength(rangeSpec, objInfo.Size)
+	if err != nil {
+		return false, err
+	}
+	h.Set(xhttp.ContentLength, strconv.FormatInt(length, 10))
+	if rangeSpec != nil {
+		h.Set(xhttp.ContentRange, fmt.Sprintf("bytes %d-%d/%d", start, start+length-1, objInfo.Size))
+	}
+
+	if objInfo.VersionID != "" {
+		h[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+	}
+
+	return rangeSpec != nil, nil
+}
+
+// responseHeaderOverrides maps the query parameters that GetObject and HeadObject requests may
+// use to override response headers to the headers they override.
+var responseHeaderOverrides = map[string]string{
+	"response-expires":             xhttp.Expires,
+	"response-content-type":        xhttp.ContentType,
+	"response-cache-control":       xhttp.CacheControl,
+	"response-content-encoding":    xhttp.ContentEncoding,
+	"response-content-language":    xhttp.ContentLanguage,
+	"response-content-disposition": xhttp.ContentDisposition,
+}
+
+// setResponseHeaderOverrides sets the response headers requested by the response-* query
+// parameters of a GetObject or HeadObject request.
+func setResponseHeaderOverrides(w http.ResponseWriter, query url.Values) {
+	// Parameter names are case-sensitive, like in S3.
+	for param, header := range responseHeaderOverrides {
+		if v := query[param]; len(v) > 0 {
+			// Repeated query parameters must not produce repeated headers.
+			w.Header()[header] = v[:1]
+		}
 	}
 }

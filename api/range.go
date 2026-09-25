@@ -4,6 +4,7 @@
 package api
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -93,4 +94,39 @@ func parseRangeForCopy(rangeStr string) (rangeSpec *cmd.HTTPRangeSpec, err error
 		return nil, apierr.CodeInvalidCopySourceRange
 	}
 	return rangeSpec, nil
+}
+
+// parseRangeForGet parses the Range header of a GetObject or HeadObject request. Like S3, it
+// ignores malformed range strings, treating the request as if no range was specified.
+func parseRangeForGet(rangeStr string) (*cmd.HTTPRangeSpec, error) {
+	if rangeStr == "" {
+		return nil, nil
+	}
+	rangeSpec, err := ParseRange(rangeStr)
+	if errors.Is(err, apierr.CodeInvalidCopySourceRange) {
+		return nil, apierr.CodeInvalidRange
+	}
+	// ParseRange returns a nil range for malformed range strings.
+	return rangeSpec, nil
+}
+
+// rangeOffsetLength returns the start offset and length of the portion of an object of the given
+// size that is selected by rangeSpec. A nil rangeSpec selects the entire object.
+func rangeOffsetLength(rangeSpec *cmd.HTTPRangeSpec, size int64) (start, length int64, err error) {
+	switch {
+	case rangeSpec == nil:
+		return 0, size, nil
+	case size == 0:
+		// Like S3, no range of an empty object is satisfiable.
+		return 0, 0, apierr.CodeInvalidRange
+	case rangeSpec.IsSuffixLength:
+		length = min(-rangeSpec.Start, size)
+		return size - length, length, nil
+	case rangeSpec.Start >= size:
+		return 0, 0, apierr.CodeInvalidRange
+	case rangeSpec.End > -1:
+		return rangeSpec.Start, min(rangeSpec.End, size-1) - rangeSpec.Start + 1, nil
+	default:
+		return rangeSpec.Start, size - rangeSpec.Start, nil
+	}
 }

@@ -11,9 +11,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"testing/iotest"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7/pkg/signer"
@@ -41,12 +45,22 @@ type fakeObjectLayer struct {
 	cmd.ObjectLayer
 
 	listBuckets          func(ctx context.Context) ([]cmd.BucketInfo, error)
+	getObjectInfo        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	getObjectNInfo       func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
 	deleteObjects        func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
 	listMultipartUploads func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
 
 func (f *fakeObjectLayer) ListBuckets(ctx context.Context) ([]cmd.BucketInfo, error) {
 	return f.listBuckets(ctx)
+}
+
+func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return f.getObjectInfo(ctx, bucket, object, opts)
+}
+
+func (f *fakeObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+	return f.getObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
 }
 
 func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
@@ -174,4 +188,423 @@ func TestDeleteObjectsErrors(t *testing.T) {
 	respBody := resp.Body
 	require.Equal(t, http.StatusOK, resp.StatusCode, respBody)
 	require.Contains(t, respBody, "<Error><Code>AccessDenied</Code><Message>Access Denied</Message><Key>key</Key>")
+}
+
+// singleObjectLayer returns a fake object layer containing a single object.
+func singleObjectLayer(objInfo cmd.ObjectInfo, data string) *fakeObjectLayer {
+	getObjectInfo := func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		if bucket != objInfo.Bucket || object != objInfo.Name {
+			return cmd.ObjectInfo{}, apierr.CodeNoSuchKey
+		}
+		return objInfo, nil
+	}
+	return &fakeObjectLayer{
+		getObjectInfo: getObjectInfo,
+		getObjectNInfo: func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+			objInfo, err := getObjectInfo(ctx, bucket, object, opts)
+			if err != nil {
+				return nil, err
+			}
+			start, length, err := rs.GetOffsetLength(objInfo.Size)
+			if err != nil {
+				return nil, apierr.CodeInvalidRange
+			}
+			return cmd.NewGetObjectReaderFromReader(strings.NewReader(data[start:start+length]), objInfo, opts)
+		},
+	}
+}
+
+func TestGetAndHeadObject(t *testing.T) {
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	objInfo := cmd.ObjectInfo{
+		Bucket:      "bucket",
+		Name:        "key",
+		ModTime:     modTime,
+		Size:        10,
+		ETag:        "etag",
+		ContentType: "text/plain",
+		VersionID:   "version",
+		UserTags:    "a=1&b=2",
+		UserDefined: map[string]string{
+			"Content-Type":            "text/plain",
+			"X-Amz-Meta-Foo":          "bar",
+			"X-Minio-Internal-Secret": "hidden",
+			"X-Amz-Meta-X-Amz-Unencrypted-Content-Length": "1",
+			"Content-Range": "bytes 0-2/3",
+			"Set-Cookie":    "session=1",
+		},
+	}
+	objectAPI := singleObjectLayer(objInfo, "0123456789")
+
+	lastModified := modTime.Format(http.TimeFormat)
+	before := modTime.Add(-time.Hour).Format(http.TimeFormat)
+	after := modTime.Add(time.Hour).Format(http.TimeFormat)
+
+	for _, tt := range []struct {
+		name      string
+		target    string
+		header    http.Header
+		expStatus int
+		expCode   string
+		expBody   string
+		expHeader map[string]string
+	}{
+		{
+			name:      "entire object",
+			target:    "/bucket/key",
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+			expHeader: map[string]string{
+				"ETag":                    `"etag"`,
+				"Last-Modified":           lastModified,
+				"Content-Length":          "10",
+				"Content-Type":            "text/plain",
+				"Accept-Ranges":           "bytes",
+				"X-Amz-Version-Id":        "version",
+				"X-Amz-Tagging-Count":     "2",
+				"X-Amz-Meta-Foo":          "bar",
+				"X-Minio-Internal-Secret": "",
+				"X-Amz-Meta-X-Amz-Unencrypted-Content-Length": "",
+				"Content-Range": "",
+				"Set-Cookie":    "",
+			},
+		},
+		{
+			name:      "range",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=2-4"}},
+			expStatus: http.StatusPartialContent,
+			expBody:   "234",
+			expHeader: map[string]string{"Content-Length": "3", "Content-Range": "bytes 2-4/10"},
+		},
+		{
+			name:      "suffix range",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=-3"}},
+			expStatus: http.StatusPartialContent,
+			expBody:   "789",
+			expHeader: map[string]string{"Content-Range": "bytes 7-9/10"},
+		},
+		{
+			name:      "range past end is truncated",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=8-100"}},
+			expStatus: http.StatusPartialContent,
+			expBody:   "89",
+			expHeader: map[string]string{"Content-Range": "bytes 8-9/10"},
+		},
+		{
+			name:      "unsatisfiable range",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=10-"}},
+			expStatus: http.StatusRequestedRangeNotSatisfiable,
+			expCode:   "InvalidRange",
+		},
+		{
+			name:      "invalid range",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=5-1"}},
+			expStatus: http.StatusRequestedRangeNotSatisfiable,
+			expCode:   "InvalidRange",
+		},
+		{
+			name:      "if-range etag match",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=2-4"}, "If-Range": {`"etag"`}},
+			expStatus: http.StatusPartialContent,
+			expBody:   "234",
+			expHeader: map[string]string{"Content-Range": "bytes 2-4/10"},
+		},
+		{
+			name:      "if-range etag mismatch",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=2-4"}, "If-Range": {`"other"`}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+			expHeader: map[string]string{"Content-Length": "10", "Content-Range": ""},
+		},
+		{
+			name:      "if-range weak etag",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=2-4"}, "If-Range": {`W/"etag"`}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+		},
+		{
+			name:      "if-range date match",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=2-4"}, "If-Range": {lastModified}},
+			expStatus: http.StatusPartialContent,
+			expBody:   "234",
+		},
+		{
+			name:      "if-range date mismatch",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=2-4"}, "If-Range": {before}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+		},
+		{
+			name:      "malformed range is ignored",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=a-b"}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+		},
+		{
+			name:      "range with part number",
+			target:    "/bucket/key?partNumber=1",
+			header:    http.Header{"Range": {"bytes=0-1"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidRequest",
+		},
+		{
+			name:      "range with nonexistent part number",
+			target:    "/bucket/key?partNumber=2",
+			header:    http.Header{"Range": {"bytes=0-1"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidRequest",
+		},
+		{
+			name:      "first part",
+			target:    "/bucket/key?partNumber=1",
+			expStatus: http.StatusPartialContent,
+			expBody:   "0123456789",
+			expHeader: map[string]string{"Content-Range": "bytes 0-9/10", "Content-Length": "10"},
+		},
+		{
+			name:      "nonexistent part",
+			target:    "/bucket/key?partNumber=2",
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			name:      "invalid part number",
+			target:    "/bucket/key?partNumber=0",
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			name:      "nonexistent key",
+			target:    "/bucket/missing",
+			expStatus: http.StatusNotFound,
+			expCode:   "NoSuchKey",
+		},
+		{
+			name:      "if-match mismatch",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Match": {`"other"`}},
+			expStatus: http.StatusPreconditionFailed,
+			expCode:   "PreconditionFailed",
+		},
+		{
+			name:      "if-match match",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Match": {`"etag"`}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+		},
+		{
+			name:      "if-none-match match",
+			target:    "/bucket/key",
+			header:    http.Header{"If-None-Match": {"etag"}},
+			expStatus: http.StatusNotModified,
+			expHeader: map[string]string{"ETag": `"etag"`, "Last-Modified": lastModified},
+		},
+		{
+			name:      "if-modified-since not modified",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Modified-Since": {after}},
+			expStatus: http.StatusNotModified,
+		},
+		{
+			name:      "if-modified-since modified",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Modified-Since": {before}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+		},
+		{
+			name:      "if-modified-since one second before",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Modified-Since": {modTime.Add(-time.Second).Format(http.TimeFormat)}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+		},
+		{
+			name:      "if-modified-since equal",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Modified-Since": {lastModified}},
+			expStatus: http.StatusNotModified,
+		},
+		{
+			name:      "if-unmodified-since one second before",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Unmodified-Since": {modTime.Add(-time.Second).Format(http.TimeFormat)}},
+			expStatus: http.StatusPreconditionFailed,
+			expCode:   "PreconditionFailed",
+		},
+		{
+			name:      "if-unmodified-since modified",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Unmodified-Since": {before}},
+			expStatus: http.StatusPreconditionFailed,
+			expCode:   "PreconditionFailed",
+		},
+		{
+			name:      "response header overrides",
+			target:    "/bucket/key?response-content-type=application%2Fjson&response-cache-control=no-cache",
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+			expHeader: map[string]string{"Content-Type": "application/json", "Cache-Control": "no-cache"},
+		},
+		{
+			name:      "response header overrides are case-sensitive",
+			target:    "/bucket/key?Response-Content-Type=application%2Fjson",
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+			expHeader: map[string]string{"Content-Type": "text/plain"},
+		},
+		{
+			name:      "encryption requested",
+			target:    "/bucket/key",
+			header:    http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "BadRequest",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			check := func(t *testing.T, resp response) {
+				require.Equal(t, tt.expStatus, resp.StatusCode)
+				for k, v := range tt.expHeader {
+					require.Equal(t, v, resp.Header.Get(k), k)
+				}
+			}
+
+			t.Run("GET", func(t *testing.T) {
+				resp := serve(t, objectAPI, http.MethodGet, tt.target, tt.header, nil)
+				body := resp.Body
+				check(t, resp)
+				if tt.expCode != "" {
+					require.Contains(t, body, "<Code>"+tt.expCode+"</Code>")
+				} else {
+					require.Equal(t, tt.expBody, body)
+				}
+			})
+
+			t.Run("HEAD", func(t *testing.T) {
+				resp := serve(t, objectAPI, http.MethodHead, tt.target, tt.header, nil)
+				check(t, resp)
+				require.Empty(t, resp.Body)
+			})
+		})
+	}
+}
+
+func TestGetObjectFirstReadFailure(t *testing.T) {
+	objInfo := cmd.ObjectInfo{
+		Bucket:          "bucket",
+		Name:            "key",
+		Size:            10,
+		ETag:            "etag",
+		ContentEncoding: "gzip",
+		UserDefined:     map[string]string{"X-Amz-Meta-A": "1"},
+	}
+	objectAPI := &fakeObjectLayer{
+		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+			return cmd.NewGetObjectReaderFromReader(iotest.ErrReader(errors.New("read failed")), objInfo, opts)
+		},
+	}
+
+	for name, header := range map[string]http.Header{
+		"unranged": nil,
+		"ranged":   {"Range": {"bytes=0-4"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := serve(t, objectAPI, http.MethodGet, "/bucket/key", header, nil)
+			require.Equal(t, http.StatusInternalServerError, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>InternalError</Code>")
+			for _, k := range []string{"Content-Encoding", "Content-Range", "ETag", "X-Amz-Meta-A"} {
+				require.Empty(t, resp.Header.Get(k), k)
+			}
+		})
+	}
+}
+
+func TestGetEmptyObject(t *testing.T) {
+	objInfo := cmd.ObjectInfo{
+		Bucket:      "bucket",
+		Name:        "key",
+		ETag:        "etag",
+		ContentType: "text/plain",
+		VersionID:   "version",
+		UserDefined: map[string]string{"X-Amz-Meta-A": "1"},
+	}
+	objectAPI := singleObjectLayer(objInfo, "")
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			resp := serve(t, objectAPI, method, "/bucket/key", nil, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+			require.Empty(t, resp.Body)
+			for k, v := range map[string]string{
+				"ETag":             `"etag"`,
+				"Content-Type":     "text/plain",
+				"Content-Length":   "0",
+				"X-Amz-Version-Id": "version",
+				"X-Amz-Meta-A":     "1",
+				// The object has no modification time.
+				"Last-Modified": "",
+			} {
+				require.Equal(t, v, resp.Header.Get(k), k)
+			}
+		})
+	}
+}
+
+func TestObjectMetadataHeaders(t *testing.T) {
+	objInfo := cmd.ObjectInfo{
+		Bucket: "bucket",
+		Name:   "key",
+		Size:   4,
+		UserDefined: map[string]string{
+			"Set-Cookie":              "session=1",
+			"s3:etag":                 "etag",
+			"s3:tags":                 "a=1&b=2",
+			"X-Minio-Internal-Secret": "hidden",
+			"X-Amz-Meta-A":            "1",
+			"Cache-Control":           "no-cache",
+			"x-amz-object-lock-mode":  "GOVERNANCE",
+			"X-Amz-Storage-Class":     "STANDARD_IA",
+		},
+	}
+	objectAPI := singleObjectLayer(objInfo, "data")
+
+	check := func(t *testing.T, resp response) {
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		for k, v := range map[string]string{
+			"X-Amz-Meta-A":            "1",
+			"Cache-Control":           "no-cache",
+			"X-Amz-Object-Lock-Mode":  "GOVERNANCE",
+			"X-Amz-Storage-Class":     "STANDARD_IA",
+			"X-Amz-Tagging-Count":     "2",
+			"Content-Type":            "binary/octet-stream",
+			"Set-Cookie":              "",
+			"X-Minio-Internal-Secret": "",
+		} {
+			require.Equal(t, v, resp.Header.Get(k), k)
+		}
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			// A recorder sees header names that net/http would not send.
+			resp := serve(t, objectAPI, method, "/bucket/key", nil, nil)
+			check(t, resp)
+			for k := range resp.Header {
+				require.NotContains(t, k, ":", k)
+			}
+
+		})
+	}
 }

@@ -8,6 +8,11 @@
   description: The authorization header that you provided is not valid.
   http_status: 400
 
+- name: BadRequest
+  code: BadRequest
+  description: 400 BadRequest
+  http_status: 400
+
 - name: BadDigest
   code: BadDigest
   description: The Content-MD5 or checksum value you specified did not match what we received.
@@ -113,6 +118,16 @@
   description: Part number must be an integer between 1 and 10000, inclusive
   http_status: 400
 
+- name: InvalidRange
+  code: InvalidRange
+  description: The requested range is not satisfiable
+  http_status: 416
+
+- name: InvalidRangePartNumber
+  code: InvalidRequest
+  description: Cannot specify both Range header and partNumber query parameter
+  http_status: 400
+
 - name: InvalidRequest
   code: InvalidRequest
   description: The request is invalid.
@@ -201,6 +216,11 @@
 - name: NoSuchCORSConfiguration
   code: NoSuchCORSConfiguration
   description: The CORS configuration does not exist
+  http_status: 404
+
+- name: NoSuchKey
+  code: NoSuchKey
+  description: The specified key does not exist.
   http_status: 404
 
 - name: NoSuchObjectLockConfiguration
@@ -312,6 +332,11 @@
   code: InvalidPolicyDocument
   message: "Invalid Policy: Invalid Simple-Condition: Simple-Conditions must have exactly one property specified."
   http_status: 400
+
+- name: PreconditionFailed
+  code: PreconditionFailed
+  description: At least one of the pre-conditions you specified did not hold
+  http_status: 412
 
 - name: RequestNotReadyYet
   code: AccessDenied
