@@ -22,11 +22,12 @@ package api
 
 import (
 	"context"
-	"fmt"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
@@ -200,9 +201,17 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).HandlerFunc((api.ListBucketsHandler))
 }
 
+// amzID2 is the header carrying the extended request ID.
+const amzID2 = "x-amz-id-2"
+
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set(xhttp.AmzRequestID, fmt.Sprintf("%X", time.Now().UnixNano()))
+		var id [8]byte
+		var hostID [32]byte
+		_, _ = rand.Read(id[:]) // never returns an error
+		_, _ = rand.Read(hostID[:])
+		w.Header().Set(xhttp.AmzRequestID, strings.ToUpper(hex.EncodeToString(id[:])))
+		w.Header().Set(amzID2, base64.StdEncoding.EncodeToString(hostID[:]))
 		next.ServeHTTP(w, r)
 	})
 }

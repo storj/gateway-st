@@ -147,6 +147,19 @@ func TestResponseWriterWithoutFlusher(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
+func TestRequestIDsAreRandom(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listBuckets: func(context.Context) ([]cmd.BucketInfo, error) { return nil, nil },
+	}
+
+	first := serve(t, objectAPI, http.MethodGet, "/", nil, nil).Header
+	second := serve(t, objectAPI, http.MethodGet, "/", nil, nil).Header
+	require.Regexp(t, "^[0-9A-F]{16}$", first.Get("X-Amz-Request-Id"))
+	require.NotEqual(t, first.Get("X-Amz-Request-Id"), second.Get("X-Amz-Request-Id"))
+	require.NotEmpty(t, first.Get("X-Amz-Id-2"))
+	require.NotEqual(t, first.Get("X-Amz-Id-2"), second.Get("X-Amz-Id-2"))
+}
+
 func TestUnmatchedRoutes(t *testing.T) {
 	for _, tt := range []struct {
 		method, target string
