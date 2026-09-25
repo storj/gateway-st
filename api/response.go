@@ -254,11 +254,18 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 
 	if code, ok := minioErrToAPIErrorCode(err); ok {
 		apiErr := cmd.GetAPIError(code)
-		return apierr.Response{
+		resp := apierr.Response{
 			Code:           apiErr.Code,
 			Description:    apiErr.Description,
 			HTTPStatusCode: apiErr.HTTPStatusCode,
-		}, true
+		}
+		// Keep the object layer's explanation where the generic message would lose it.
+		if e := (cmd.NotImplemented{}); errors.As(err, &e) && e.Message != "" {
+			resp.Description = e.Message
+		} else if e := (cmd.InvalidArgument{}); errors.As(err, &e) && e.Err != nil {
+			resp.Description = e.Err.Error()
+		}
+		return resp, true
 	}
 
 	// io.EOF isn't mapped here, because the object layer can return it too. Handlers that decode an
@@ -270,10 +277,55 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 	return apierr.Response{}, false
 }
 
-// minioErrToAPIErrorCode maps the object lock and event notification configuration errors
-// to MinIO API error codes the same way MinIO does.
+// minioErrToAPIErrorCode maps the object layer, object lock and event notification
+// configuration errors to MinIO API error codes.
 func minioErrToAPIErrorCode(err error) (cmd.APIErrorCode, bool) {
 	switch {
+	case errors.As(err, new(cmd.BucketNameInvalid)):
+		return cmd.ErrInvalidBucketName, true
+	case errors.As(err, new(cmd.BucketNotFound)):
+		return cmd.ErrNoSuchBucket, true
+	case errors.As(err, new(cmd.BucketNotEmpty)):
+		return cmd.ErrBucketNotEmpty, true
+	case errors.As(err, new(cmd.BucketAlreadyExists)):
+		return cmd.ErrBucketAlreadyExists, true
+	case errors.As(err, new(cmd.BucketTaggingNotFound)):
+		return cmd.ErrBucketTaggingNotFound, true
+	case errors.As(err, new(cmd.BucketObjectLockConfigNotFound)):
+		return cmd.ErrObjectLockConfigurationNotFound, true
+	case errors.As(err, new(cmd.ObjectNotFound)):
+		return cmd.ErrNoSuchKey, true
+	case errors.As(err, new(cmd.VersionNotFound)):
+		return cmd.ErrNoSuchVersion, true
+	case errors.As(err, new(cmd.ObjectNameInvalid)):
+		// MinIO uses XMinioInvalidObjectName, which isn't an S3 code.
+		return cmd.ErrInvalidArgument, true
+	case errors.As(err, new(cmd.ObjectNameTooLong)):
+		return cmd.ErrKeyTooLongError, true
+	case errors.As(err, new(cmd.ObjectTooLarge)):
+		return cmd.ErrEntityTooLarge, true
+	case errors.As(err, new(cmd.ObjectTooSmall)), errors.As(err, new(cmd.PartTooSmall)):
+		return cmd.ErrEntityTooSmall, true
+	case errors.As(err, new(cmd.PrefixAccessDenied)):
+		return cmd.ErrAccessDenied, true
+	case errors.As(err, new(cmd.MethodNotAllowed)):
+		return cmd.ErrMethodNotAllowed, true
+	case errors.As(err, new(cmd.IncompleteBody)):
+		return cmd.ErrIncompleteBody, true
+	case errors.As(err, new(cmd.NotImplemented)):
+		return cmd.ErrNotImplemented, true
+	case errors.As(err, new(cmd.OperationTimedOut)):
+		return cmd.ErrOperationTimedOut, true
+	case errors.As(err, new(cmd.SlowDown)):
+		return cmd.ErrSlowDown, true
+	case errors.As(err, new(cmd.InvalidUploadID)):
+		return cmd.ErrNoSuchUpload, true
+	case errors.As(err, new(cmd.InvalidPart)):
+		return cmd.ErrInvalidPart, true
+	case errors.As(err, new(cmd.InvalidRange)):
+		return cmd.ErrInvalidRange, true
+	case errors.As(err, new(cmd.InvalidArgument)):
+		return cmd.ErrInvalidArgument, true
 	case errors.Is(err, objectlock.ErrInvalidRetentionDate):
 		return cmd.ErrInvalidRetentionDate, true
 	case errors.Is(err, objectlock.ErrPastObjectLockRetainDate):

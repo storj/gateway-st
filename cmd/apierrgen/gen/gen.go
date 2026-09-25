@@ -43,8 +43,15 @@ type ErrorDefinition struct {
 //   - http_status: The HTTP status code of the error response.
 func Generate(in []byte, packageName string) (out []byte, err error) {
 	var errDefs []ErrorDefinition
-	if err := yaml.Unmarshal(in, &errDefs); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(in))
+	dec.KnownFields(true)
+	if err := dec.Decode(&errDefs); err != nil {
 		return nil, errs.New("error parsing input file: %w", err)
+	}
+	for _, def := range errDefs {
+		if def.Description == "" {
+			return nil, errs.New("error %q has no description", def.Name)
+		}
 	}
 	slices.SortFunc(errDefs, func(defA, defB ErrorDefinition) int {
 		return strings.Compare(defA.Name, defB.Name)

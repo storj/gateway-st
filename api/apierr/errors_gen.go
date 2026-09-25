@@ -6,6 +6,7 @@ import "net/http"
 
 const (
 	CodeNone Code = iota
+	CodeAccessControlListNotSupported
 	CodeAccessDenied
 	CodeAuthorizationHeaderMalformed
 	CodeBadDigest
@@ -15,6 +16,7 @@ const (
 	CodeContentLengthWithTransferEncoding
 	CodeContentMD5Mismatch
 	CodeContentSHA256Mismatch
+	CodeEmptyVersionID
 	CodeEntityTooLarge
 	CodeEntityTooSmall
 	CodeExpiredPresignedRequest
@@ -35,6 +37,7 @@ const (
 	CodeInvalidMaxUploads
 	CodeInvalidMetadataDirective
 	CodeInvalidPartNumber
+	CodeInvalidPartNumberArgument
 	CodeInvalidPartNumberMarker
 	CodeInvalidPartOrder
 	CodeInvalidRange
@@ -42,7 +45,9 @@ const (
 	CodeInvalidRequest
 	CodeInvalidStorageClass
 	CodeInvalidTagDirective
+	CodeInvalidTaggingHeader
 	CodeInvalidURI
+	CodeInvalidVersionID
 	CodeKeyMustBeSpecified
 	CodeMalformedCopySourceRange
 	CodeMalformedDate
@@ -93,6 +98,11 @@ const (
 )
 
 var codeToResponse = map[Code]Response{
+	CodeAccessControlListNotSupported: {
+		Code:           "AccessControlListNotSupported",
+		Description:    "The bucket does not allow ACLs",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeAccessDenied: {
 		Code:           "AccessDenied",
 		Description:    "Access Denied",
@@ -130,12 +140,17 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeContentMD5Mismatch: {
 		Code:           "BadDigest",
-		Description:    "",
+		Description:    "The Content-MD5 you specified did not match what we received.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeContentSHA256Mismatch: {
 		Code:           "XAmzContentSHA256Mismatch",
 		Description:    "The provided 'x-amz-content-sha256' header does not match what was computed.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeEmptyVersionID: {
+		Code:           "InvalidArgument",
+		Description:    "Version id cannot be the empty string",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeEntityTooLarge: {
@@ -164,7 +179,7 @@ var codeToResponse = map[Code]Response{
 		HTTPStatusCode: http.StatusInternalServerError,
 	},
 	CodeInvalidAccessKeyID: {
-		Code:           "InvalidAccessKeyID",
+		Code:           "InvalidAccessKeyId",
 		Description:    "The access key ID that you provided does not exist in our records.",
 		HTTPStatusCode: http.StatusForbidden,
 	},
@@ -234,6 +249,11 @@ var codeToResponse = map[Code]Response{
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidPartNumber: {
+		Code:           "InvalidPartNumber",
+		Description:    "The requested partnumber is not satisfiable",
+		HTTPStatusCode: 416,
+	},
+	CodeInvalidPartNumberArgument: {
 		Code:           "InvalidArgument",
 		Description:    "Part number must be an integer between 1 and 10000, inclusive",
 		HTTPStatusCode: http.StatusBadRequest,
@@ -264,8 +284,8 @@ var codeToResponse = map[Code]Response{
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidStorageClass: {
-		Code:           "InvalidArgument",
-		Description:    "The specified storage class is not valid.",
+		Code:           "InvalidStorageClass",
+		Description:    "The storage class you specified is not valid",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidTagDirective: {
@@ -273,9 +293,19 @@ var codeToResponse = map[Code]Response{
 		Description:    "Unknown tag directive.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidTaggingHeader: {
+		Code:           "InvalidArgument",
+		Description:    "The header 'x-amz-tagging' shall be encoded as UTF-8 then URLEncoded URL query parameters without tag name duplicates.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidURI: {
 		Code:           "InvalidURI",
 		Description:    "Couldn't parse the specified URI.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidVersionID: {
+		Code:           "InvalidArgument",
+		Description:    "Invalid version id specified",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeKeyMustBeSpecified: {
@@ -366,7 +396,7 @@ var codeToResponse = map[Code]Response{
 	CodeNoSuchObjectLockConfiguration: {
 		Code:           "NoSuchObjectLockConfiguration",
 		Description:    "The specified object does not have an ObjectLock configuration",
-		HTTPStatusCode: http.StatusBadRequest,
+		HTTPStatusCode: http.StatusNotFound,
 	},
 	CodeNoSuchUpload: {
 		Code:           "NoSuchUpload",
@@ -405,17 +435,17 @@ var codeToResponse = map[Code]Response{
 	},
 	CodePostPolicyConditionMissingOperationID: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Condition: missing operation identifier.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyContentLengthConditionInvalidString: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Condition Value: String must evaluate to a number.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyContentLengthConditionInvalidValueType: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Condition Value: Must be a String or Number.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyExpired: {
@@ -425,7 +455,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodePostPolicyInvalidConditionType: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid condition test: must be a List or Object.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyInvalidConditionsType: {
@@ -445,17 +475,17 @@ var codeToResponse = map[Code]Response{
 	},
 	CodePostPolicyMatchConditionInvalidKeyType: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Condition Key: Must be a string.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyMatchConditionInvalidValueType: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Condition Value: Must be a string.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyMatchConditionKeyMissingPrefix: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Condition Key: Must start with '$'.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyMissingConditions: {
@@ -470,12 +500,12 @@ var codeToResponse = map[Code]Response{
 	},
 	CodePostPolicySimpleConditionInvalidValueType: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Simple-Condition: value must be a string.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicySimpleConditionTooManyProperties: {
 		Code:           "InvalidPolicyDocument",
-		Description:    "",
+		Description:    "Invalid Policy: Invalid Simple-Condition: Simple-Conditions must have exactly one property specified.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePreconditionFailed: {

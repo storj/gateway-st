@@ -598,8 +598,8 @@ func TestGetAndHeadObject(t *testing.T) {
 		{
 			name:      "nonexistent part",
 			target:    "/bucket/key?partNumber=2",
-			expStatus: http.StatusBadRequest,
-			expCode:   "InvalidArgument",
+			expStatus: http.StatusRequestedRangeNotSatisfiable,
+			expCode:   "InvalidPartNumber",
 		},
 		{
 			name:      "invalid part number",
@@ -1092,7 +1092,8 @@ func TestCreateMultipartUpload(t *testing.T) {
 	require.EqualValues(t, "ON", *gotOpts.LegalHold)
 
 	resp = serve(t, objectAPI, http.MethodPost, "/bucket/key?uploads", http.Header{"X-Amz-Storage-Class": {"INVALID"}}, nil)
-	require.Contains(t, resp.Body, "The specified storage class is not valid.")
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidStorageClass</Code>")
 }
 
 func TestCompleteMultipartUpload(t *testing.T) {

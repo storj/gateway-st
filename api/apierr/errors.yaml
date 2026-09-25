@@ -3,6 +3,11 @@
   description: Access Denied
   http_status: 403
 
+- name: AccessControlListNotSupported
+  code: AccessControlListNotSupported
+  description: The bucket does not allow ACLs
+  http_status: 400
+
 - name: AuthorizationHeaderMalformed
   code: AuthorizationHeaderMalformed
   description: The authorization header that you provided is not valid.
@@ -30,7 +35,7 @@
 
 - name: ContentMD5Mismatch
   code: BadDigest
-  decription: The Content-MD5 you specified did not match what we received.
+  description: The Content-MD5 you specified did not match what we received.
   http_status: 400
 
 - name: ChecksumMismatch
@@ -42,6 +47,11 @@
   code: NotImplemented
   description: Checksum options are not supported at this time.
   http_status: 501
+
+- name: EmptyVersionID
+  code: InvalidArgument
+  description: Version id cannot be the empty string
+  http_status: 400
 
 - name: EntityTooLarge
   code: EntityTooLarge
@@ -64,7 +74,7 @@
   http_status: 500
 
 - name: InvalidAccessKeyID
-  code: InvalidAccessKeyID
+  code: InvalidAccessKeyId
   description: The access key ID that you provided does not exist in our records.
   http_status: 403
 
@@ -144,6 +154,11 @@
   http_status: 400
 
 - name: InvalidPartNumber
+  code: InvalidPartNumber
+  description: The requested partnumber is not satisfiable
+  http_status: 416
+
+- name: InvalidPartNumberArgument
   code: InvalidArgument
   description: Part number must be an integer between 1 and 10000, inclusive
   http_status: 400
@@ -158,9 +173,19 @@
   description: Cannot specify both Range header and partNumber query parameter
   http_status: 400
 
+- name: InvalidTaggingHeader
+  code: InvalidArgument
+  description: The header 'x-amz-tagging' shall be encoded as UTF-8 then URLEncoded URL query parameters without tag name duplicates.
+  http_status: 400
+
 - name: InvalidTagDirective
   code: InvalidArgument
   description: Unknown tag directive.
+  http_status: 400
+
+- name: InvalidVersionID
+  code: InvalidArgument
+  description: Invalid version id specified
   http_status: 400
 
 - name: InvalidRequest
@@ -174,8 +199,8 @@
   http_status: 400
 
 - name: InvalidStorageClass
-  code: InvalidArgument
-  description: The specified storage class is not valid.
+  code: InvalidStorageClass
+  description: The storage class you specified is not valid
   http_status: 400
 
 - name: IncorrectContinuationToken
@@ -271,7 +296,7 @@
 - name: NoSuchObjectLockConfiguration
   code: NoSuchObjectLockConfiguration
   description: The specified object does not have an ObjectLock configuration
-  http_status: 400
+  http_status: 404
 
 - name: NoSuchUpload
   code: NoSuchUpload
@@ -310,17 +335,17 @@
 
 - name: PostPolicyConditionMissingOperationID
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Condition: missing operation identifier."
+  description: "Invalid Policy: Invalid Condition: missing operation identifier."
   http_status: 400
 
 - name: PostPolicyContentLengthConditionInvalidValueType
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Condition Value: Must be a String or Number."
+  description: "Invalid Policy: Invalid Condition Value: Must be a String or Number."
   http_status: 400
 
 - name: PostPolicyContentLengthConditionInvalidString
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Condition Value: String must evaluate to a number."
+  description: "Invalid Policy: Invalid Condition Value: String must evaluate to a number."
   http_status: 400
 
 - name: PostPolicyExpired
@@ -335,7 +360,7 @@
 
 - name: PostPolicyInvalidConditionType
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid condition test: must be a List or Object."
+  description: "Invalid Policy: Invalid condition test: must be a List or Object."
   http_status: 400
 
 - name: PostPolicyInvalidExpirationType
@@ -350,17 +375,17 @@
 
 - name: PostPolicyMatchConditionInvalidKeyType
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Condition Key: Must be a string."
+  description: "Invalid Policy: Invalid Condition Key: Must be a string."
   http_status: 400
 
 - name: PostPolicyMatchConditionInvalidValueType
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Condition Value: Must be a string."
+  description: "Invalid Policy: Invalid Condition Value: Must be a string."
   http_status: 400
 
 - name: PostPolicyMatchConditionKeyMissingPrefix
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Condition Key: Must start with '$'."
+  description: "Invalid Policy: Invalid Condition Key: Must start with '$'."
   http_status: 400
 
 - name: PostPolicyMissingConditions
@@ -375,12 +400,12 @@
 
 - name: PostPolicySimpleConditionInvalidValueType
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Simple-Condition: value must be a string."
+  description: "Invalid Policy: Invalid Simple-Condition: value must be a string."
   http_status: 400
 
 - name: PostPolicySimpleConditionTooManyProperties
   code: InvalidPolicyDocument
-  message: "Invalid Policy: Invalid Simple-Condition: Simple-Conditions must have exactly one property specified."
+  description: "Invalid Policy: Invalid Simple-Condition: Simple-Conditions must have exactly one property specified."
   http_status: 400
 
 - name: PreconditionFailed

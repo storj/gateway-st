@@ -102,7 +102,7 @@ func TestGetInvalidPartNumber(t *testing.T) {
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		resp := serve(t, objectAPI, method, "/bucket/key?partNumber=2", nil, nil)
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode, method)
+		require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, method)
 	}
 
 	// GetObject rejects the part before the object layer starts a download.
@@ -111,7 +111,7 @@ func TestGetInvalidPartNumber(t *testing.T) {
 		return nil, nil
 	}
 	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?partNumber=2", nil, nil)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode)
 }
 
 func TestGetObjectFirstReadClientAbort(t *testing.T) {

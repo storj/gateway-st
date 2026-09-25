@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/amwolff/awsig"
+	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
@@ -72,17 +73,27 @@ func extractContentMD5(h http.Header) ([]byte, error) {
 	}
 	md5Str := values[0]
 	if md5Str == "" {
-		return nil, errors.New("Content-Md5 is empty")
+		return nil, apierr.CodeInvalidContentMD5
 	}
 	// S3 uses strict decoding. It rejects Base64 strings where the unused padding bits aren't zero.
 	md5, err := base64.StdEncoding.Strict().DecodeString(md5Str)
 	if err != nil {
-		return nil, errors.New("Content-Md5 is not a valid Base64 string")
+		return nil, apierr.CodeInvalidContentMD5
 	}
 	if len(md5) != 16 {
-		return nil, errors.New("Content-Md5 must be 16 bytes long")
+		return nil, apierr.CodeInvalidContentMD5
 	}
 	return md5, nil
+}
+
+// validateTaggingHeader validates the value of the x-amz-tagging header.
+func validateTaggingHeader(value string) error {
+	_, err := tags.ParseObjectTags(value)
+	if err != nil && !errors.As(err, new(tags.Error)) {
+		// The value isn't a valid URL query.
+		return apierr.CodeInvalidTaggingHeader
+	}
+	return err
 }
 
 func getContentMD5ChecksumRequest(h http.Header) (checksumReq awsig.ChecksumRequest, present bool, err error) {
@@ -95,7 +106,7 @@ func getContentMD5ChecksumRequest(h http.Header) (checksumReq awsig.ChecksumRequ
 	}
 	req, err := awsig.NewChecksumRequest(awsig.AlgorithmMD5, base64.StdEncoding.EncodeToString(md5))
 	if err != nil {
-		return awsig.ChecksumRequest{}, true, err
+		return awsig.ChecksumRequest{}, true, apierr.CodeInvalidContentMD5
 	}
 	return req, true, nil
 }

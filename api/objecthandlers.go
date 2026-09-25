@@ -310,7 +310,7 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	partNumStr := r.URL.Query().Get(xhttp.PartNumber)
 	partNumber, err := strconv.Atoi(partNumStr)
 	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumber)
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberArgument)
 		return
 	}
 
@@ -376,7 +376,7 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	partNumberStr := r.URL.Query().Get(xhttp.PartNumber)
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumber)
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberArgument)
 		return
 	}
 
@@ -521,7 +521,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {
-		if _, err := tags.ParseObjectTags(objTags); err != nil {
+		if err := validateTaggingHeader(objTags); err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
 		}
@@ -1063,7 +1063,7 @@ func getObjectReadOptions(query url.Values) (opts cmd.ObjectOptions, err error) 
 	if partNumberStr := query.Get(xhttp.PartNumber); partNumberStr != "" {
 		opts.PartNumber, err = strconv.Atoi(partNumberStr)
 		if err != nil || opts.PartNumber < minPartNumber || opts.PartNumber > maxPartNumber {
-			return cmd.ObjectOptions{}, apierr.CodeInvalidPartNumber
+			return cmd.ObjectOptions{}, apierr.CodeInvalidPartNumberArgument
 		}
 	}
 
@@ -1388,7 +1388,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	objTags := srcInfo.UserTags
 	if tagDirective == replaceDirective {
 		objTags = r.Header.Get(xhttp.AmzObjectTagging)
-		if _, err := tags.ParseObjectTags(objTags); err != nil {
+		if err := validateTaggingHeader(objTags); err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
 		}
@@ -1558,7 +1558,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {
-		if _, err := tags.ParseObjectTags(objTags); err != nil {
+		if err := validateTaggingHeader(objTags); err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
 		}
