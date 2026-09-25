@@ -430,10 +430,10 @@ func generateListObjectsV2Response(bucketName string, params listObjectsV2Params
 	return data
 }
 
-func generateListVersionsResponse(bucketName string, params listObjectVersionsParams, listInfo cmd.ListObjectVersionsInfo) cmd.ListVersionsResponse {
-	data := cmd.ListVersionsResponse{
+func generateListVersionsResponse(bucketName string, params listObjectVersionsParams, listInfo cmd.ListObjectVersionsInfo) listVersionsResponse {
+	data := listVersionsResponse{
 		Name:                bucketName,
-		Versions:            make([]cmd.ObjectVersion, 0, len(listInfo.Objects)),
+		Versions:            make([]objectVersion, 0, len(listInfo.Objects)),
 		EncodingType:        params.encodingType,
 		Prefix:              s3EncodeName(params.prefix, params.encodingType),
 		KeyMarker:           s3EncodeName(params.marker, params.encodingType),
@@ -480,7 +480,7 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 			content.VersionID = nullVersionID
 		}
 
-		data.Versions = append(data.Versions, content)
+		data.Versions = append(data.Versions, objectVersion(content))
 	}
 
 	for _, prefix := range listInfo.Prefixes {

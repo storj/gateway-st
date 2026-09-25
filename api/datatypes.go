@@ -76,3 +76,62 @@ type listObjectsV2Object struct {
 	Owner        *cmd.Owner `xml:",omitempty"`
 	StorageClass string
 }
+
+// listVersionsResponse is cmd.ListVersionsResponse whose delete markers only contain the
+// elements S3 returns for them.
+type listVersionsResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListVersionsResult"`
+
+	Name                string
+	Prefix              string
+	KeyMarker           string
+	NextKeyMarker       string `xml:"NextKeyMarker,omitempty"`
+	NextVersionIDMarker string `xml:"NextVersionIdMarker,omitempty"`
+	VersionIDMarker     string `xml:"VersionIdMarker"`
+	MaxKeys             int
+	Delimiter           string `xml:"Delimiter,omitempty"`
+	IsTruncated         bool
+	CommonPrefixes      []cmd.CommonPrefix
+	Versions            []objectVersion
+	EncodingType        string `xml:"EncodingType,omitempty"`
+}
+
+// objectVersion is cmd.ObjectVersion that is encoded as a Version or DeleteMarker element
+// containing only the elements S3 returns for it.
+type objectVersion cmd.ObjectVersion
+
+// MarshalXML implements xml.Marshaler.
+func (o objectVersion) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	type deleteMarker struct {
+		Key          string
+		VersionID    string `xml:"VersionId"`
+		IsLatest     bool
+		LastModified string
+		Owner        cmd.Owner
+	}
+	marker := deleteMarker{
+		Key:          o.Key,
+		VersionID:    o.VersionID,
+		IsLatest:     o.IsLatest,
+		LastModified: o.LastModified,
+		Owner:        o.Owner,
+	}
+
+	if o.IsDeleteMarker {
+		start.Name.Local = "DeleteMarker"
+		return e.EncodeElement(marker, start)
+	}
+
+	// Unlike in DeleteMarker, S3 puts Owner last in Version.
+	start.Name.Local = "Version"
+	return e.EncodeElement(struct {
+		Key          string
+		VersionID    string `xml:"VersionId"`
+		IsLatest     bool
+		LastModified string
+		ETag         string
+		Size         int64
+		StorageClass string
+		Owner        cmd.Owner
+	}{o.Key, o.VersionID, o.IsLatest, o.LastModified, o.ETag, o.Size, o.StorageClass, o.Owner}, start)
+}

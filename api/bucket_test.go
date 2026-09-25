@@ -248,3 +248,24 @@ func TestListMaxKeysClamped(t *testing.T) {
 		require.Contains(t, resp.Body, "<MaxKeys>1000</MaxKeys>", target)
 	}
 }
+
+func TestListObjectVersionsDeleteMarker(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		listObjectVersions: func(context.Context, string, string, string, string, string, int) (cmd.ListObjectVersionsInfo, error) {
+			return cmd.ListObjectVersionsInfo{Objects: []cmd.ObjectInfo{
+				{Name: "key", VersionID: "v2", IsLatest: true, DeleteMarker: true, ModTime: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
+				{Name: "key", VersionID: "v1", ETag: "etag", Size: 5},
+			}}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?versions", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">")
+	require.Contains(t, resp.Body, "<DeleteMarker><Key>key</Key><VersionId>v2</VersionId><IsLatest>true</IsLatest><LastModified>2026-01-02T03:04:05.000Z</LastModified>"+
+		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner></DeleteMarker>")
+	require.Contains(t, resp.Body, "<Version><Key>key</Key><VersionId>v1</VersionId><IsLatest>false</IsLatest><LastModified>0001-01-01T00:00:00.000Z</LastModified>"+
+		"<ETag>&#34;etag&#34;</ETag><Size>5</Size><StorageClass>STANDARD</StorageClass>"+
+		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner></Version>")
+}
