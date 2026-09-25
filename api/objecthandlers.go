@@ -1191,3 +1191,87 @@ func modifiedSince(modTime, t time.Time) bool {
 func isETagEqual(a, b string) bool {
 	return strings.Trim(a, `"`) == strings.Trim(b, `"`)
 }
+
+// DeleteObjectHandler is the HTTP handler for the DeleteObject operation, which deletes an object
+// or one of its versions.
+func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "DeleteObject")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	objInfo, err := api.objectAPI.DeleteObject(ctx, bucketName, objectKey, cmd.ObjectOptions{
+		VersionID:                 versionID,
+		BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
+	})
+	if err != nil {
+		// Like S3, deleting an object that doesn't exist succeeds.
+		if !errors.Is(err, apierr.CodeNoSuchKey) && !errors.Is(err, apierr.CodeNoSuchVersion) &&
+			!errors.As(err, &cmd.ObjectNotFound{}) && !errors.As(err, &cmd.VersionNotFound{}) {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+	}
+
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+		if objInfo.DeleteMarker {
+			w.Header()[xhttp.AmzDeleteMarker] = []string{"true"}
+		}
+	}
+
+	api.writeSuccessNoContent(w, r)
+}
+
+// DeleteObjectTaggingHandler is the HTTP handler for the DeleteObjectTagging operation,
+// which removes the set of tags that have been placed on an object.
+func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "DeleteObjectTagging")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	versionID, err := extractVersionID(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	objInfo, err := api.objectAPI.DeleteObjectTags(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+	}
+
+	api.writeSuccessNoContent(w, r)
+}

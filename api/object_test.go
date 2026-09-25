@@ -146,3 +146,11 @@ func TestPreconditionsWithoutModTime(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteObjectRouting(t *testing.T) {
+	objectAPI := &fakeObjectLayer{}
+
+	// AbortMultipartUpload isn't served as DeleteObject.
+	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?uploadId=abc", nil, nil)
+	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
+}

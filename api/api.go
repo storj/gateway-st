@@ -134,6 +134,13 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		})
 		objRouter.Methods(http.MethodGet).HandlerFunc(api.GetObjectHandler)
 
+		objRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteObjectTaggingHandler)
+		// AbortMultipartUpload isn't implemented, but it must not be served as DeleteObject.
+		objRouter.Methods(http.MethodDelete).Queries("uploadId", "").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		})
+		objRouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteObjectHandler)
+
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
 		subrouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)

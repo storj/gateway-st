@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,6 +48,8 @@ type fakeObjectLayer struct {
 	listBuckets          func(ctx context.Context) ([]cmd.BucketInfo, error)
 	getObjectInfo        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	getObjectNInfo       func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
+	deleteObject         func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
+	deleteObjectTags     func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	deleteObjects        func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
 	listMultipartUploads func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
@@ -61,6 +64,14 @@ func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object stri
 
 func (f *fakeObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
 	return f.getObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
+}
+
+func (f *fakeObjectLayer) DeleteObject(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return f.deleteObject(ctx, bucket, object, opts)
+}
+
+func (f *fakeObjectLayer) DeleteObjectTags(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return f.deleteObjectTags(ctx, bucket, object, opts)
 }
 
 func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
@@ -604,7 +615,85 @@ func TestObjectMetadataHeaders(t *testing.T) {
 			for k := range resp.Header {
 				require.NotContains(t, k, ":", k)
 			}
-
 		})
 	}
+}
+
+func TestDeleteObject(t *testing.T) {
+	const versionID = "00000000-0000-0000-0000-000000000001"
+
+	var gotOpts cmd.ObjectOptions
+	objectAPI := &fakeObjectLayer{
+		deleteObject: func(_ context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			gotOpts = opts
+			switch object {
+			case "key":
+				return cmd.ObjectInfo{Bucket: bucket, Name: object, VersionID: "marker", DeleteMarker: true}, nil
+			case "missing":
+				return cmd.ObjectInfo{}, apierr.CodeNoSuchKey
+			default:
+				return cmd.ObjectInfo{}, apierr.CodeAccessDenied
+			}
+		},
+	}
+
+	t.Run("delete marker", func(t *testing.T) {
+		resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?versionId="+versionID,
+			http.Header{"X-Amz-Bypass-Governance-Retention": {"true"}}, nil)
+		require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+		require.Equal(t, "marker", resp.Header.Get("X-Amz-Version-Id"))
+		require.Equal(t, "true", resp.Header.Get("X-Amz-Delete-Marker"))
+		require.Equal(t, versionID, gotOpts.VersionID)
+		require.True(t, gotOpts.BypassGovernanceRetention)
+	})
+
+	t.Run("nonexistent key", func(t *testing.T) {
+		resp := serve(t, objectAPI, http.MethodDelete, "/bucket/missing", nil, nil)
+		require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+		require.Empty(t, resp.Header.Get("X-Amz-Version-Id"))
+	})
+
+	t.Run("error", func(t *testing.T) {
+		resp := serve(t, objectAPI, http.MethodDelete, "/bucket/other", nil, nil)
+		require.Equal(t, http.StatusForbidden, resp.StatusCode)
+		require.Contains(t, resp.Body, "<Code>AccessDenied</Code>")
+	})
+
+	t.Run("invalid version ID", func(t *testing.T) {
+		resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?versionId=invalid", nil, nil)
+		require.Contains(t, resp.Body, "<Code>NoSuchVersion</Code>")
+	})
+}
+
+func TestDeleteObjectMissingStorageObject(t *testing.T) {
+	for _, storageErr := range []error{
+		cmd.ObjectNotFound{Bucket: "bucket", Object: "missing"},
+		cmd.VersionNotFound{Bucket: "bucket", Object: "missing", VersionID: "00000000-0000-0000-0000-000000000001"},
+	} {
+		for _, wrapped := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%T/wrapped=%t", storageErr, wrapped), func(t *testing.T) {
+				layer := &fakeObjectLayer{deleteObject: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+					if wrapped {
+						return cmd.ObjectInfo{}, fmt.Errorf("delete: %w", storageErr)
+					}
+					return cmd.ObjectInfo{}, storageErr
+				}}
+				resp := serve(t, layer, http.MethodDelete, "/bucket/missing?versionId=00000000-0000-0000-0000-000000000001", nil, nil)
+				require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+				require.Empty(t, resp.Body)
+			})
+		}
+	}
+}
+
+func TestDeleteObjectTagging(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObjectTags: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{Bucket: bucket, Name: object, VersionID: "version"}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?tagging", nil, nil)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
 }
