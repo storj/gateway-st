@@ -823,10 +823,6 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i := range deleteReq.Objects {
-		deleteReq.Objects[i].ObjectName = trimLeadingSlash(deleteReq.Objects[i].ObjectName)
-	}
-
 	type bucketObjectLocation struct {
 		key       string
 		versionID string

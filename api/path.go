@@ -59,24 +59,10 @@ func pathClean(p string) string {
 	return cp
 }
 
-func trimLeadingSlash(ep string) string {
-	if len(ep) > 0 && ep[0] == '/' {
-		keepTrailingSlash := strings.HasSuffix(ep, cmd.SlashSeparator) && len(ep) > 1
-		ep = path.Clean(ep)
-		if keepTrailingSlash {
-			ep += cmd.SlashSeparator
-		}
-	}
-	return ep
-}
-
+// unescapePath unescapes an object key taken from a request URL. S3 keeps keys verbatim, so the
+// result is not cleaned: "/bucket//a/../b" refers to the key "/a/../b".
 func unescapePath(p string) (string, error) {
-	ep, err := url.PathUnescape(p)
-	if err != nil {
-		return "", err
-	}
-	// S3 ignores the first leading slash of object keys provided in request URLs.
-	return trimLeadingSlash(ep), nil
+	return url.PathUnescape(p)
 }
 
 func shouldEscape(c byte) bool {

@@ -94,8 +94,8 @@ func getListObjectsParams(values url.Values) (params listObjectsParams, err erro
 		maxKeys = maxObjectList
 	}
 	return listObjectsParams{
-		prefix:       trimLeadingSlash(values.Get("prefix")),
-		marker:       trimLeadingSlash(values.Get("marker")),
+		prefix:       values.Get("prefix"),
+		marker:       values.Get("marker"),
 		delimiter:    values.Get("delimiter"),
 		maxKeys:      maxKeys,
 		encodingType: values.Get("encoding-type"),
@@ -187,12 +187,12 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 	}
 
 	return listObjectsV2Params{
-		prefix:       trimLeadingSlash(values.Get("prefix")),
+		prefix:       values.Get("prefix"),
 		token:        string(decodedToken),
 		delimiter:    values.Get("delimiter"),
 		maxKeys:      maxKeys,
 		fetchOwner:   values.Get("fetch-owner") == "true",
-		startAfter:   trimLeadingSlash(values.Get("start-after")),
+		startAfter:   values.Get("start-after"),
 		encodingType: values.Get("encoding-type"),
 	}, nil
 }
@@ -256,8 +256,8 @@ func getListObjectVersionsParams(values url.Values) (params listObjectVersionsPa
 	}
 
 	return listObjectVersionsParams{
-		prefix:          trimLeadingSlash(values.Get("prefix")),
-		marker:          trimLeadingSlash(values.Get("key-marker")),
+		prefix:          values.Get("prefix"),
+		marker:          values.Get("key-marker"),
 		versionIDMarker: values.Get("version-id-marker"),
 		delimiter:       values.Get("delimiter"),
 		maxKeys:         maxKeys,
@@ -330,8 +330,8 @@ func getListMultipartUploadsParams(values url.Values) (params listMultipartUploa
 	}
 
 	return listMultipartUploadsParams{
-		prefix:         trimLeadingSlash(values.Get("prefix")),
-		keyMarker:      trimLeadingSlash(values.Get("key-marker")),
+		prefix:         values.Get("prefix"),
+		keyMarker:      values.Get("key-marker"),
 		uploadIDMarker: values.Get("upload-id-marker"),
 		delimiter:      values.Get("delimiter"),
 		maxUploads:     maxUploads,
