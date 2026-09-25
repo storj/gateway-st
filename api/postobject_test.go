@@ -119,3 +119,18 @@ func TestPostObjectFilenameKey(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "uploads/photo.jpg", objectAPI.object)
 }
+
+func TestPostObjectContentLengthRange(t *testing.T) {
+	upload := func(file string) response {
+		return postObject(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket",
+			[]any{map[string]string{"key": "photo.jpg"}, []any{"content-length-range", 0, 4}},
+			[][2]string{{"key", "photo.jpg"}}, file)
+	}
+
+	resp := upload("data")
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+
+	resp = upload("data!")
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
+}

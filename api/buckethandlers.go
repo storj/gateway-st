@@ -649,8 +649,6 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashReader := hash.NewAwsigReader(NewLimitedAwsigReader(awsigReader, maxPostObjectSize), -1, -1)
-
 	policyBytes, err := base64.StdEncoding.DecodeString(postForm.Get("policy").Value)
 	if err != nil {
 		api.writeErrorResponse(w, r, apierr.CodeMalformedPOSTRequest)
@@ -714,6 +712,13 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	opts.PostPolicy.Conditions.ContentLengthRange = cmd.ContentLengthRange(postPolicy.Conditions.ContentLengthRange)
 	opts.PostPolicy.Expiration = postPolicy.Expiration.Time
 
+	// Stop reading as soon as the policy's maximum size is exceeded. The minimum is checked by the
+	// object layer after the upload.
+	sizeLimit := maxPostObjectSize
+	if lengthRange := postPolicy.Conditions.ContentLengthRange; lengthRange.Valid {
+		sizeLimit = max(min(lengthRange.Max, sizeLimit), 0)
+	}
+	hashReader := hash.NewAwsigReader(NewLimitedAwsigReader(awsigReader, sizeLimit), -1, -1)
 	pReader := cmd.NewPutObjReader(hashReader)
 
 	objectKey := postForm.Get("key").Value
