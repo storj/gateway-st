@@ -16,23 +16,12 @@ import (
 	"github.com/amwolff/awsig"
 
 	"storj.io/gateway/api/apierr"
-	xhttp "storj.io/minio/cmd/http"
 )
 
 var (
 	// The bucket comes from the URL, so it isn't a required form key.
 	requiredFormKeys = []string{
 		"key",
-	}
-
-	sigV2RequiredFormKeys = []string{
-		"signature",
-	}
-
-	sigV4RequiredFormKeys = []string{
-		"x-amz-credential",
-		"x-amz-date",
-		"x-amz-signature",
 	}
 
 	// allowedExtraFormKeys contains POST form keys that are allowed to have no corresponding
@@ -366,18 +355,16 @@ func CheckPostForm(policy PostPolicy, postForm awsig.PostForm, bucket string) er
 func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition) error {
 	policyKeysMap := make(map[string]struct{}, len(conditions))
 	for _, cond := range conditions {
-		after, hasPrefix := strings.CutPrefix(cond.Key, "$")
-		if !hasPrefix {
-			return fmt.Errorf("expected key of POST policy condition to be prefixed with '$', but got %q", cond.Key)
-		}
-		policyKeysMap[strings.ToLower(after)] = struct{}{}
+		// The policy parser requires the "$" prefix.
+		policyKeysMap[strings.ToLower(strings.TrimPrefix(cond.Key, "$"))] = struct{}{}
 	}
 
 	formKeysMap := make(map[string]struct{}, len(postForm))
 	for key, elements := range postForm {
 		key := strings.ToLower(key)
 		if _, exists := formKeysMap[key]; exists {
-			return fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
+			// awsig canonicalizes form keys, except for keys that aren't valid header names.
+			return apierr.CodeMalformedPOSTRequest
 		}
 		if len(elements) > 1 {
 			switch key {
@@ -411,28 +398,6 @@ func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition)
 				FieldName: key,
 			}
 		}
-	}
-
-	_, isSigV4 := formKeysMap[strings.ToLower(xhttp.AmzAlgorithm)]
-	_, isSigV2 := formKeysMap[strings.ToLower(xhttp.AmzAccessKeyID)]
-	if isSigV4 {
-		for _, key := range sigV4RequiredFormKeys {
-			if _, ok := formKeysMap[key]; !ok {
-				return apierr.PostFormMissingFieldError{
-					FieldName: key,
-				}
-			}
-		}
-	} else if isSigV2 {
-		for _, key := range sigV2RequiredFormKeys {
-			if _, ok := formKeysMap[key]; !ok {
-				return apierr.PostFormMissingFieldError{
-					FieldName: key,
-				}
-			}
-		}
-	} else {
-		return apierr.CodeAccessDenied
 	}
 
 	// The bucket is an implicit form field, so it needs a policy condition even when the form

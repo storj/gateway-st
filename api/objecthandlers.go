@@ -509,13 +509,8 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.Header.Get(xhttp.AmzStorageClass) {
-	case "", storageclass.STANDARD, storageclass.ONEZONE:
-	case storageclass.RRS:
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	default:
-		api.writeErrorResponse(w, r, apierr.CodeInvalidStorageClass)
+	if err := validateStorageClass(r.Header.Get(xhttp.AmzStorageClass)); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
@@ -1383,13 +1378,8 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	storageClass := requestStorageClass(r)
-	switch storageClass {
-	case "", storageclass.STANDARD, storageclass.ONEZONE:
-	case storageclass.RRS:
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	default:
-		api.writeErrorResponse(w, r, apierr.CodeInvalidStorageClass)
+	if err := validateStorageClass(storageClass); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
@@ -1548,6 +1538,18 @@ func requestStorageClass(r *http.Request) string {
 	return metadata[amzStorageClass]
 }
 
+// validateStorageClass returns an error for a storage class that objects can't be stored in.
+func validateStorageClass(storageClass string) error {
+	switch storageClass {
+	case "", storageclass.STANDARD, storageclass.ONEZONE:
+		return nil
+	case storageclass.RRS:
+		return apierr.CodeNotImplemented
+	default:
+		return apierr.CodeInvalidStorageClass
+	}
+}
+
 // isDirectiveValid returns whether the value of a metadata or tag directive header is valid.
 func isDirectiveValid(directive string) bool {
 	return directive == "" || directive == copyDirective || directive == replaceDirective
@@ -1598,13 +1600,8 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	switch r.Header.Get(xhttp.AmzStorageClass) {
-	case "", storageclass.STANDARD, storageclass.ONEZONE:
-	case storageclass.RRS:
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	default:
-		api.writeErrorResponse(w, r, apierr.CodeInvalidStorageClass)
+	if err := validateStorageClass(r.Header.Get(xhttp.AmzStorageClass)); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 

@@ -22,7 +22,6 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -60,7 +59,14 @@ func extractMetadata(ctx context.Context, r *http.Request) (metadata map[string]
 
 	ExtractMetadataFromQuery(r.URL, metadata)
 	ExtractMetadataFromHeader(r.Header, metadata)
+	setMetadataDefaults(metadata)
 
+	return metadata, nil
+}
+
+// setMetadataDefaults sets the default Content-Type, removes sensitive entries and strips the
+// aws-chunked Content-Encoding.
+func setMetadataDefaults(metadata map[string]string) {
 	if _, ok := metadata[xhttp.ContentType]; !ok {
 		metadata[xhttp.ContentType] = "binary/octet-stream"
 	}
@@ -80,8 +86,6 @@ func extractMetadata(ctx context.Context, r *http.Request) (metadata map[string]
 			delete(metadata, xhttp.ContentEncoding)
 		}
 	}
-
-	return metadata, nil
 }
 
 // ExtractMetadataFromQuery extracts object metadata from a URL's query string.
@@ -216,27 +220,20 @@ func removeChunkedContentEncoding(contentEncoding string) string {
 	return builder.String()
 }
 
-// ExtractMetadataFromPostForm extracts object metadata from a POST form.
-func ExtractMetadataFromPostForm(postForm awsig.PostForm) (map[string]string, error) {
+// ExtractMetadataFromPostForm extracts object metadata from a POST form. awsig canonicalizes
+// the form keys, so no two keys differ only in case.
+func ExtractMetadataFromPostForm(postForm awsig.PostForm) map[string]string {
 	metadata := make(map[string]string, len(postForm))
 	for _, key := range metadataHeaders {
-		if !postForm.Has(key) {
-			continue
+		if postForm.Has(key) {
+			metadata[key] = getPostFormValue(postForm, key)
 		}
-		if _, ok := metadata[key]; ok {
-			return nil, fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
-		}
-		metadata[key] = getPostFormValue(postForm, key)
 	}
 
 	for key, elems := range postForm {
-		key = http.CanonicalHeaderKey(key)
 		for _, prefix := range userMetadataKeyPrefixes {
 			if !strings.HasPrefix(key, prefix) {
 				continue
-			}
-			if _, ok := metadata[key]; ok {
-				return nil, fmt.Errorf("POST form contains duplicate case-insensitive field %q", key)
 			}
 			values := make([]string, 0, len(elems))
 			for _, elem := range elems {
@@ -246,5 +243,6 @@ func ExtractMetadataFromPostForm(postForm awsig.PostForm) (map[string]string, er
 		}
 	}
 
-	return metadata, nil
+	setMetadataDefaults(metadata)
+	return metadata
 }

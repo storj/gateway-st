@@ -27,6 +27,7 @@ type postObjectLayer struct {
 
 	bucket, object string
 	data           []byte
+	metadata       map[string]string
 }
 
 func (l *postObjectLayer) PutObject(ctx context.Context, bucket, object string, data *cmd.PutObjReader, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
@@ -34,7 +35,7 @@ func (l *postObjectLayer) PutObject(ctx context.Context, bucket, object string, 
 	if err != nil {
 		return cmd.ObjectInfo{}, err
 	}
-	l.bucket, l.object, l.data = bucket, object, b
+	l.bucket, l.object, l.data, l.metadata = bucket, object, b, opts.UserDefined
 	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
 }
 
@@ -142,4 +143,52 @@ func TestPostObjectContentLengthRange(t *testing.T) {
 	resp = upload(strings.Repeat("x", 30), []any{10, 20}, []any{0, 100})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
+}
+
+func TestPostObjectMetadata(t *testing.T) {
+	upload := func(objectAPI cmd.ObjectLayer, fields ...[2]string) response {
+		conditions := []any{map[string]string{"bucket": "bucket"}}
+		for _, f := range fields {
+			conditions = append(conditions, map[string]string{f[0]: f[1]})
+		}
+		return postObject(t, objectAPI, "/bucket", conditions, fields, "data")
+	}
+
+	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp := upload(objectAPI, [2]string{"key", "photo.jpg"}, [2]string{"Content-Encoding", "aws-chunked,gzip"})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.Equal(t, "binary/octet-stream", objectAPI.metadata["Content-Type"])
+	require.Equal(t, "gzip", objectAPI.metadata["Content-Encoding"])
+
+	objectAPI = &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp = upload(objectAPI, [2]string{"key", "photo.jpg"}, [2]string{"x-amz-storage-class", "ONEZONE_IA"})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.NotContains(t, objectAPI.metadata, "X-Amz-Storage-Class")
+
+	resp = upload(&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, [2]string{"key", "photo.jpg"}, [2]string{"x-amz-storage-class", "FOO"})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidStorageClass</Code>")
+}
+
+func TestPostObjectChecksum(t *testing.T) {
+	// The CRC32 of "data".
+	const crc32 = "rfPzYw=="
+
+	upload := func(file string, conditions ...any) response {
+		return postObject(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket",
+			append([]any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "photo.jpg"}}, conditions...),
+			[][2]string{{"key", "photo.jpg"}, {"x-amz-checksum-crc32", crc32}}, file)
+	}
+
+	resp := upload("data", map[string]string{"x-amz-checksum-crc32": crc32})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+
+	resp = upload("date", map[string]string{"x-amz-checksum-crc32": crc32})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>BadDigest</Code>")
+
+	// Checksum fields need a policy condition like any other field.
+	resp = upload("data")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "x-amz-checksum-crc32")
 }

@@ -6,7 +6,6 @@ package api_test
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"testing"
 	"time"
 
@@ -238,14 +237,6 @@ func TestCheckPostForm(t *testing.T) {
 		return policy
 	}
 
-	newSigV2PostPolicy := func() api.PostPolicy {
-		policy := newPostPolicy()
-		policy.Conditions.Items = append(policy.Conditions.Items, []api.PostPolicyCondition{
-			{api.PostPolicyOperatorEqual, "$awsaccesskeyid", "access key ID"},
-		}...)
-		return policy
-	}
-
 	newPostForm := func() awsig.PostForm {
 		return awsig.PostForm{
 			"Bucket": {{Value: "my-bucket"}},
@@ -439,6 +430,16 @@ func TestCheckPostForm(t *testing.T) {
 		})
 	})
 
+	t.Run("Invalid header name keys differing in case", func(t *testing.T) {
+		// awsig doesn't canonicalize keys that aren't valid header names.
+		form := newSigV4PostForm()
+		form["X-Ignore-A B"] = []awsig.PostFormElement{{Value: "1"}}
+		form["x-ignore-a b"] = []awsig.PostFormElement{{Value: "2"}}
+
+		err := api.CheckPostForm(newSigV4PostPolicy(), form, "my-bucket")
+		require.ErrorIs(t, err, apierr.CodeMalformedPOSTRequest)
+	})
+
 	t.Run("Multiple key fields", func(t *testing.T) {
 		policy := newSigV4PostPolicy()
 		form := newSigV4PostForm()
@@ -466,30 +467,6 @@ func TestCheckPostForm(t *testing.T) {
 			}
 		})
 
-		t.Run("SigV4 required fields", func(t *testing.T) {
-			for _, field := range []string{
-				"x-amz-credential",
-				"x-amz-date",
-				"x-amz-signature",
-			} {
-				policy := newSigV4PostPolicy()
-				form := newSigV4PostForm()
-				delete(form, http.CanonicalHeaderKey(field))
-
-				err := api.CheckPostForm(policy, form, "my-bucket")
-				assert.ErrorIs(t, err, apierr.PostFormMissingFieldError{FieldName: field})
-			}
-		})
-
-		t.Run("SigV2 required fields", func(t *testing.T) {
-			policy := newSigV2PostPolicy()
-			form := newSigV2PostForm()
-			form.Del("signature")
-
-			err := api.CheckPostForm(policy, form, "my-bucket")
-			require.ErrorIs(t, err, apierr.PostFormMissingFieldError{FieldName: "signature"})
-		})
-
 		t.Run("Policy field", func(t *testing.T) {
 			policy := newSigV4PostPolicy()
 			policy.Conditions.Items = append(policy.Conditions.Items, api.PostPolicyCondition{
@@ -502,11 +479,6 @@ func TestCheckPostForm(t *testing.T) {
 			require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
 				Condition: `["eq","$x-amz-meta-foo","bar"]`,
 			})
-		})
-
-		t.Run("Missing signature version fields", func(t *testing.T) {
-			err := api.CheckPostForm(newPostPolicy(), newPostForm(), "my-bucket")
-			require.ErrorIs(t, err, apierr.CodeAccessDenied)
 		})
 	})
 

@@ -160,9 +160,7 @@ func TestExtractMetadataFromPostForm(t *testing.T) {
 		"Content-Length": {{Value: "123"}},
 	})
 
-	extracted, err := api.ExtractMetadataFromPostForm(postForm)
-	require.NoError(t, err)
-	require.Equal(t, expectedMeta, extracted)
+	require.Equal(t, expectedMeta, api.ExtractMetadataFromPostForm(postForm))
 }
 
 func TestQueryKeys(t *testing.T) {

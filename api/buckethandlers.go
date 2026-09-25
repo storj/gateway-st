@@ -33,12 +33,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
+	"storj.io/minio/cmd/config/storageclass"
 	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -681,22 +681,22 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	postForm := vr.PostForm()
 
-	for formKey := range postForm {
-		if strings.HasPrefix(http.CanonicalHeaderKey(formKey), xAmzChecksumPrefix) {
-			// TODO: Support checksum options
-			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
-			return
+	// The file is verified against the Content-MD5 header and the x-amz-checksum-* form fields.
+	checksumHeader := http.Header{}
+	if md5, ok := r.Header[xhttp.ContentMD5]; ok {
+		checksumHeader[xhttp.ContentMD5] = md5
+	}
+	for formKey, elems := range postForm {
+		if strings.HasPrefix(formKey, xAmzChecksumPrefix) {
+			for _, elem := range elems {
+				checksumHeader.Add(formKey, elem.Value)
+			}
 		}
 	}
-
-	var checksumReqs []awsig.ChecksumRequest
-	checksumReq, hasContentMD5, err := getContentMD5ChecksumRequest(r.Header)
+	checksumReqs, err := getChecksumRequests(checksumHeader)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
-	}
-	if hasContentMD5 {
-		checksumReqs = append(checksumReqs, checksumReq)
 	}
 
 	awsigReader, err := vr.Reader(checksumReqs...)
@@ -738,10 +738,13 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	metadata, err := ExtractMetadataFromPostForm(postForm)
-	if err != nil {
+	metadata := ExtractMetadataFromPostForm(postForm)
+	if err := validateStorageClass(metadata[amzStorageClass]); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
+	}
+	if metadata[amzStorageClass] == storageclass.ONEZONE {
+		delete(metadata, amzStorageClass)
 	}
 
 	if postForm.Has("tagging") {
