@@ -4,12 +4,18 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api"
 	"storj.io/minio/cmd"
 )
 
@@ -18,6 +24,7 @@ type bucketObjectLayer struct {
 	*fakeObjectLayer
 
 	makeBucketWithLocation func(ctx context.Context, bucket string, opts cmd.BucketOptions) error
+	setBucketTagging       func(ctx context.Context, bucket string, t *tags.Tags) error
 	listObjectsV2          func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
 }
 
@@ -44,6 +51,35 @@ func TestCreateBucketInvalidObjectLockHeader(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
 	require.False(t, called)
+}
+
+func (f *bucketObjectLayer) SetBucketTagging(ctx context.Context, bucket string, t *tags.Tags) error {
+	return f.setBucketTagging(ctx, bucket, t)
+}
+
+func TestPutBucketTaggingUnknownContentLength(t *testing.T) {
+	var got *tags.Tags
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		setBucketTagging: func(_ context.Context, _ string, t *tags.Tags) error {
+			got = t
+			return nil
+		},
+	}
+
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+	body := []byte(`<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/bucket?tagging", bytes.NewReader(body))
+	req.ContentLength = -1
+	signV4(req, body, time.Now())
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NotNil(t, got)
+	require.Equal(t, "k=v", got.String())
 }
 
 func TestListObjectsV2(t *testing.T) {

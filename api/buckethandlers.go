@@ -51,6 +51,8 @@ import (
 const (
 	// maxPutBucketNotificationConfigBodySize is the maximum size of the PutBucketNotificationConfiguration request body.
 	maxPutBucketNotificationConfigBodySize = int64(memory.MiB)
+	// maxPutBucketTaggingBodySize is the maximum size of the PutBucketTagging request body.
+	maxPutBucketTaggingBodySize = int64(memory.MiB)
 	// maxPutBucketVersioningBodySize is the maximum size of the PutBucketVersioning request body.
 	maxPutBucketVersioningBodySize = int64(memory.MiB)
 	// maxPostObjectSize is the maximum size of the object contents submitted in a POST Object request.
@@ -238,7 +240,7 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := tags.ParseBucketXML(io.LimitReader(body, r.ContentLength))
+	tags, err := tags.ParseBucketXML(io.LimitReader(body, maxPutBucketTaggingBodySize))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
