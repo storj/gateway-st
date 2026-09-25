@@ -36,11 +36,16 @@ func (testCredentialsProvider) Provide(_ context.Context, accessKeyID string) (s
 type fakeObjectLayer struct {
 	cmd.ObjectLayer
 
-	listBuckets func(ctx context.Context) ([]cmd.BucketInfo, error)
+	listBuckets          func(ctx context.Context) ([]cmd.BucketInfo, error)
+	listMultipartUploads func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
 
 func (f *fakeObjectLayer) ListBuckets(ctx context.Context) ([]cmd.BucketInfo, error) {
 	return f.listBuckets(ctx)
+}
+
+func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+	return f.listMultipartUploads(ctx, bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
 }
 
 type response struct {
@@ -92,4 +97,20 @@ func TestRequestID(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 	require.Contains(t, body, "<Name>bucket</Name>")
 	require.NotEmpty(t, resp.Header.Get("X-Amz-Request-Id"))
+}
+
+func TestListMultipartUploadsRouting(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listMultipartUploads: func(_ context.Context, bucket, _, _, _, _ string, _ int) (cmd.ListMultipartsInfo, error) {
+			return cmd.ListMultipartsInfo{
+				Uploads: []cmd.MultipartInfo{{Bucket: bucket, Object: "key", UploadID: "upload-id"}},
+			}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?uploads", nil, nil)
+	body := resp.Body
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	require.Contains(t, body, "<ListMultipartUploadsResult")
+	require.Contains(t, body, "<UploadId>upload-id</UploadId>")
 }
