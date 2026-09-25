@@ -30,11 +30,16 @@ type bucketObjectLayer struct {
 
 	makeBucketWithLocation func(ctx context.Context, bucket string, opts cmd.BucketOptions) error
 	setBucketTagging       func(ctx context.Context, bucket string, t *tags.Tags) error
+	getBucketInfo          func(ctx context.Context, bucket string) (cmd.BucketInfo, error)
 	listObjectsV2          func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
 }
 
 func (f *bucketObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error) {
 	return f.listObjectsV2(ctx, bucket, prefix, continuationToken, delimiter, maxKeys, fetchOwner, startAfter)
+}
+
+func (f *bucketObjectLayer) GetBucketInfo(ctx context.Context, bucket string) (cmd.BucketInfo, error) {
+	return f.getBucketInfo(ctx, bucket)
 }
 
 func (f *bucketObjectLayer) MakeBucketWithLocation(ctx context.Context, bucket string, opts cmd.BucketOptions) error {
@@ -181,4 +186,22 @@ func TestDeleteObjectsLimits(t *testing.T) {
 	resp = deleteRequest(false, 1001)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>MalformedXML</Code>")
+}
+
+func TestGetBucketAcl(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		getBucketInfo: func(_ context.Context, bucket string) (cmd.BucketInfo, error) {
+			return cmd.BucketInfo{Name: bucket}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?acl", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
+	require.Equal(t, "Storj", resp.Header.Get("Server"))
+	require.True(t, strings.HasPrefix(resp.Body, `<?xml version="1.0" encoding="UTF-8"?>`), resp.Body)
+	require.Contains(t, resp.Body, `<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
+	require.Contains(t, resp.Body, "<ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Grantee>")
 }

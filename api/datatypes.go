@@ -42,6 +42,7 @@ type grant struct {
 
 type accessControlPolicy struct {
 	XMLName           xml.Name  `xml:"AccessControlPolicy"`
+	XMLNS             string    `xml:"xmlns,attr,omitempty"`
 	Owner             cmd.Owner `xml:"Owner"`
 	AccessControlList struct {
 		Grants []grant `xml:"Grant"`

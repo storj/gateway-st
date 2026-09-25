@@ -349,22 +349,31 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	acl := &accessControlPolicy{}
+	acl := &accessControlPolicy{
+		XMLNS: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Owner: cmd.Owner{
+			ID:          defaultOwnerID,
+			DisplayName: defaultOwnerDisplayName,
+		},
+	}
 	acl.AccessControlList.Grants = append(acl.AccessControlList.Grants, grant{
 		Grantee: grantee{
-			XMLNS:  "http://www.w3.org/2001/XMLSchema-instance",
-			XMLXSI: "CanonicalUser",
-			Type:   "CanonicalUser",
+			XMLNS:       "http://www.w3.org/2001/XMLSchema-instance",
+			XMLXSI:      "CanonicalUser",
+			Type:        "CanonicalUser",
+			ID:          defaultOwnerID,
+			DisplayName: defaultOwnerDisplayName,
 		},
 		Permission: "FULL_CONTROL",
 	})
 
-	if err := xml.NewEncoder(w).Encode(acl); err != nil {
+	resp, err := encodeResponse(acl)
+	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	_ = http.NewResponseController(w).Flush()
+	api.writeSuccessResponseXML(w, r, resp)
 }
 
 // GetBucketCorsHandler is the HTTP handler for the GetBucketCors operation,
