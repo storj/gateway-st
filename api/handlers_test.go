@@ -1456,15 +1456,25 @@ func TestCompleteMultipartUpload(t *testing.T) {
 	t.Run("keep-alive", func(t *testing.T) {
 		api.SetCompleteMultipartUploadKeepAliveInterval(t, time.Millisecond)
 
+		// The object layer blocks until a keep-alive has been written.
+		var written chan struct{}
 		slowObjectAPI := &fakeObjectLayer{
 			completeMultipartUpload: func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-				time.Sleep(20 * time.Millisecond)
+				<-written
 				return objectAPI.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
 			},
 		}
 		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
+		serveKeepAlive := func(target string) response {
+			written = make(chan struct{})
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, target, bytes.NewReader(body))
+			signV4(req, body, time.Now())
+			rec := httptest.NewRecorder()
+			newTestRouter(slowObjectAPI).ServeHTTP(&notifyingWriter{ResponseRecorder: rec, written: written}, req)
+			return response{StatusCode: rec.Code, Header: rec.Header(), Body: rec.Body.String()}
+		}
 
-		resp := serve(t, slowObjectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
+		resp := serveKeepAlive("/bucket/key?uploadId=upload-id")
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
 		require.Empty(t, resp.Header.Values("Cache-Control"))
@@ -1473,7 +1483,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Contains(t, resp.Body, "<CompleteMultipartUploadResult")
 
 		// Errors are reported with a 200 OK status once whitespace has been sent.
-		resp = serve(t, slowObjectAPI, http.MethodPost, "/bucket/key?uploadId=other", nil, body)
+		resp = serveKeepAlive("/bucket/key?uploadId=other")
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		require.True(t, strings.HasPrefix(resp.Body, xml.Header+" "), resp.Body)
 		require.Equal(t, 1, strings.Count(resp.Body, "<?xml"), resp.Body)
@@ -1511,6 +1521,19 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 		require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
 	})
+}
+
+// notifyingWriter is an httptest.ResponseRecorder that closes written on the first write.
+type notifyingWriter struct {
+	*httptest.ResponseRecorder
+	once    sync.Once
+	written chan struct{}
+}
+
+func (w *notifyingWriter) Write(b []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(b)
+	w.once.Do(func() { close(w.written) })
+	return n, err
 }
 
 func TestAbortMultipartUpload(t *testing.T) {
