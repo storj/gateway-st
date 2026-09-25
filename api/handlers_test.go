@@ -6,7 +6,9 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"net/http"
@@ -39,11 +41,16 @@ type fakeObjectLayer struct {
 	cmd.ObjectLayer
 
 	listBuckets          func(ctx context.Context) ([]cmd.BucketInfo, error)
+	deleteObjects        func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
 	listMultipartUploads func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
 
 func (f *fakeObjectLayer) ListBuckets(ctx context.Context) ([]cmd.BucketInfo, error) {
 	return f.listBuckets(ctx)
+}
+
+func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+	return f.deleteObjects(ctx, bucket, objects, opts)
 }
 
 func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error) {
@@ -150,4 +157,21 @@ func TestErrorResponse(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://bucket.example.com/key?tagging", nil))
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
 	require.Equal(t, "/bucket/key", errResp.Resource)
+}
+
+func TestDeleteObjectsErrors(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			return nil, []cmd.DeleteObjectsError{{ObjectName: objects[0].ObjectName, Error: apierr.CodeAccessDenied}}, nil
+		},
+	}
+
+	body := []byte(`<Delete><Object><Key>key</Key></Object></Delete>`)
+	sum := md5.Sum(body)
+	header := http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(sum[:])}}
+
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
+	respBody := resp.Body
+	require.Equal(t, http.StatusOK, resp.StatusCode, respBody)
+	require.Contains(t, respBody, "<Error><Code>AccessDenied</Code><Message>Access Denied</Message><Key>key</Key>")
 }

@@ -865,9 +865,9 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	var internalErrs []error
 	for _, deleteErr := range apiDeleteErrs {
-		resp, ok := errToResponse(err)
+		resp, ok := errToResponse(deleteErr.Error)
 		if !ok {
-			internalErrs = append(internalErrs, err)
+			internalErrs = append(internalErrs, deleteErr.Error)
 			resp, _ = apierr.CodeInternal.ToResponse()
 		}
 		deleteErrs = append(deleteErrs, cmd.DeleteError{
