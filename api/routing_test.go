@@ -171,7 +171,7 @@ func TestInvalidUTF8Key(t *testing.T) {
 
 	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/%FF", nil, nil)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
+	require.Contains(t, resp.Body, "<Code>InvalidURI</Code>")
 }
 
 func TestOverlappingDomains(t *testing.T) {

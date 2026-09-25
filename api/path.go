@@ -61,8 +61,7 @@ func unescapePath(p string) (string, error) {
 		return "", err
 	}
 	if !utf8.ValidString(ep) {
-		// S3 responds with InvalidURI here, which apierr does not define.
-		return "", apierr.CodeInvalidRequest
+		return "", apierr.CodeInvalidURI
 	}
 	return ep, nil
 }
