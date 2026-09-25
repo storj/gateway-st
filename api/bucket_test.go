@@ -269,3 +269,25 @@ func TestListObjectVersionsDeleteMarker(t *testing.T) {
 		"<ETag>&#34;etag&#34;</ETag><Size>5</Size><StorageClass>STANDARD</StorageClass>"+
 		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner></Version>")
 }
+
+func TestListMultipartUploads(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listMultipartUploads: func(context.Context, string, string, string, string, string, int) (cmd.ListMultipartsInfo, error) {
+			return cmd.ListMultipartsInfo{
+				Uploads: []cmd.MultipartInfo{{Object: "key", UploadID: "upload-id"}},
+			}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?uploads", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Upload><Key>key</Key><UploadId>upload-id</UploadId>"+
+		"<Initiator><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Initiator>"+
+		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>"+
+		"<StorageClass>STANDARD</StorageClass>")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?uploads&encoding-type=bogus", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "Invalid Encoding Method specified in Request")
+
+}

@@ -286,6 +286,11 @@ func (api *API) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if err := validateEncodingType(params.encodingType); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	if params.keyMarker != "" && !strings.HasPrefix(params.keyMarker, params.prefix) {
 		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return

@@ -516,9 +516,18 @@ func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultip
 
 	for index, upload := range listInfo.Uploads {
 		listMultipartUploadsResponse.Uploads[index] = cmd.Upload{
-			UploadID:  upload.UploadID,
-			Key:       s3EncodeName(upload.Object, encodingType),
-			Initiated: upload.Initiated.UTC().Format(iso8601Milli),
+			UploadID: upload.UploadID,
+			Key:      s3EncodeName(upload.Object, encodingType),
+			Initiator: cmd.Initiator{
+				ID:          defaultOwnerID,
+				DisplayName: defaultOwnerDisplayName,
+			},
+			Owner: cmd.Owner{
+				ID:          defaultOwnerID,
+				DisplayName: defaultOwnerDisplayName,
+			},
+			StorageClass: defaultStorageClass,
+			Initiated:    upload.Initiated.UTC().Format(iso8601Milli),
 		}
 	}
 
