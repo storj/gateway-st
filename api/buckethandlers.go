@@ -45,7 +45,6 @@ import (
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
 	"storj.io/minio/pkg/hash"
-	"storj.io/minio/pkg/tags"
 )
 
 const (
@@ -277,7 +276,7 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := tags.ParseBucketXML(bytes.NewReader(data))
+	tags, err := parseTaggingXML(bytes.NewReader(data), false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -749,7 +748,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	if postForm.Has("tagging") {
 		tagsReader := strings.NewReader(getPostFormValue(postForm, "tagging"))
-		objectTags, err := tags.ParseObjectXML(tagsReader)
+		objectTags, err := parseTaggingXML(tagsReader, true)
 		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return

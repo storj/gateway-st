@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -106,4 +108,67 @@ func TestMalformedTaggingHeader(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestTagValidation(t *testing.T) {
+	tagXML := func(tags [][2]string) string {
+		var b strings.Builder
+		for _, tag := range tags {
+			fmt.Fprintf(&b, "<Tag><Key>%s</Key><Value>%s</Value></Tag>", tag[0], tag[1])
+		}
+		return "<Tagging><TagSet>" + b.String() + "</TagSet></Tagging>"
+	}
+	var eleven [][2]string
+	for i := range 11 {
+		eleven = append(eleven, [2]string{fmt.Sprint("k", i), "v"})
+	}
+
+	for _, tc := range []struct {
+		name, header  string
+		tags          [][2]string
+		code, message string
+	}{
+		{"duplicate", "a=1&a=2", nil, "InvalidArgument", "The header &#39;x-amz-tagging&#39; shall be encoded"},
+		{"aws prefix", "aws%3Akey=1", [][2]string{{"aws:key", "1"}}, "InvalidTag", "Your TagKey cannot be prefixed with aws:"},
+		{"invalid key", "a%3F=1", [][2]string{{"a?", "1"}}, "InvalidTag", "The TagKey you have provided is invalid"},
+		{"invalid value", "a=%2A", [][2]string{{"a", "*"}}, "InvalidTag", "The TagValue you have provided is invalid"},
+		{"too many", "k0=v&k1=v&k2=v&k3=v&k4=v&k5=v&k6=v&k7=v&k8=v&k9=v&k10=v", eleven, "BadRequest", "Object tags cannot be greater than 10"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			check := func(resp response) {
+				t.Helper()
+				require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+				require.Contains(t, resp.Body, "<Code>"+tc.code+"</Code>")
+				require.Contains(t, resp.Body, tc.message)
+			}
+			check(serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket/key", http.Header{"X-Amz-Tagging": {tc.header}, "Content-Length": {"1"}}, []byte("x")))
+			check(serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploads", http.Header{"X-Amz-Tagging": {tc.header}}, nil))
+			copyAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				return cmd.ObjectInfo{}, nil
+			}}
+			check(serve(t, copyAPI, http.MethodPut, "/bucket/dst", http.Header{
+				"X-Amz-Copy-Source":       {"/bucket/src"},
+				"X-Amz-Tagging-Directive": {"REPLACE"},
+				"X-Amz-Tagging":           {tc.header},
+			}, nil))
+			if tc.tags == nil {
+				return
+			}
+			body := tagXML(tc.tags)
+			check(serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket/key?tagging", nil, []byte(body)))
+			check(postObject(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket",
+				[]any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "k"}, map[string]string{"tagging": body}},
+				[][2]string{{"key", "k"}, {"tagging", body}}, "data"))
+		})
+	}
+
+	resp := serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket?tagging", nil, []byte(tagXML([][2]string{{"aws:key", "1"}})))
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidTag</Code>")
+	require.Contains(t, resp.Body, "System tags cannot be added/updated by requester")
+
+	// Every allowed character class is accepted.
+	objectAPI := &taggingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket/key?tagging", nil, []byte(tagXML([][2]string{{"Ab1 +-=._:/@é", "ü 9"}})))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 }

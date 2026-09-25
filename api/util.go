@@ -33,6 +33,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -108,14 +109,85 @@ func extractContentMD5(h http.Header) ([]byte, error) {
 	return md5, nil
 }
 
+// tagError is a tag validation error. It implements tags.Error, so it's reported like one.
+type tagError struct {
+	code    string
+	message string
+}
+
+func (err tagError) Code() string  { return err.code }
+func (err tagError) Error() string { return err.message }
+
+var (
+	errTooManyObjectTags = tagError{"BadRequest", "Object tags cannot be greater than 10"}
+	errInvalidTagKey     = tagError{"InvalidTag", "The TagKey you have provided is invalid"}
+	errInvalidTagValue   = tagError{"InvalidTag", "The TagValue you have provided is invalid"}
+	errAWSObjectTagKey   = tagError{"InvalidTag", "Your TagKey cannot be prefixed with aws:"}
+	errAWSBucketTagKey   = tagError{"InvalidTag", "System tags cannot be added/updated by requester"}
+
+	// tagCharsRegexp matches the characters that S3 allows in tag keys and values.
+	tagCharsRegexp = regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-@]*$`)
+)
+
 // validateTaggingHeader validates the value of the x-amz-tagging header.
-func validateTaggingHeader(value string) error {
-	_, err := tags.ParseObjectTags(value)
-	if err != nil && !errors.As(err, new(tags.Error)) {
-		// The value isn't a valid URL query.
-		return apierr.CodeInvalidTaggingHeader
+func validateTaggingHeader(header string) error {
+	// url.ParseQuery merges duplicate keys, so the pairs are split manually.
+	tagMap := make(map[string]string)
+	for _, pair := range strings.Split(header, "&") {
+		if pair == "" {
+			continue
+		}
+		rawKey, rawValue, _ := strings.Cut(pair, "=")
+		key, keyErr := url.QueryUnescape(rawKey)
+		value, valueErr := url.QueryUnescape(rawValue)
+		if _, dup := tagMap[key]; dup || keyErr != nil || valueErr != nil || strings.Contains(pair, ";") {
+			return apierr.CodeInvalidTaggingHeader
+		}
+		tagMap[key] = value
 	}
-	return err
+	if len(tagMap) > 10 {
+		return errTooManyObjectTags
+	}
+	if _, err := tags.MapToObjectTags(tagMap); err != nil {
+		return err
+	}
+	return validateTags(tagMap, true)
+}
+
+// parseTaggingXML parses a Tagging XML document and validates its tags.
+func parseTaggingXML(r io.Reader, isObject bool) (*tags.Tags, error) {
+	parse := tags.ParseBucketXML
+	if isObject {
+		parse = tags.ParseObjectXML
+	}
+	t, err := parse(r)
+	if err != nil {
+		// Too many tags is the only BadRequest that minio-go returns.
+		if tagsErr := tags.Error(nil); isObject && errors.As(err, &tagsErr) && tagsErr.Code() == "BadRequest" {
+			return nil, errTooManyObjectTags
+		}
+		return nil, err
+	}
+	return t, validateTags(t.ToMap(), isObject)
+}
+
+// validateTags checks the tag rules that minio-go doesn't: the reserved aws: prefix and allowed characters.
+func validateTags(tagMap map[string]string, isObject bool) error {
+	for key, value := range tagMap {
+		if strings.HasPrefix(key, "aws:") {
+			if isObject {
+				return errAWSObjectTagKey
+			}
+			return errAWSBucketTagKey
+		}
+		if !tagCharsRegexp.MatchString(key) {
+			return errInvalidTagKey
+		}
+		if !tagCharsRegexp.MatchString(value) {
+			return errInvalidTagValue
+		}
+	}
+	return nil
 }
 
 func getContentMD5ChecksumRequest(h http.Header) (checksumReq awsig.ChecksumRequest, present bool, err error) {

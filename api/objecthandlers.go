@@ -47,7 +47,6 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/hash"
-	"storj.io/minio/pkg/tags"
 )
 
 const (
@@ -252,7 +251,7 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := tags.ParseObjectXML(bytes.NewReader(data))
+	tags, err := parseTaggingXML(bytes.NewReader(data), true)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
