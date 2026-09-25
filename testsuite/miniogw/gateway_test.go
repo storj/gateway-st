@@ -1275,6 +1275,46 @@ func TestGetObjectInfo(t *testing.T) {
 	})
 }
 
+func TestGetDeleteMarker(t *testing.T) {
+	t.Parallel()
+
+	runTestWithVersioning(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+		require.NoError(t, layer.SetBucketVersioning(ctx, testBucket, &versioning.Versioning{
+			Status: versioning.Enabled,
+		}))
+
+		_, err = createFile(ctx, project, testBucket, testFile, []byte("test"), nil)
+		require.NoError(t, err)
+		_, err = layer.DeleteObject(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		versions, err := layer.ListObjectVersions(ctx, testBucket, testFile, "", "", "", 10)
+		require.NoError(t, err)
+		require.Len(t, versions.Objects, 2)
+		marker := versions.Objects[0]
+		require.True(t, marker.DeleteMarker)
+
+		expected := miniogw.DeleteMarkerError{
+			MethodNotAllowed: minio.MethodNotAllowed{Bucket: testBucket, Object: testFile},
+			VersionID:        marker.VersionID,
+		}
+		opts := minio.ObjectOptions{VersionID: marker.VersionID}
+
+		_, err = layer.GetObjectInfo(ctx, testBucket, testFile, opts)
+		require.Equal(t, expected, err)
+		require.ErrorIs(t, err, minio.MethodNotAllowed{Bucket: testBucket, Object: testFile})
+
+		_, err = layer.GetObjectNInfo(ctx, testBucket, testFile, nil, nil, 0, opts)
+		require.Equal(t, expected, err)
+
+		// The satellite reports a latest delete marker as a missing object.
+		_, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.Equal(t, minio.ObjectNotFound{Bucket: testBucket, Object: testFile}, err)
+	})
+}
+
 func TestGetObjectInfoWithObjectLock(t *testing.T) {
 	t.Parallel()
 

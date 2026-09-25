@@ -88,6 +88,9 @@ func minioError(err error) bool {
 		return true
 	case errors.As(err, new(minio.InvalidUploadID)):
 		return true
+	case errors.As(err, new(minio.MethodNotAllowed)):
+		// DeleteMarkerError wraps MethodNotAllowed, but can't be converted to GenericError.
+		return true
 	default:
 		return reflect.TypeOf(err).ConvertibleTo(reflect.TypeFor[minio.GenericError]())
 	}

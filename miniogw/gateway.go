@@ -234,6 +234,26 @@ var (
 	}
 )
 
+// DeleteMarkerError is returned by GetObjectInfo and GetObjectNInfo when the
+// requested object version is a delete marker.
+type DeleteMarkerError struct {
+	minio.MethodNotAllowed
+
+	VersionID string
+}
+
+// DeleteMarkerVersionID returns the version ID of the delete marker.
+func (e DeleteMarkerError) DeleteMarkerVersionID() string { return e.VersionID }
+
+// Unwrap returns the underlying MethodNotAllowed error.
+func (e DeleteMarkerError) Unwrap() error { return e.MethodNotAllowed }
+
+// ToAPIError implements minio.APIErrorProvider, because minio.ToAPIError matches
+// MethodNotAllowed by its concrete type and would answer 500 for DeleteMarkerError.
+func (e DeleteMarkerError) ToAPIError() minio.APIError {
+	return minio.GetAPIError(minio.ErrMethodNotAllowed)
+}
+
 // Gateway is the implementation of cmd.Gateway.
 type Gateway struct {
 	compatibilityConfig S3CompatibilityConfig
@@ -510,7 +530,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 
 	download, err := versioned.DownloadObject(ctx, project, bucket, object, version, downloadOpts)
 	if err != nil {
-		return nil, ConvertError(err, bucket, object)
+		return nil, convertReadError(err, bucket, object, opts.VersionID)
 	}
 
 	objectInfo := minioVersionedObjectInfo(bucket, download.Info())
@@ -597,10 +617,27 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return minio.ObjectInfo{}, convertReadError(err, bucket, objectPath, opts.VersionID)
 	}
 
 	return minioVersionedObjectInfo(bucket, object), nil
+}
+
+// convertReadError is ConvertError for reads of a single object. The
+// satellite only refuses such reads as not allowed when the requested version
+// is a delete marker.
+//
+// TODO: no Last-Modified for the marker and nothing for a latest delete
+// marker (the satellite reports that as object not found); both need the
+// satellite to return marker details or an extra version listing.
+func convertReadError(err error, bucket, object, versionID string) error {
+	if errors.Is(err, versioned.ErrMethodNotAllowed) {
+		return DeleteMarkerError{
+			MethodNotAllowed: minio.MethodNotAllowed{Bucket: bucket, Object: object},
+			VersionID:        versionID,
+		}
+	}
+	return ConvertError(err, bucket, object)
 }
 
 func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
