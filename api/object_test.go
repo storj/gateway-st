@@ -20,6 +20,9 @@ func TestPreconditionPrecedence(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "src", ModTime: modTime, Size: 10, ETag: "etag"}
 	objectAPI := singleObjectLayer(objInfo, "0123456789")
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime}, nil
+	}
 
 	before := modTime.Add(-time.Hour).Format(http.TimeFormat)
 	after := modTime.Add(time.Hour).Format(http.TimeFormat)
@@ -28,21 +31,21 @@ func TestPreconditionPrecedence(t *testing.T) {
 		name                         string
 		ifMatch, ifUnmodifiedSince   string
 		ifNoneMatch, ifModifiedSince string
-		expGetStatus                 int
+		expGetStatus, expCopyStatus  int
 	}{
-		{name: "if-match true overrides if-unmodified-since false", ifMatch: `"etag"`, ifUnmodifiedSince: before, expGetStatus: http.StatusOK},
-		{name: "if-match true overrides if-modified-since false", ifMatch: `"etag"`, ifModifiedSince: after, expGetStatus: http.StatusOK},
-		{name: "if-match false wins over if-modified-since false", ifMatch: `"other"`, ifModifiedSince: after, expGetStatus: http.StatusPreconditionFailed},
-		{name: "if-none-match true overrides if-modified-since false", ifNoneMatch: `"other"`, ifModifiedSince: after, expGetStatus: http.StatusOK},
-		{name: "if-none-match false with if-modified-since true", ifNoneMatch: `"etag"`, ifModifiedSince: before, expGetStatus: http.StatusNotModified},
-		{name: "if-match wildcard", ifMatch: "*", expGetStatus: http.StatusOK},
-		{name: "if-none-match wildcard", ifNoneMatch: "*", expGetStatus: http.StatusNotModified},
-		{name: "if-match list", ifMatch: `"a", "etag"`, expGetStatus: http.StatusOK},
-		{name: "if-match weak etag", ifMatch: `W/"etag"`, expGetStatus: http.StatusPreconditionFailed},
-		{name: "if-none-match weak etag in list", ifNoneMatch: `"a", W/"etag"`, expGetStatus: http.StatusNotModified},
+		{name: "if-match true overrides if-unmodified-since false", ifMatch: `"etag"`, ifUnmodifiedSince: before, expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
+		{name: "if-match true overrides if-modified-since false", ifMatch: `"etag"`, ifModifiedSince: after, expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
+		{name: "if-match false wins over if-modified-since false", ifMatch: `"other"`, ifModifiedSince: after, expGetStatus: http.StatusPreconditionFailed, expCopyStatus: http.StatusPreconditionFailed},
+		{name: "if-none-match true overrides if-modified-since false", ifNoneMatch: `"other"`, ifModifiedSince: after, expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
+		{name: "if-none-match false with if-modified-since true", ifNoneMatch: `"etag"`, ifModifiedSince: before, expGetStatus: http.StatusNotModified, expCopyStatus: http.StatusPreconditionFailed},
+		{name: "if-match wildcard", ifMatch: "*", expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
+		{name: "if-none-match wildcard", ifNoneMatch: "*", expGetStatus: http.StatusNotModified, expCopyStatus: http.StatusPreconditionFailed},
+		{name: "if-match list", ifMatch: `"a", "etag"`, expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
+		{name: "if-match weak etag", ifMatch: `W/"etag"`, expGetStatus: http.StatusPreconditionFailed, expCopyStatus: http.StatusPreconditionFailed},
+		{name: "if-none-match weak etag in list", ifNoneMatch: `"a", W/"etag"`, expGetStatus: http.StatusNotModified, expCopyStatus: http.StatusPreconditionFailed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			header := http.Header{}
+			header, copyHeader := http.Header{}, http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}
 			for name, value := range map[string]string{
 				"If-Match":            tt.ifMatch,
 				"If-Unmodified-Since": tt.ifUnmodifiedSince,
@@ -51,11 +54,15 @@ func TestPreconditionPrecedence(t *testing.T) {
 			} {
 				if value != "" {
 					header.Set(name, value)
+					copyHeader.Set("X-Amz-Copy-Source-"+name, value)
 				}
 			}
 
 			resp := serve(t, objectAPI, http.MethodHead, "/bucket/src", header, nil)
 			require.Equal(t, tt.expGetStatus, resp.StatusCode, "HEAD")
+
+			resp = serve(t, objectAPI, http.MethodPut, "/bucket/dst", copyHeader, nil)
+			require.Equal(t, tt.expCopyStatus, resp.StatusCode, "CopyObject: %s", resp.Body)
 		})
 	}
 }
@@ -128,22 +135,33 @@ func TestGetObjectFirstReadClientAbort(t *testing.T) {
 func TestPreconditionsWithoutModTime(t *testing.T) {
 	// Dates are ignored without a modification time, but ETags aren't.
 	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag"}, nil
+	}
 	future := time.Now().Add(time.Hour).Format(http.TimeFormat)
 
 	for _, tt := range []struct {
-		header    http.Header
-		expStatus int
+		header                   http.Header
+		expStatus, expCopyStatus int
 	}{
-		{http.Header{"If-Match": {`"other"`}}, http.StatusPreconditionFailed},
-		{http.Header{"If-None-Match": {`"etag"`}}, http.StatusNotModified},
-		{http.Header{"If-Modified-Since": {future}}, http.StatusOK},
-		{http.Header{"If-Unmodified-Since": {"Mon, 02 Jan 2006 15:04:05 GMT"}}, http.StatusOK},
+		{http.Header{"If-Match": {`"other"`}}, http.StatusPreconditionFailed, http.StatusPreconditionFailed},
+		{http.Header{"If-None-Match": {`"etag"`}}, http.StatusNotModified, http.StatusPreconditionFailed},
+		{http.Header{"If-Modified-Since": {future}}, http.StatusOK, http.StatusOK},
+		{http.Header{"If-Unmodified-Since": {"Mon, 02 Jan 2006 15:04:05 GMT"}}, http.StatusOK, http.StatusOK},
 	} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			resp := serve(t, objectAPI, method, "/bucket/key", tt.header, nil)
 			require.Equal(t, tt.expStatus, resp.StatusCode, "%s %v", method, tt.header)
 			require.Empty(t, resp.Header.Get("Last-Modified"), "%s %v", method, tt.header)
 		}
+
+		copyHeader := http.Header{"X-Amz-Copy-Source": {"/bucket/key"}}
+		for k, v := range tt.header {
+			copyHeader["X-Amz-Copy-Source-"+k] = v
+		}
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst", copyHeader, nil)
+		require.Equal(t, tt.expCopyStatus, resp.StatusCode, "CopyObject %v: %s", tt.header, resp.Body)
+		require.Empty(t, resp.Header.Get("Last-Modified"), "CopyObject %v", tt.header)
 	}
 }
 
@@ -153,4 +171,38 @@ func TestDeleteObjectRouting(t *testing.T) {
 	// AbortMultipartUpload isn't served as DeleteObject.
 	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?uploadId=abc", nil, nil)
 	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
+}
+
+func TestCopyObjectStorageClass(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
+	var gotMetadata map[string]string
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		gotMetadata = srcInfo.UserDefined
+		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag"}, nil
+	}
+
+	for _, tt := range []struct {
+		target    string
+		header    http.Header
+		expStatus int
+		expClass  string
+	}{
+		{target: "/bucket/dst?X-Amz-Storage-Class=GLACIER", expStatus: http.StatusBadRequest},
+		{target: "/bucket/dst?x-amz-storage-class=GLACIER", expStatus: http.StatusBadRequest},
+		{target: "/bucket/dst", header: http.Header{"X-Amz-Storage-Class": {"GLACIER"}}, expStatus: http.StatusBadRequest},
+		{target: "/bucket/dst?X-Amz-Storage-Class=STANDARD", expStatus: http.StatusOK, expClass: "STANDARD"},
+	} {
+		for _, directive := range []string{"COPY", "REPLACE"} {
+			gotMetadata = nil
+			header := http.Header{"X-Amz-Copy-Source": {"/bucket/key"}, "X-Amz-Metadata-Directive": {directive}}
+			for k, v := range tt.header {
+				header[k] = v
+			}
+			resp := serve(t, objectAPI, http.MethodPut, tt.target, header, nil)
+			require.Equal(t, tt.expStatus, resp.StatusCode, "%s %s: %s", directive, tt.target, resp.Body)
+			if tt.expStatus == http.StatusOK {
+				require.Equal(t, tt.expClass, gotMetadata["X-Amz-Storage-Class"], "%s %s", directive, tt.target)
+			}
+		}
+	}
 }

@@ -83,6 +83,11 @@
   description: The Content-MD5 you specified was invalid.
   http_status: 400
 
+- name: InvalidCopyDest
+  code: InvalidRequest
+  description: This copy request is illegal because it is trying to copy an object to itself without changing the object's metadata, storage class, website redirect location or encryption attributes.
+  http_status: 400
+
 - name: InvalidCopySource
   code: InvalidArgument
   description: "Copy Source must mention the source bucket and key: sourcebucket/sourcekey"
@@ -113,6 +118,11 @@
   description: Argument max-uploads must be an integer between 0 and 2147483647
   http_status: 400
 
+- name: InvalidMetadataDirective
+  code: InvalidArgument
+  description: Unknown metadata directive.
+  http_status: 400
+
 - name: InvalidPartNumber
   code: InvalidArgument
   description: Part number must be an integer between 1 and 10000, inclusive
@@ -126,6 +136,11 @@
 - name: InvalidRangePartNumber
   code: InvalidRequest
   description: Cannot specify both Range header and partNumber query parameter
+  http_status: 400
+
+- name: InvalidTagDirective
+  code: InvalidArgument
+  description: Unknown tag directive.
   http_status: 400
 
 - name: InvalidRequest

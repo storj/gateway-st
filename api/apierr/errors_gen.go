@@ -24,17 +24,20 @@ const (
 	CodeInvalidAttributeName
 	CodeInvalidContentMD5
 	CodeInvalidContentSHA256
+	CodeInvalidCopyDest
 	CodeInvalidCopySource
 	CodeInvalidCopySourceRange
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidMaxKeys
 	CodeInvalidMaxUploads
+	CodeInvalidMetadataDirective
 	CodeInvalidPartNumber
 	CodeInvalidRange
 	CodeInvalidRangePartNumber
 	CodeInvalidRequest
 	CodeInvalidStorageClass
+	CodeInvalidTagDirective
 	CodeMalformedCopySourceRange
 	CodeMalformedDate
 	CodeMalformedExpires
@@ -173,6 +176,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "x-amz-content-sha256 must be UNSIGNED-PAYLOAD, STREAMING-AWS4-HMAC-SHA256-PAYLOAD, or a valid sha256 value.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidCopyDest: {
+		Code:           "InvalidRequest",
+		Description:    "This copy request is illegal because it is trying to copy an object to itself without changing the object's metadata, storage class, website redirect location or encryption attributes.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidCopySource: {
 		Code:           "InvalidArgument",
 		Description:    "Copy Source must mention the source bucket and key: sourcebucket/sourcekey",
@@ -203,6 +211,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Argument max-uploads must be an integer between 0 and 2147483647",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidMetadataDirective: {
+		Code:           "InvalidArgument",
+		Description:    "Unknown metadata directive.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidPartNumber: {
 		Code:           "InvalidArgument",
 		Description:    "Part number must be an integer between 1 and 10000, inclusive",
@@ -226,6 +239,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidStorageClass: {
 		Code:           "InvalidArgument",
 		Description:    "The specified storage class is not valid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidTagDirective: {
+		Code:           "InvalidArgument",
+		Description:    "Unknown tag directive.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMalformedCopySourceRange: {

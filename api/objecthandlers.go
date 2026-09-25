@@ -375,17 +375,9 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cpSrcPath := r.Header.Get(xhttp.AmzCopySource)
-	var srcVersionID string
-	if u, err := url.Parse(cpSrcPath); err == nil {
-		srcVersionID = strings.TrimSpace(u.Query().Get(xhttp.VersionID))
-		// Note that url.Parse does the unescaping
-		cpSrcPath = u.Path
-	}
-
-	srcBucket, srcObject := splitCopySourcePath(cpSrcPath)
-	if srcObject == "" || srcBucket == "" {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidCopySource)
+	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
@@ -1274,4 +1266,235 @@ func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	api.writeSuccessNoContent(w, r)
+}
+
+// CopyObjectHandler is the HTTP handler for the CopyObject operation, which creates a copy of an
+// existing object.
+func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "CopyObject")
+
+	if _, requested := crypto.IsRequested(r.Header); requested || crypto.SSECopy.IsRequested(r.Header) {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	for header := range r.Header {
+		if strings.HasPrefix(header, xAmzChecksumPrefix) {
+			api.writeErrorResponse(w, r, apierr.CodeChecksumsUnsupported)
+			return
+		}
+	}
+
+	vars := mux.Vars(r)
+	dstBucket := vars["bucket"]
+	dstObject, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	metadataDirective := r.Header.Get(xhttp.AmzMetadataDirective)
+	if !isDirectiveValid(metadataDirective) {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidMetadataDirective)
+		return
+	}
+	tagDirective := r.Header.Get(xhttp.AmzTagDirective)
+	if !isDirectiveValid(tagDirective) {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidTagDirective)
+		return
+	}
+
+	storageClass := requestStorageClass(r)
+	switch storageClass {
+	case "", storageclass.STANDARD, storageclass.ONEZONE:
+	case storageclass.RRS:
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	default:
+		api.writeErrorResponse(w, r, apierr.CodeInvalidStorageClass)
+		return
+	}
+
+	srcOpts := cmd.ObjectOptions{VersionID: srcVersionID}
+	srcInfo, err := api.objectAPI.GetObjectInfo(ctx, srcBucket, srcObject, srcOpts)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if api.checkCopyPreconditions(w, r, srcInfo) {
+		return
+	}
+
+	if srcInfo.Size > maxObjectSize {
+		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
+		return
+	}
+
+	if srcBucket == dstBucket && srcObject == dstObject && srcVersionID == "" && storageClass == "" &&
+		metadataDirective != replaceDirective && tagDirective != replaceDirective {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidCopyDest)
+		return
+	}
+
+	var metadata map[string]string
+	if metadataDirective == replaceDirective {
+		metadata, err = extractMetadata(ctx, r)
+		if err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+	} else {
+		metadata = maps.Clone(srcInfo.UserDefined)
+		if metadata == nil {
+			metadata = make(map[string]string)
+		}
+		crypto.RemoveSSEHeaders(metadata)
+	}
+
+	switch storageClass {
+	case "":
+	case storageclass.ONEZONE:
+		delete(metadata, amzStorageClass)
+	default:
+		metadata[amzStorageClass] = storageClass
+	}
+
+	objTags := srcInfo.UserTags
+	if tagDirective == replaceDirective {
+		objTags = r.Header.Get(xhttp.AmzObjectTagging)
+		if _, err := tags.ParseObjectTags(objTags); err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+		// The object layer needs to know that the tags must be replaced rather than copied.
+		metadata[xhttp.AmzTagDirective] = replaceDirective
+	}
+	if objTags != "" {
+		metadata[xhttp.AmzObjectTagging] = objTags
+	}
+
+	metadata = objectlock.FilterObjectLockMetadata(metadata, true, true)
+	// FilterObjectLockMetadata misses the lowercase legal hold key that our object layer uses.
+	delete(metadata, strings.ToLower(objectlock.AmzObjectLockLegalHold))
+	crypto.RemoveSensitiveEntries(metadata)
+	srcInfo.UserDefined = metadata
+
+	dstOpts := cmd.ObjectOptions{
+		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
+	}
+
+	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, dstBucket, dstObject)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if retentionMode.Valid() {
+		dstOpts.Retention = &objectlock.ObjectRetention{
+			Mode:            retentionMode,
+			RetainUntilDate: retentionDate,
+		}
+	}
+	if legalHold.Status.Valid() {
+		dstOpts.LegalHold = &legalHold.Status
+	}
+
+	objInfo, err := api.objectAPI.CopyObject(ctx, srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	encodedResp, err := encodeResponse(cmd.CopyObjectResponse{
+		ETag:         `"` + objInfo.ETag + `"`,
+		LastModified: objInfo.ModTime.UTC().Format(iso8601Milli),
+	})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if objInfo.ETag != "" {
+		w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+	}
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
+	}
+	if srcInfo.VersionID != "" {
+		w.Header().Set(xhttp.AmzCopySourceVersionID, srcInfo.VersionID)
+	}
+
+	api.writeSuccessResponseXML(w, r, encodedResp)
+}
+
+// parseCopySource parses the X-Amz-Copy-Source header of a copy request.
+func parseCopySource(copySource string) (bucketName, objectKey, versionID string, err error) {
+	if u, err := url.Parse(copySource); err == nil {
+		versionID, err = extractVersionID(u.Query())
+		if err != nil {
+			return "", "", "", err
+		}
+		// Note that url.Parse does the unescaping
+		copySource = u.Path
+	}
+
+	bucketName, objectKey = splitCopySourcePath(copySource)
+	if bucketName == "" || objectKey == "" {
+		return "", "", "", apierr.CodeInvalidCopySource
+	}
+
+	return bucketName, objectKey, versionID, nil
+}
+
+const (
+	copyDirective    = "COPY"
+	replaceDirective = "REPLACE"
+)
+
+// requestStorageClass returns the storage class of a request, from the X-Amz-Storage-Class
+// header or query parameter. It is extracted like extractMetadata does, so the query parameter
+// name is case-insensitive and the header takes precedence.
+func requestStorageClass(r *http.Request) string {
+	metadata := make(map[string]string)
+	ExtractMetadataFromQuery(r.URL, metadata)
+	ExtractMetadataFromHeader(r.Header, metadata)
+	return metadata[amzStorageClass]
+}
+
+// isDirectiveValid returns whether the value of a metadata or tag directive header is valid.
+func isDirectiveValid(directive string) bool {
+	return directive == "" || directive == copyDirective || directive == replaceDirective
+}
+
+// checkCopyPreconditions evaluates the X-Amz-Copy-Source-If-* headers of a copy request against
+// its source object. If the request should not proceed, it writes the response and returns true.
+func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, srcInfo cmd.ObjectInfo) bool {
+	// Unlike GetObject, a copy request whose source matches X-Amz-Copy-Source-If-None-Match fails.
+	failed := evaluatePreconditions(srcInfo,
+		r.Header.Get(xhttp.AmzCopySourceIfMatch), r.Header.Get(xhttp.AmzCopySourceIfUnmodifiedSince),
+		r.Header.Get(xhttp.AmzCopySourceIfNoneMatch), r.Header.Get(xhttp.AmzCopySourceIfModifiedSince),
+	) != 0
+
+	if failed {
+		setCommonHeaders(w)
+		if validModTime(srcInfo.ModTime) {
+			w.Header().Set(xhttp.LastModified, srcInfo.ModTime.UTC().Format(http.TimeFormat))
+		}
+		if srcInfo.ETag != "" {
+			w.Header()[xhttp.ETag] = []string{`"` + srcInfo.ETag + `"`}
+		}
+		api.writeErrorResponse(w, r, apierr.CodePreconditionFailed)
+	}
+	return failed
 }

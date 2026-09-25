@@ -48,6 +48,7 @@ type fakeObjectLayer struct {
 	listBuckets          func(ctx context.Context) ([]cmd.BucketInfo, error)
 	getObjectInfo        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	getObjectNInfo       func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
+	copyObject           func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	deleteObject         func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	deleteObjectTags     func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	deleteObjects        func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
@@ -64,6 +65,10 @@ func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object stri
 
 func (f *fakeObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
 	return f.getObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
+}
+
+func (f *fakeObjectLayer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return f.copyObject(ctx, srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts)
 }
 
 func (f *fakeObjectLayer) DeleteObject(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
@@ -696,4 +701,160 @@ func TestDeleteObjectTagging(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?tagging", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
+}
+
+func TestCopyObject(t *testing.T) {
+	const versionID = "00000000-0000-0000-0000-000000000001"
+
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	srcInfo := cmd.ObjectInfo{
+		Bucket:   "bucket",
+		Name:     "src",
+		ModTime:  modTime,
+		Size:     10,
+		ETag:     "etag",
+		UserTags: "a=1",
+		UserDefined: map[string]string{
+			"Content-Type":                 "text/plain",
+			"X-Amz-Meta-Foo":               "bar",
+			"X-Amz-Object-Lock-Mode":       "COMPLIANCE",
+			"X-Amz-Object-Lock-Legal-Hold": "ON",
+			"x-amz-object-lock-legal-hold": "ON",
+			"X-Amz-Server-Side-Encryption": "AES256",
+		},
+	}
+
+	type copyCall struct {
+		srcBucket, srcObject, dstBucket, dstObject string
+		srcInfo                                    cmd.ObjectInfo
+		srcOpts, dstOpts                           cmd.ObjectOptions
+	}
+
+	setup := func() (*fakeObjectLayer, *copyCall) {
+		objectAPI := singleObjectLayer(srcInfo, "0123456789")
+		call := new(copyCall)
+		objectAPI.copyObject = func(_ context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			*call = copyCall{srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts}
+			return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime, VersionID: "newversion"}, nil
+		}
+		return objectAPI, call
+	}
+
+	t.Run("copy", func(t *testing.T) {
+		objectAPI, call := setup()
+		resp := serve(t, objectAPI, http.MethodPut, "/dstbucket/dst", http.Header{
+			"X-Amz-Copy-Source":            {"/bucket/src"},
+			"X-Amz-Object-Lock-Legal-Hold": {"ON"},
+		}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<CopyObjectResult")
+		require.Contains(t, resp.Body, "<LastModified>2026-01-02T03:04:05.000Z</LastModified><ETag>&#34;newetag&#34;</ETag>")
+		require.Equal(t, `"newetag"`, resp.Header.Get("ETag"))
+		require.Equal(t, "newversion", resp.Header.Get("X-Amz-Version-Id"))
+
+		require.Equal(t, []string{"bucket", "src", "dstbucket", "dst"},
+			[]string{call.srcBucket, call.srcObject, call.dstBucket, call.dstObject})
+		require.Equal(t, map[string]string{
+			"Content-Type":   "text/plain",
+			"X-Amz-Meta-Foo": "bar",
+			"X-Amz-Tagging":  "a=1",
+		}, call.srcInfo.UserDefined)
+		require.NotNil(t, call.dstOpts.LegalHold)
+		require.EqualValues(t, "ON", *call.dstOpts.LegalHold)
+	})
+
+	t.Run("replace metadata and tags", func(t *testing.T) {
+		objectAPI, call := setup()
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst", http.Header{
+			"X-Amz-Copy-Source":        {"/bucket/src"},
+			"X-Amz-Metadata-Directive": {"REPLACE"},
+			"X-Amz-Tagging-Directive":  {"REPLACE"},
+			"X-Amz-Meta-New":           {"value"},
+			"X-Amz-Tagging":            {"b=2"},
+		}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, map[string]string{
+			"Content-Type":            "binary/octet-stream",
+			"X-Amz-Meta-New":          "value",
+			"X-Amz-Tagging":           "b=2",
+			"X-Amz-Tagging-Directive": "REPLACE",
+		}, call.srcInfo.UserDefined)
+	})
+
+	t.Run("source version", func(t *testing.T) {
+		objectAPI, call := setup()
+		getObjectInfo := objectAPI.getObjectInfo
+		objectAPI.getObjectInfo = func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			info, err := getObjectInfo(ctx, bucket, object, opts)
+			info.VersionID = versionID
+			return info, err
+		}
+		// The header reports the version copied, also when the request names none.
+		for _, source := range []string{"/bucket/src", "/bucket/src?versionId=" + versionID} {
+			resp := serve(t, objectAPI, http.MethodPut, "/dstbucket/dst", http.Header{
+				"X-Amz-Copy-Source": {source},
+			}, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+			require.Equal(t, "src", call.srcObject)
+			require.Equal(t, versionID, resp.Header.Get("X-Amz-Copy-Source-Version-Id"), source)
+		}
+		require.Equal(t, versionID, call.srcOpts.VersionID)
+	})
+
+	for _, tt := range []struct {
+		name      string
+		header    http.Header
+		expStatus int
+		expCode   string
+	}{
+		{
+			name:      "copy to itself",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidRequest",
+		},
+		{
+			name:      "invalid copy source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			name:      "invalid source version",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src?versionId=invalid"}},
+			expStatus: http.StatusNotFound,
+			expCode:   "NoSuchVersion",
+		},
+		{
+			name:      "nonexistent source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/missing"}},
+			expStatus: http.StatusNotFound,
+			expCode:   "NoSuchKey",
+		},
+		{
+			name:      "invalid metadata directive",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Metadata-Directive": {"MOVE"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			name:      "precondition failed",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-If-Match": {`"other"`}},
+			expStatus: http.StatusPreconditionFailed,
+			expCode:   "PreconditionFailed",
+		},
+		{
+			name:      "encryption requested",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/other"}, "X-Amz-Server-Side-Encryption": {"AES256"}},
+			expStatus: http.StatusNotImplemented,
+			expCode:   "NotImplemented",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectAPI, _ := setup()
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/src", tt.header, nil)
+			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+		})
+	}
 }
