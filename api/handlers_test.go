@@ -55,6 +55,7 @@ type fakeObjectLayer struct {
 	newMultipartUpload      func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error)
 	completeMultipartUpload func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	abortMultipartUpload    func(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error
+	listObjectParts         func(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts cmd.ObjectOptions) (cmd.ListPartsInfo, error)
 	listMultipartUploads    func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
 }
 
@@ -96,6 +97,10 @@ func (f *fakeObjectLayer) CompleteMultipartUpload(ctx context.Context, bucket, o
 
 func (f *fakeObjectLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error {
 	return f.abortMultipartUpload(ctx, bucket, object, uploadID, opts)
+}
+
+func (f *fakeObjectLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+	return f.listObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts, opts)
 }
 
 func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error) {
@@ -1051,4 +1056,100 @@ func TestAbortMultipartUpload(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?uploadId=upload-id", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "upload-id", gotUploadID)
+}
+
+func TestListParts(t *testing.T) {
+	type call struct {
+		uploadID                   string
+		partNumberMarker, maxParts int
+	}
+	var got call
+	objectAPI := &fakeObjectLayer{
+		listObjectParts: func(_ context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+			got = call{uploadID, partNumberMarker, maxParts}
+			return cmd.ListPartsInfo{
+				Bucket:               bucket,
+				Object:               object,
+				UploadID:             uploadID,
+				PartNumberMarker:     partNumberMarker,
+				NextPartNumberMarker: 3,
+				MaxParts:             maxParts,
+				IsTruncated:          true,
+				Parts: []cmd.PartInfo{{
+					PartNumber:   3,
+					LastModified: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+					ETag:         "etag",
+					Size:         5,
+				}},
+			}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/a%20key?uploadId=upload-id&part-number-marker=2&max-parts=1&encoding-type=url", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, call{"upload-id", 2, 1}, got)
+	require.Contains(t, resp.Body, "<ListPartsResult")
+	require.Contains(t, resp.Body, "<Bucket>bucket</Bucket><Key>a+key</Key><UploadId>upload-id</UploadId>")
+	require.Contains(t, resp.Body, "<PartNumberMarker>2</PartNumberMarker><NextPartNumberMarker>3</NextPartNumberMarker><MaxParts>1</MaxParts><IsTruncated>true</IsTruncated>")
+	require.Contains(t, resp.Body, "<Part><PartNumber>3</PartNumber><LastModified>2026-01-02T03:04:05.000Z</LastModified><ETag>&#34;etag&#34;</ETag><Size>5</Size></Part>")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, call{"upload-id", 0, 1000}, got)
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=-1", nil, nil)
+	require.Contains(t, resp.Body, "Argument max-parts must be an integer")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&part-number-marker=x", nil, nil)
+	require.Contains(t, resp.Body, "Argument partNumberMarker must be an integer.")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&encoding-type=bogus", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "Invalid Encoding Method specified in Request")
+}
+
+func TestListPartsEmptyETag(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listObjectParts: func(context.Context, string, string, string, int, int, cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+			return cmd.ListPartsInfo{Parts: []cmd.PartInfo{{PartNumber: 1, Size: 5}}}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<ETag></ETag>")
+}
+
+func TestListPartsLimits(t *testing.T) {
+	var gotMaxParts int
+	parts := []cmd.PartInfo{{PartNumber: 1, ETag: "a", Size: 1}, {PartNumber: 2, ETag: "b", Size: 1}}
+	objectAPI := &fakeObjectLayer{
+		listObjectParts: func(_ context.Context, _, _, _ string, _, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+			gotMaxParts = maxParts
+			// Like miniogw.ListObjectParts, at most maxParts parts are returned.
+			n := min(maxParts, len(parts))
+			return cmd.ListPartsInfo{MaxParts: maxParts, Parts: parts[:n], IsTruncated: n < len(parts)}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=2147483647", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, 1000, gotMaxParts)
+	require.Contains(t, resp.Body, "<MaxParts>1000</MaxParts>")
+
+	// max-parts=0 returns no parts, like S3.
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=0", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, 0, gotMaxParts)
+	require.NotContains(t, resp.Body, "<Part>")
+	require.Contains(t, resp.Body, "<MaxParts>0</MaxParts><IsTruncated>true</IsTruncated>")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&part-number-marker=10000", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+
+	for _, query := range []string{"max-parts=x", "max-parts=-1", "part-number-marker=-1", "part-number-marker=10001", "part-number-marker=4294967297"} {
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&"+query, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>", query)
+	}
 }

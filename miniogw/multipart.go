@@ -266,7 +266,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 
 	parts := make([]minio.PartInfo, 0, maxParts)
 
-	for (fetchedCount < int64(maxParts) || maxParts == 0) && list.Next() {
+	for fetchedCount < int64(maxParts) && list.Next() {
 		fetchedCount++
 		part := list.Item()
 		parts = append(parts, minio.PartInfo{

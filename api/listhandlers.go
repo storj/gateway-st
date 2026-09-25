@@ -31,9 +31,13 @@ import (
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
+	xhttp "storj.io/minio/cmd/http"
 )
 
-const maxObjectList = 1000
+const (
+	maxObjectList = 1000
+	maxPartsList  = 1000
+)
 
 // ListObjectsHandler is the HTTP handler for the ListObjects operation, which lists the objects in a bucket.
 func (api *API) ListObjectsHandler(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +106,10 @@ func validateListObjectsParams(maxKeys int, encodingType string) error {
 	if maxKeys < 0 {
 		return apierr.CodeInvalidMaxKeys
 	}
+	return validateEncodingType(encodingType)
+}
+
+func validateEncodingType(encodingType string) error {
 	if encodingType != "" && strings.ToLower(encodingType) != urlEncodingType {
 		return apierr.CodeInvalidEncodingMethod
 	}
@@ -354,4 +362,78 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.writeSuccessResponseXML(w, r, resp)
+}
+
+// ListPartsHandler is the HTTP handler for the ListParts operation, which lists the parts that
+// have been uploaded for a multipart upload.
+func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListParts")
+
+	vars := mux.Vars(r)
+	bucketName := vars["bucket"]
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	params, err := getListPartsParams(r.URL.Query())
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if err := validateEncodingType(params.encodingType); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	listPartsInfo, err := api.objectAPI.ListObjectParts(ctx, bucketName, objectKey, params.uploadID,
+		params.partNumberMarker, params.maxParts, cmd.ObjectOptions{})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	response := generateListPartsResponse(listPartsInfo, params.encodingType)
+	encodedSuccessResponse, err := encodeResponse(response)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeSuccessResponseXML(w, r, encodedSuccessResponse)
+}
+
+type listPartsParams struct {
+	uploadID         string
+	partNumberMarker int
+	maxParts         int
+	encodingType     string
+}
+
+func getListPartsParams(values url.Values) (params listPartsParams, err error) {
+	params.maxParts = maxPartsList
+	if maxPartsStr := values.Get("max-parts"); maxPartsStr != "" {
+		if params.maxParts, err = strconv.Atoi(maxPartsStr); err != nil || params.maxParts < 0 {
+			return listPartsParams{}, apierr.CodeInvalidMaxParts
+		}
+		params.maxParts = min(params.maxParts, maxPartsList)
+	}
+
+	if markerStr := values.Get("part-number-marker"); markerStr != "" {
+		if params.partNumberMarker, err = strconv.Atoi(markerStr); err != nil || params.partNumberMarker < 0 || params.partNumberMarker > maxPartNumber {
+			return listPartsParams{}, apierr.CodeInvalidPartNumberMarker
+		}
+	}
+
+	params.uploadID = values.Get(xhttp.UploadID)
+	params.encodingType = values.Get("encoding-type")
+
+	return params, nil
 }

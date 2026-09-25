@@ -3154,6 +3154,15 @@ func TestListObjectParts(t *testing.T) {
 				assert.Equal(t, md5Str, listParts.Parts[i].ETag)
 			}
 		}
+
+		// max-parts=0 returns no parts
+		listParts, err = layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 1, 0, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, 0, listParts.MaxParts)
+		require.Empty(t, listParts.Parts)
+		require.Equal(t, 1, listParts.PartNumberMarker)
+		require.Equal(t, 1, listParts.NextPartNumberMarker)
+		require.True(t, listParts.IsTruncated)
 	})
 }
 

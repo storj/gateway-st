@@ -442,6 +442,42 @@ func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultip
 	return listMultipartUploadsResponse
 }
 
+func generateListPartsResponse(partsInfo cmd.ListPartsInfo, encodingType string) cmd.ListPartsResponse {
+	resp := cmd.ListPartsResponse{
+		Bucket:   partsInfo.Bucket,
+		Key:      s3EncodeName(partsInfo.Object, encodingType),
+		UploadID: partsInfo.UploadID,
+		Initiator: cmd.Initiator{
+			ID:          defaultOwnerID,
+			DisplayName: defaultOwnerDisplayName,
+		},
+		Owner: cmd.Owner{
+			ID:          defaultOwnerID,
+			DisplayName: defaultOwnerDisplayName,
+		},
+		StorageClass:         defaultStorageClass,
+		PartNumberMarker:     partsInfo.PartNumberMarker,
+		NextPartNumberMarker: partsInfo.NextPartNumberMarker,
+		MaxParts:             partsInfo.MaxParts,
+		IsTruncated:          partsInfo.IsTruncated,
+		Parts:                make([]cmd.Part, 0, len(partsInfo.Parts)),
+	}
+
+	for _, part := range partsInfo.Parts {
+		respPart := cmd.Part{
+			PartNumber:   part.PartNumber,
+			LastModified: part.LastModified.UTC().Format(iso8601Milli),
+			Size:         part.Size,
+		}
+		if part.ETag != "" {
+			respPart.ETag = `"` + part.ETag + `"`
+		}
+		resp.Parts = append(resp.Parts, respPart)
+	}
+
+	return resp
+}
+
 func generateListBucketsResponse(bucketInfos []cmd.BucketInfo) cmd.ListBucketsResponse {
 	resp := cmd.ListBucketsResponse{
 		Owner: cmd.Owner{

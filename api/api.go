@@ -124,15 +124,12 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 		objRouter.Methods(http.MethodHead).HandlerFunc(api.HeadObjectHandler)
 
+		objRouter.Methods(http.MethodGet).Queries("uploadId", "").HandlerFunc(api.ListPartsHandler)
 		objRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetObjectAclHandler)
 		objRouter.Methods(http.MethodGet).Queries("attributes", "").HandlerFunc(api.GetObjectAttributesHandler)
 		objRouter.Methods(http.MethodGet).Queries("legal-hold", "").HandlerFunc(api.GetObjectLegalHoldHandler)
 		objRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetObjectTaggingHandler)
 		objRouter.Methods(http.MethodGet).Queries("retention", "").HandlerFunc(api.GetObjectRetentionHandler)
-		// ListParts isn't implemented, but it must not be served as GetObject.
-		objRouter.Methods(http.MethodGet).Queries("uploadId", "").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		})
 		objRouter.Methods(http.MethodGet).HandlerFunc(api.GetObjectHandler)
 
 		objRouter.Methods(http.MethodDelete).Queries("uploadId", "").HandlerFunc(api.AbortMultipartUploadHandler)

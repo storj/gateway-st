@@ -110,14 +110,6 @@ func TestGetInvalidPartNumber(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-func TestGetObjectRouting(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
-
-	// ListParts isn't served as GetObject.
-	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=abc", nil, nil)
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
-}
-
 func TestGetObjectFirstReadClientAbort(t *testing.T) {
 	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}
 	objectAPI := &fakeObjectLayer{
