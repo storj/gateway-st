@@ -663,7 +663,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = CheckPostForm(postPolicy, postForm); err != nil {
+	if err = CheckPostForm(postPolicy, postForm, bucketName); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}

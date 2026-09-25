@@ -263,7 +263,7 @@ func TestCheckPostForm(t *testing.T) {
 	t.Run("Expired", func(t *testing.T) {
 		policy := newSigV4PostPolicy()
 		policy.Expiration.Time = time.Now().Add(-time.Hour)
-		err := api.CheckPostForm(policy, newSigV4PostForm())
+		err := api.CheckPostForm(policy, newSigV4PostForm(), "my-bucket")
 		require.ErrorIs(t, err, apierr.CodePostPolicyExpired)
 	})
 
@@ -271,7 +271,7 @@ func TestCheckPostForm(t *testing.T) {
 		policy := newSigV4PostPolicy()
 
 		t.Run("Match", func(t *testing.T) {
-			err := api.CheckPostForm(policy, newSigV4PostForm())
+			err := api.CheckPostForm(policy, newSigV4PostForm(), "my-bucket")
 			require.NoError(t, err)
 		})
 
@@ -279,10 +279,37 @@ func TestCheckPostForm(t *testing.T) {
 			form := newSigV4PostForm()
 			form.Set("bucket", awsig.PostFormElement{Value: "other-bucket"})
 
-			err := api.CheckPostForm(policy, form)
+			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
 				Condition: `["eq","$bucket","my-bucket"]`,
 			})
+		})
+	})
+
+	t.Run("URL bucket", func(t *testing.T) {
+		policy := newSigV4PostPolicy()
+
+		// Like boto3's generate_presigned_post, omit the bucket field.
+		form := newSigV4PostForm()
+		form.Del("bucket")
+		require.NoError(t, api.CheckPostForm(policy, form, "my-bucket"))
+
+		// The policy is checked against the URL bucket, not the form field.
+		err := api.CheckPostForm(policy, form, "other-bucket")
+		require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
+			Condition: `["eq","$bucket","my-bucket"]`,
+		})
+
+		// Field names are case-insensitive.
+		policy.Conditions.Items = append(policy.Conditions.Items, api.PostPolicyCondition{
+			Operator: api.PostPolicyOperatorEqual, Key: "$Bucket", Value: "my-bucket",
+		})
+		require.NoError(t, api.CheckPostForm(policy, form, "my-bucket"))
+
+		// A form bucket must match the URL bucket.
+		err = api.CheckPostForm(policy, newSigV4PostForm(), "other-bucket")
+		require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
+			Condition: `["eq","$bucket","other-bucket"]`,
 		})
 	})
 
@@ -298,7 +325,7 @@ func TestCheckPostForm(t *testing.T) {
 			form := newSigV4PostForm()
 			form.Set("Content-Type", awsig.PostFormElement{Value: "image/jpeg"})
 
-			err := api.CheckPostForm(policy, form)
+			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.NoError(t, err)
 		})
 
@@ -306,7 +333,7 @@ func TestCheckPostForm(t *testing.T) {
 			form := newSigV4PostForm()
 			form.Set("Content-Type", awsig.PostFormElement{Value: "text/plain"})
 
-			err := api.CheckPostForm(policy, form)
+			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.ErrorIs(t, err, apierr.PostFormConditionFailedError{
 				Condition: `["starts-with","$content-type","image/"]`,
 			})
@@ -323,13 +350,13 @@ func TestCheckPostForm(t *testing.T) {
 			form := newSigV4PostForm()
 			form.Set("Content-Type", awsig.PostFormElement{Value: "text/plain"})
 
-			err := api.CheckPostForm(policy, form)
+			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.NoError(t, err)
 		})
 	})
 
 	t.Run("SigV2 exempt fields", func(t *testing.T) {
-		err := api.CheckPostForm(newPostPolicy(), newSigV2PostForm())
+		err := api.CheckPostForm(newPostPolicy(), newSigV2PostForm(), "my-bucket")
 		require.NoError(t, err)
 	})
 
@@ -338,7 +365,7 @@ func TestCheckPostForm(t *testing.T) {
 		form := newSigV4PostForm()
 		form.Set("a", awsig.PostFormElement{Value: "1"})
 
-		err := api.CheckPostForm(policy, form)
+		err := api.CheckPostForm(policy, form, "my-bucket")
 		require.ErrorIs(t, err, apierr.PostFormExtraFieldsError{
 			FieldName: "a",
 		})
@@ -349,7 +376,7 @@ func TestCheckPostForm(t *testing.T) {
 		form := newSigV4PostForm()
 		form.Add("key", form.Get("key"))
 
-		err := api.CheckPostForm(policy, form)
+		err := api.CheckPostForm(policy, form, "my-bucket")
 		require.ErrorIs(t, err, apierr.CodePostFormMultipleKeyFields)
 	})
 
@@ -359,7 +386,6 @@ func TestCheckPostForm(t *testing.T) {
 				field         string
 				expectedErrIs error
 			}{
-				{"bucket", apierr.PostFormMissingFieldError{FieldName: "bucket"}},
 				{"key", apierr.PostFormMissingFieldError{FieldName: "key"}},
 				{"file", apierr.CodePostFormInvalidFileCount},
 			} {
@@ -367,7 +393,7 @@ func TestCheckPostForm(t *testing.T) {
 				form := newSigV4PostForm()
 				form.Del(tt.field)
 
-				err := api.CheckPostForm(policy, form)
+				err := api.CheckPostForm(policy, form, "my-bucket")
 				assert.ErrorIs(t, err, tt.expectedErrIs)
 			}
 		})
@@ -382,7 +408,7 @@ func TestCheckPostForm(t *testing.T) {
 				form := newSigV4PostForm()
 				delete(form, http.CanonicalHeaderKey(field))
 
-				err := api.CheckPostForm(policy, form)
+				err := api.CheckPostForm(policy, form, "my-bucket")
 				assert.ErrorIs(t, err, apierr.PostFormMissingFieldError{FieldName: field})
 			}
 		})
@@ -392,12 +418,12 @@ func TestCheckPostForm(t *testing.T) {
 			form := newSigV2PostForm()
 			form.Del("signature")
 
-			err := api.CheckPostForm(policy, form)
+			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.ErrorIs(t, err, apierr.PostFormMissingFieldError{FieldName: "signature"})
 		})
 
 		t.Run("Missing signature version fields", func(t *testing.T) {
-			err := api.CheckPostForm(newPostPolicy(), newPostForm())
+			err := api.CheckPostForm(newPostPolicy(), newPostForm(), "my-bucket")
 			require.ErrorIs(t, err, apierr.CodeAccessDenied)
 		})
 	})
@@ -432,7 +458,7 @@ func TestCheckPostForm(t *testing.T) {
 			policy.Conditions.Items = append(policy.Conditions.Items, tt.condition)
 			form := newSigV4PostForm()
 
-			err := api.CheckPostForm(policy, form)
+			err := api.CheckPostForm(policy, form, "my-bucket")
 			require.ErrorIs(t, err, tt.expectedErrIs)
 		})
 	}

@@ -20,8 +20,8 @@ import (
 )
 
 var (
+	// The bucket comes from the URL, so it isn't a required form key.
 	requiredFormKeys = []string{
-		"bucket",
 		"key",
 	}
 
@@ -322,9 +322,15 @@ func (f *PostPolicy) UnmarshalJSON(data []byte) error {
 
 // CheckPostForm validates submitted form values against a parsed POST policy.
 // See https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-HTTPPOSTConstructPolicy.html
-func CheckPostForm(policy PostPolicy, postForm awsig.PostForm) error {
+// The bucket from the request URL is authoritative for "$bucket" conditions; a "bucket" form
+// field, if present, must match it.
+func CheckPostForm(policy PostPolicy, postForm awsig.PostForm, bucket string) error {
 	if !policy.Expiration.After(time.Now()) {
 		return apierr.CodePostPolicyExpired
+	}
+
+	if postForm.Has("bucket") && getPostFormValue(postForm, "bucket") != bucket {
+		return newConditionFailedError(string(PostPolicyOperatorEqual), "$bucket", bucket)
 	}
 
 	if err := validatePostForm(postForm, policy.Conditions.Items); err != nil {
@@ -340,6 +346,9 @@ func CheckPostForm(policy PostPolicy, postForm awsig.PostForm) error {
 		}
 
 		formVal := getPostFormValue(postForm, trimmedKey)
+		if strings.EqualFold(trimmedKey, "bucket") {
+			formVal = bucket
+		}
 		if !evalCondition(cond.Operator, formVal, cond.Value) {
 			return newConditionFailedError(string(cond.Operator), cond.Key, cond.Value)
 		}
@@ -393,7 +402,7 @@ func validatePostForm(postForm awsig.PostForm, conditions []PostPolicyCondition)
 	}
 
 	for _, key := range policyKeys {
-		if _, ok := formKeysMap[key]; !ok {
+		if _, ok := formKeysMap[key]; !ok && key != "bucket" {
 			return apierr.PostFormMissingFieldError{
 				FieldName: key,
 			}
