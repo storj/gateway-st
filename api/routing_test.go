@@ -186,6 +186,66 @@ func TestInvalidUTF8Key(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
 }
 
+func TestOverlappingDomains(t *testing.T) {
+	var gotBucket string
+	objectAPI := &routingObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{
+			listBuckets: func(context.Context) ([]cmd.BucketInfo, error) {
+				return []cmd.BucketInfo{{Name: "listed"}}, nil
+			},
+		},
+		deleteBucket: func(_ context.Context, bucket string, _ bool) error {
+			gotBucket = bucket
+			return nil
+		},
+	}
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{
+		Domains: []string{"example.com", "s3.example.com"},
+	}).RegisterHandlers(router)
+
+	do := func(method, target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), method, target, nil)
+		signV4(req, nil, time.Now())
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := do(http.MethodDelete, "http://b.s3.example.com/")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, "b", gotBucket)
+
+	rec = do(http.MethodGet, "http://s3.example.com/")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Name>listed</Name>")
+
+	// Host names are case-insensitive.
+	gotBucket = ""
+	rec = do(http.MethodDelete, "http://b.S3.Example.com/")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, "b", gotBucket)
+
+	gotBucket = ""
+	rec = do(http.MethodDelete, "http://S3.example.com/")
+	require.NotEqual(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Empty(t, gotBucket)
+	// The port is ignored.
+	gotBucket = ""
+	rec = do(http.MethodDelete, "http://b.s3.example.com:7777/")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, "b", gotBucket)
+
+	gotBucket = ""
+	rec = do(http.MethodDelete, "http://b.S3.Example.com:7777/")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, "b", gotBucket)
+
+	rec = do(http.MethodGet, "http://s3.example.com:7777/")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Name>listed</Name>")
+}
+
 func TestUnmatchedRoutes(t *testing.T) {
 	for _, tt := range []struct {
 		method, target string

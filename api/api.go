@@ -26,8 +26,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
@@ -39,6 +41,10 @@ import (
 
 // Config contains configuration parameters for an API.
 type Config struct {
+	// Domains are the domains under which buckets are addressed in virtual-hosted-style requests.
+	// When one domain is a subdomain of another, such as example.com and s3.example.com, the
+	// longer one wins: b.s3.example.com addresses bucket b, so a bucket named b.s3 can't be
+	// addressed under example.com.
 	Domains []string
 }
 
@@ -111,13 +117,27 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		api.writeErrorResponse(w, r, apierr.CodeMethodNotAllowed)
 	}))
 
+	// Match the most specific domain first so that, with both example.com and s3.example.com
+	// configured, b.s3.example.com addresses bucket b rather than b.s3. A host that is itself a
+	// configured domain (s3.example.com) addresses no bucket. Host names are case-insensitive.
+	domains := make([]string, len(api.config.Domains))
+	for i, domain := range api.config.Domains {
+		domains[i] = strings.ToLower(domain)
+	}
+	slices.SortFunc(domains, func(a, b string) int { return len(b) - len(a) })
+	notDomain := func(r *http.Request, _ *mux.RouteMatch) bool {
+		host, _, _ := strings.Cut(r.Host, ":")
+		return !slices.Contains(domains, strings.ToLower(host))
+	}
+
 	type bucketSubrouter struct {
 		*mux.Router
 		vHost bool
 	}
 	var subrouters []bucketSubrouter
-	for _, domain := range api.config.Domains {
-		subrouter := apiRouter.Host("{bucket:.+}." + domain).Subrouter()
+	for _, domain := range domains {
+		// The domain is a case-insensitive pattern, because mux matches hosts case-sensitively.
+		subrouter := apiRouter.Host("{bucket:.+}.{domain:" + caseInsensitivePattern(domain) + "}").MatcherFunc(notDomain).Subrouter()
 		subrouter.Use(withVirtualHostedStyleMiddleware)
 		subrouters = append(subrouters, bucketSubrouter{Router: subrouter, vHost: true})
 	}
@@ -125,7 +145,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	// path-style routing, where its path would address another bucket.
 	notVirtualHosted := func(r *http.Request, _ *mux.RouteMatch) bool {
 		host, _, _ := strings.Cut(r.Host, ":")
-		return !isVirtualHostedHost(host, api.config.Domains)
+		return !isVirtualHostedHost(host, domains)
 	}
 	subrouters = append(subrouters, bucketSubrouter{Router: apiRouter.PathPrefix("/{bucket}").MatcherFunc(notVirtualHosted).Subrouter()})
 
@@ -216,17 +236,30 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// isVirtualHostedHost returns whether host addresses a bucket as a subdomain of one of domains.
-// Host names are case-insensitive.
-func isVirtualHostedHost(host string, domains []string) bool {
-	host = strings.ToLower(host)
-	for _, domain := range domains {
-		if strings.EqualFold(host, domain) {
-			return false
+// caseInsensitivePattern returns a regular expression that matches s case-insensitively. It spells
+// out each letter as a character class instead of using (?i), because mux only ignores the port of
+// a host when the host pattern has no ':'.
+func caseInsensitivePattern(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if lower, upper := unicode.ToLower(r), unicode.ToUpper(r); lower != upper {
+			b.WriteString("[" + string(lower) + string(upper) + "]")
+		} else {
+			b.WriteString(regexp.QuoteMeta(string(r)))
 		}
 	}
+	return b.String()
+}
+
+// isVirtualHostedHost returns whether host addresses a bucket as a subdomain of one of domains,
+// which must be lowercase. Host names are case-insensitive.
+func isVirtualHostedHost(host string, domains []string) bool {
+	host = strings.ToLower(host)
+	if slices.Contains(domains, host) {
+		return false
+	}
 	for _, domain := range domains {
-		if strings.HasSuffix(host, "."+strings.ToLower(domain)) {
+		if strings.HasSuffix(host, "."+domain) {
 			return true
 		}
 	}
