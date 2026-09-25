@@ -1082,7 +1082,10 @@ func getObjectReadOptions(query url.Values) (opts cmd.ObjectOptions, err error) 
 	if partNumberStr := query.Get(xhttp.PartNumber); partNumberStr != "" {
 		opts.PartNumber, err = strconv.Atoi(partNumberStr)
 		if err != nil || opts.PartNumber < minPartNumber || opts.PartNumber > maxPartNumber {
-			return cmd.ObjectOptions{}, apierr.CodeInvalidPartNumberArgument
+			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
+			errResp.ArgumentName = xhttp.PartNumber
+			errResp.ArgumentValue = partNumberStr
+			return cmd.ObjectOptions{}, errResp
 		}
 	}
 
@@ -1159,7 +1162,7 @@ func evaluatePreconditions(objInfo cmd.ObjectInfo, ifMatch, ifUnmodifiedSince, i
 		if !etagMatchesList(objInfo.ETag, ifMatch, false) {
 			return http.StatusPreconditionFailed
 		}
-	} else if t, err := time.Parse(http.TimeFormat, ifUnmodifiedSince); err == nil && hasModTime && modifiedSince(objInfo.ModTime, t) {
+	} else if t, err := http.ParseTime(ifUnmodifiedSince); err == nil && hasModTime && modifiedSince(objInfo.ModTime, t) {
 		return http.StatusPreconditionFailed
 	}
 
@@ -1167,7 +1170,7 @@ func evaluatePreconditions(objInfo cmd.ObjectInfo, ifMatch, ifUnmodifiedSince, i
 		if etagMatchesList(objInfo.ETag, ifNoneMatch, true) {
 			return http.StatusNotModified
 		}
-	} else if t, err := time.Parse(http.TimeFormat, ifModifiedSince); err == nil && hasModTime && ifMatch == "" && !modifiedSince(objInfo.ModTime, t) {
+	} else if t, err := http.ParseTime(ifModifiedSince); err == nil && hasModTime && ifMatch == "" && !modifiedSince(objInfo.ModTime, t) {
 		return http.StatusNotModified
 	}
 

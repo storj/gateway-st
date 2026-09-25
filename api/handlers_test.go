@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -532,9 +533,17 @@ func TestGetAndHeadObject(t *testing.T) {
 			expCode:   "InvalidRange",
 		},
 		{
-			name:      "invalid range",
+			name:      "range with first after last is ignored",
 			target:    "/bucket/key",
 			header:    http.Header{"Range": {"bytes=5-1"}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+			expHeader: map[string]string{"Content-Range": ""},
+		},
+		{
+			name:      "zero suffix range",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=-0"}},
 			expStatus: http.StatusRequestedRangeNotSatisfiable,
 			expCode:   "InvalidRange",
 		},
@@ -601,7 +610,11 @@ func TestGetAndHeadObject(t *testing.T) {
 			target:    "/bucket/key?partNumber=1",
 			expStatus: http.StatusPartialContent,
 			expBody:   "0123456789",
-			expHeader: map[string]string{"Content-Range": "bytes 0-9/10", "Content-Length": "10"},
+			expHeader: map[string]string{
+				"Content-Range":        "bytes 0-9/10",
+				"Content-Length":       "10",
+				"X-Amz-Mp-Parts-Count": "",
+			},
 		},
 		{
 			name:      "nonexistent part",
@@ -614,6 +627,7 @@ func TestGetAndHeadObject(t *testing.T) {
 			target:    "/bucket/key?partNumber=0",
 			expStatus: http.StatusBadRequest,
 			expCode:   "InvalidArgument",
+			expBody:   "<ArgumentName>partNumber</ArgumentName><ArgumentValue>0</ArgumentValue>",
 		},
 		{
 			name:      "nonexistent key",
@@ -676,6 +690,19 @@ func TestGetAndHeadObject(t *testing.T) {
 			expCode:   "PreconditionFailed",
 		},
 		{
+			name:      "if-modified-since not modified, RFC 850",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Modified-Since": {modTime.Add(time.Hour).Format(time.RFC850)}},
+			expStatus: http.StatusNotModified,
+		},
+		{
+			// A two-digit day avoids asctime's double space, which the test signer normalizes.
+			name:      "if-modified-since not modified, asctime",
+			target:    "/bucket/key",
+			header:    http.Header{"If-Modified-Since": {modTime.AddDate(0, 0, 10).Format(time.ANSIC)}},
+			expStatus: http.StatusNotModified,
+		},
+		{
 			name:      "if-unmodified-since modified",
 			target:    "/bucket/key",
 			header:    http.Header{"If-Unmodified-Since": {before}},
@@ -718,6 +745,7 @@ func TestGetAndHeadObject(t *testing.T) {
 				check(t, resp)
 				if tt.expCode != "" {
 					require.Contains(t, body, "<Code>"+tt.expCode+"</Code>")
+					require.Contains(t, body, tt.expBody)
 				} else {
 					require.Equal(t, tt.expBody, body)
 				}
@@ -732,6 +760,22 @@ func TestGetAndHeadObject(t *testing.T) {
 	}
 }
 
+func TestHeadObjectUnsatisfiableRange(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{
+		Bucket:      "bucket",
+		Name:        "key",
+		Size:        10,
+		ETag:        "etag",
+		Expires:     time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		UserDefined: map[string]string{"Content-Disposition": "attachment", "X-Amz-Meta-A": "1"},
+	}, "0123456789")
+
+	resp := serveHTTP(t, objectAPI, http.MethodHead, "/bucket/key", http.Header{"Range": {"bytes=10-"}}, nil)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
+	for _, k := range []string{"ETag", "Expires", "Content-Disposition", "X-Amz-Meta-A", "Last-Modified"} {
+		require.Empty(t, resp.Header.Get(k), k)
+	}
+}
 func TestGetObjectFirstReadFailure(t *testing.T) {
 	objInfo := cmd.ObjectInfo{
 		Bucket:          "bucket",
@@ -793,17 +837,77 @@ func TestGetEmptyObject(t *testing.T) {
 	}
 }
 
+func TestGetPartNumber(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		data      string
+		expStatus int
+		expRange  string
+	}{
+		// The object layer doesn't report parts, so part 1 is the entire object, even if it was
+		// uploaded in several parts, and no parts count is made up.
+		{name: "multipart object", data: "0123456789", expStatus: http.StatusPartialContent, expRange: "bytes 0-9/10"},
+		{name: "empty object", data: "", expStatus: http.StatusOK},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectAPI := singleObjectLayer(cmd.ObjectInfo{
+				Bucket: "bucket",
+				Name:   "key",
+				Size:   int64(len(tt.data)),
+				ETag:   "0123456789abcdef0123456789abcdef-3",
+			}, tt.data)
+
+			for _, method := range []string{http.MethodGet, http.MethodHead} {
+				t.Run(method, func(t *testing.T) {
+					resp := serveHTTP(t, objectAPI, method, "/bucket/key?partNumber=1", nil, nil)
+					require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
+					require.Equal(t, tt.expRange, resp.Header.Get("Content-Range"))
+					require.Equal(t, strconv.Itoa(len(tt.data)), resp.Header.Get("Content-Length"))
+					require.Empty(t, resp.Header.Get("X-Amz-Mp-Parts-Count"))
+					if method == http.MethodGet {
+						require.Equal(t, tt.data, resp.Body)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestGetInvalidPartNumber(t *testing.T) {
+	// Without a modification time the conditional headers are ignored, but the part number isn't.
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			resp := serveHTTP(t, objectAPI, method, "/bucket/key?partNumber=2", nil, nil)
+			require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
+		})
+	}
+
+	// GetObject rejects the part before the object layer starts a download.
+	objectAPI.getObjectNInfo = func(context.Context, string, string, *cmd.HTTPRangeSpec, http.Header, cmd.LockType, cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+		t.Fatal("the object layer was called")
+		return nil, nil
+	}
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?partNumber=2", nil, nil)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
+}
+
 func TestObjectMetadataHeaders(t *testing.T) {
 	objInfo := cmd.ObjectInfo{
-		Bucket: "bucket",
-		Name:   "key",
-		Size:   4,
+		Bucket:  "bucket",
+		Name:    "key",
+		Size:    4,
+		Expires: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 		UserDefined: map[string]string{
+			"Expires":                 "garbage",
 			"Set-Cookie":              "session=1",
 			"s3:etag":                 "etag",
 			"s3:tags":                 "a=1&b=2",
 			"X-Minio-Internal-Secret": "hidden",
 			"X-Amz-Meta-A":            "1",
+			"X-Amz-Meta-Utf8":         "héllo",
+			"X-Amz-Meta-Long":         strings.Repeat("é", 60),
 			"Cache-Control":           "no-cache",
 			"x-amz-object-lock-mode":  "GOVERNANCE",
 			"X-Amz-Storage-Class":     "STANDARD_IA",
@@ -814,11 +918,15 @@ func TestObjectMetadataHeaders(t *testing.T) {
 	check := func(t *testing.T, resp response) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		for k, v := range map[string]string{
-			"X-Amz-Meta-A":            "1",
+			"X-Amz-Meta-A":    "1",
+			"X-Amz-Meta-Utf8": "=?UTF-8?B?aMOpbGxv?=",
+			// A long value is a single encoded word.
+			"X-Amz-Meta-Long":         "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(strings.Repeat("é", 60))) + "?=",
+			"X-Amz-Tagging-Count":     "2",
 			"Cache-Control":           "no-cache",
+			"Expires":                 "Fri, 02 Jan 2026 03:04:05 GMT",
 			"X-Amz-Object-Lock-Mode":  "GOVERNANCE",
 			"X-Amz-Storage-Class":     "STANDARD_IA",
-			"X-Amz-Tagging-Count":     "2",
 			"Content-Type":            "binary/octet-stream",
 			"Set-Cookie":              "",
 			"X-Minio-Internal-Secret": "",
@@ -1115,6 +1223,7 @@ func TestUploadPartCopy(t *testing.T) {
 		{name: "whole source", size: 10, expStatus: http.StatusOK, expLength: -1},
 		{name: "range", size: 10, rangeStr: "bytes=2-5", expStatus: http.StatusOK, expOffset: 2, expLength: 4},
 		{name: "range to last byte", size: 10, rangeStr: "bytes=0-9", expStatus: http.StatusOK, expLength: 10},
+		{name: "first after last", size: 10, rangeStr: "bytes=5-3", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
 		{name: "end past source", size: 10, rangeStr: "bytes=0-10", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "end overflows length", size: 10, rangeStr: "bytes=0-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "huge start", size: 10, rangeStr: "bytes=9223372036854775806-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},

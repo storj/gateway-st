@@ -5,6 +5,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,10 @@ import (
 )
 
 const byteRangePrefix = "bytes="
+
+// errRangeFirstAfterLast is returned by ParseRange for ranges whose first byte position is after
+// the last one.
+var errRangeFirstAfterLast = fmt.Errorf("%w: first byte position after last", apierr.CodeInvalidCopySourceRange)
 
 // ParseRange parses an HTTP range string as an HTTPRangeSpec. It returns apierr.CodeMalformedCopySourceRange
 // if the range string is malformed and apierr.CodeInvalidCopySourceRange if it is well-formed but
@@ -41,7 +46,7 @@ func ParseRange(rangeString string) (*cmd.HTTPRangeSpec, error) {
 	switch {
 	case hasBeginOffset && hasEndOffset:
 		if beginOffset > endOffset {
-			return nil, apierr.CodeInvalidCopySourceRange
+			return nil, errRangeFirstAfterLast
 		}
 		return &cmd.HTTPRangeSpec{
 			IsSuffixLength: false,
@@ -97,12 +102,16 @@ func parseRangeForCopy(rangeStr string) (rangeSpec *cmd.HTTPRangeSpec, err error
 }
 
 // parseRangeForGet parses the Range header of a GetObject or HeadObject request. Like S3, it
-// ignores malformed range strings, treating the request as if no range was specified.
+// ignores malformed range strings and, per RFC 9110, ranges whose first byte position is after the
+// last one, treating the request as if no range was specified.
 func parseRangeForGet(rangeStr string) (*cmd.HTTPRangeSpec, error) {
 	if rangeStr == "" {
 		return nil, nil
 	}
 	rangeSpec, err := ParseRange(rangeStr)
+	if errors.Is(err, errRangeFirstAfterLast) {
+		return nil, nil
+	}
 	if errors.Is(err, apierr.CodeInvalidCopySourceRange) {
 		return nil, apierr.CodeInvalidRange
 	}

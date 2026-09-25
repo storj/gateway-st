@@ -722,11 +722,16 @@ func setObjectHeaders(w http.ResponseWriter, objInfo cmd.ObjectInfo, rangeSpec *
 		if strings.EqualFold(k, xhttp.AmzMetaUnencryptedContentLength) || strings.EqualFold(k, xhttp.AmzMetaUnencryptedContentMD5) {
 			continue
 		}
+		// A parsed Expires takes precedence over the stored value, which may be malformed.
+		if strings.EqualFold(k, xhttp.Expires) && !objInfo.Expires.IsZero() {
+			continue
+		}
 		if slices.ContainsFunc(userMetadataKeyPrefixes, func(prefix string) bool {
 			return strings.HasPrefix(lowerK, strings.ToLower(prefix))
 		}) {
-			// User-defined metadata keys are returned in lowercase, like S3 does.
-			h[lowerK] = []string{v}
+			// User-defined metadata keys are returned in lowercase, like S3 does. Values that
+			// aren't printable ASCII are RFC 2047 encoded.
+			h[lowerK] = []string{encodeHeaderValue(v)}
 			continue
 		}
 		if strings.HasPrefix(lowerK, objectLockMetadataPrefix) || slices.ContainsFunc(objectMetadataHeaders, func(header string) bool {
@@ -779,4 +784,15 @@ func setResponseHeaderOverrides(w http.ResponseWriter, query url.Values) {
 			w.Header()[header] = v[:1]
 		}
 	}
+}
+
+// encodeHeaderValue RFC 2047 encodes v if it isn't printable ASCII. Unlike mime.QEncoding, it
+// always produces a single encoded word, which clients decode without joining several.
+func encodeHeaderValue(v string) string {
+	for i := 0; i < len(v); i++ {
+		if (v[i] < ' ' && v[i] != '\t') || v[i] > '~' {
+			return "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(v)) + "?="
+		}
+	}
+	return v
 }

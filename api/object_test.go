@@ -96,24 +96,6 @@ func TestGetEmptyObjectSuffixRange(t *testing.T) {
 	}
 }
 
-func TestGetInvalidPartNumber(t *testing.T) {
-	// Without a modification time the conditional headers are ignored, but the part number isn't.
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
-
-	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		resp := serve(t, objectAPI, method, "/bucket/key?partNumber=2", nil, nil)
-		require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, method)
-	}
-
-	// GetObject rejects the part before the object layer starts a download.
-	objectAPI.getObjectNInfo = func(context.Context, string, string, *cmd.HTTPRangeSpec, http.Header, cmd.LockType, cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
-		t.Fatal("the object layer was called")
-		return nil, nil
-	}
-	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?partNumber=2", nil, nil)
-	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode)
-}
-
 func TestGetObjectFirstReadClientAbort(t *testing.T) {
 	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}
 	objectAPI := &fakeObjectLayer{
