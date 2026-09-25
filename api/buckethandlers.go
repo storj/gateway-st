@@ -77,6 +77,12 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 
 	bucket := mux.Vars(r)["bucket"]
 
+	body, err := api.verifyWithBody(r, false)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	objectLockEnabled := false
 	if vs, found := r.Header[http.CanonicalHeaderKey("x-amz-bucket-object-lock-enabled")]; found {
 		switch strings.ToLower(vs[0]) {
@@ -87,12 +93,6 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 			api.writeErrorResponse(w, r, apierr.CodeInvalidRequest)
 			return
 		}
-	}
-
-	body, err := api.verifyWithBody(r, false)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
 	}
 
 	data, err := readVerifiedBody(body, maxConfigBodySize)
@@ -632,11 +632,6 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "PostObject")
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	}
-
 	bucketName := mux.Vars(r)["bucket"]
 
 	if r.ContentLength < 0 {
@@ -654,6 +649,11 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
 

@@ -1805,3 +1805,36 @@ func TestDeleteObjectsOnlyFiltered(t *testing.T) {
 	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>dashed</Key>")
 	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>garbage</Key>")
 }
+
+func TestUnauthenticatedRequestValidation(t *testing.T) {
+	sse := http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}}
+	storageClass := http.Header{"X-Amz-Storage-Class": {"GLACIER"}}
+	for _, tt := range []struct {
+		method, target string
+		header         http.Header
+		body           string
+	}{
+		{http.MethodPut, "/bucket", http.Header{"X-Amz-Bucket-Object-Lock-Enabled": {"invalid"}}, ""},
+		{http.MethodPost, "/bucket", http.Header{"Content-Type": {"multipart/form-data; boundary=x"}, "X-Amz-Server-Side-Encryption": {"AES256"}},
+			"--x\r\nContent-Disposition: form-data; name=\"key\"\r\n\r\nkey\r\n" +
+				"--x\r\nContent-Disposition: form-data; name=\"file\"; filename=\"f\"\r\n\r\ndata\r\n--x--\r\n"},
+		{http.MethodPut, "/bucket/key", sse, ""},
+		{http.MethodPut, "/bucket/key", storageClass, ""},
+		{http.MethodPost, "/bucket/key?uploads", sse, ""},
+		{http.MethodPost, "/bucket/key?uploads", storageClass, ""},
+		{http.MethodPut, "/bucket/key", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Server-Side-Encryption": {"AES256"}}, ""},
+		{http.MethodPut, "/bucket/key?partNumber=1&uploadId=x", sse, ""},
+		{http.MethodPut, "/bucket/key?partNumber=1&uploadId=x", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Server-Side-Encryption-Customer-Algorithm": {"AES256"}}, ""},
+		{http.MethodGet, "/bucket/key", sse, ""},
+		{http.MethodHead, "/bucket/key", sse, ""},
+	} {
+		t.Run(fmt.Sprint(tt.method, " ", tt.target, " ", tt.header), func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, strings.NewReader(tt.body))
+			req.Header = tt.header.Clone()
+
+			rec := httptest.NewRecorder()
+			newTestRouter(&fakeObjectLayer{}).ServeHTTP(rec, req)
+			require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+		})
+	}
+}

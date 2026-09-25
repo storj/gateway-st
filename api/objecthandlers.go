@@ -309,17 +309,6 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "UploadPart")
 
-	// Reject UploadPartCopy requests that may have been routed here due to a misconfiguration.
-	if _, ok := r.Header[xhttp.AmzCopySource]; ok {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	}
-
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -331,6 +320,17 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	// Reject UploadPartCopy requests that may have been routed here due to a misconfiguration.
+	if _, ok := r.Header[xhttp.AmzCopySource]; ok {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
 
@@ -385,6 +385,19 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "UploadPartCopy")
 
+	vars := mux.Vars(r)
+	dstBucket := vars["bucket"]
+	dstObject, err := unescapePath(vars["object"])
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	for _, header := range []string{
 		xhttp.AmzServerSideEncryptionCustomerAlgorithm,
 		xhttp.AmzServerSideEncryptionCustomerKey,
@@ -397,19 +410,6 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 			return
 		}
-	}
-
-	vars := mux.Vars(r)
-	dstBucket := vars["bucket"]
-	dstObject, err := unescapePath(vars["object"])
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
 	}
 
 	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
@@ -501,11 +501,6 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "PutObject")
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -517,6 +512,11 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := api.verifyWithBody(r, false)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
 
@@ -896,11 +896,6 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "GetObject")
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeBadRequest)
-		return
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -911,6 +906,11 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeBadRequest)
 		return
 	}
 
@@ -1038,11 +1038,6 @@ func (w *deferredStatusWriter) Write(p []byte) (int, error) {
 func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "HeadObject")
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponseHeadersOnly(r, w, apierr.CodeBadRequest)
-		return
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -1053,6 +1048,11 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponseHeadersOnly(r, w, apierr.CodeBadRequest)
 		return
 	}
 
@@ -1363,11 +1363,6 @@ func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Reques
 func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "CopyObject")
 
-	if _, requested := crypto.IsRequested(r.Header); requested || crypto.SSECopy.IsRequested(r.Header) {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	}
-
 	vars := mux.Vars(r)
 	dstBucket := vars["bucket"]
 	dstObject, err := unescapePath(vars["object"])
@@ -1378,6 +1373,11 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested || crypto.SSECopy.IsRequested(r.Header) {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
 
@@ -1607,11 +1607,6 @@ func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, s
 func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "CreateMultipartUpload")
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
-	}
-
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
 	objectKey, err := unescapePath(vars["object"])
@@ -1622,6 +1617,11 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, requested := crypto.IsRequested(r.Header); requested {
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
 
