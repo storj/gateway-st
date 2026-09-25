@@ -150,6 +150,9 @@ type errorResponse struct {
 	Key        string `xml:",omitempty"`
 	Resource   string
 	RequestID  string `xml:"RequestId"`
+
+	ArgumentName  string `xml:",omitempty"`
+	ArgumentValue string `xml:",omitempty"`
 }
 
 func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Response) errorResponse {
@@ -165,6 +168,9 @@ func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Respon
 		Key:        objectKey,
 		Resource:   getResource(r),
 		RequestID:  w.Header().Get(xhttp.AmzRequestID),
+
+		ArgumentName:  resp.ArgumentName,
+		ArgumentValue: resp.ArgumentValue,
 	}
 }
 

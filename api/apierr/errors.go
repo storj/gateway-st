@@ -32,6 +32,10 @@ type Response struct {
 	Code           string
 	Description    string
 	HTTPStatusCode int
+
+	// ArgumentName and ArgumentValue optionally identify the invalid argument.
+	ArgumentName  string
+	ArgumentValue string
 }
 
 // Error implements the error interface.

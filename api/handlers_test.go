@@ -1480,6 +1480,54 @@ func TestServeHTTP(t *testing.T) {
 	}
 }
 
+func TestGetObjectAttributes(t *testing.T) {
+	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
+
+	t.Run("all attributes", func(t *testing.T) {
+		resp := serve(t, singleObjectLayer(objInfo, ""), http.MethodGet, "/bucket/key?attributes", http.Header{
+			"X-Amz-Object-Attributes": {"ETag,Checksum,ObjectParts,StorageClass,ObjectSize"},
+		}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<ETag>etag</ETag><StorageClass>STANDARD</StorageClass><ObjectSize>0</ObjectSize></GetObjectAttributesResponse>")
+	})
+
+	type errorBody struct {
+		Code          string
+		Resource      string
+		RequestID     string `xml:"RequestId"`
+		ArgumentName  string
+		ArgumentValue string
+	}
+
+	for _, tt := range []struct {
+		name   string
+		header string
+		want   errorBody
+	}{
+		{name: "empty", header: " ", want: errorBody{Code: "InvalidRequest"}},
+		{name: "invalid", header: "ETag, Bogus", want: errorBody{Code: "InvalidArgument", ArgumentName: "x-amz-object-attributes", ArgumentValue: "Bogus"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectAPI := singleObjectLayer(objInfo, "")
+			resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?attributes", http.Header{
+				"X-Amz-Object-Attributes": {tt.header},
+			}, nil)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+			require.Empty(t, objectAPI.Calls())
+
+			var got errorBody
+			require.NoError(t, xml.Unmarshal([]byte(resp.Body), &got))
+			require.NotEmpty(t, got.RequestID)
+			tt.want.RequestID = got.RequestID
+			tt.want.Resource = "/bucket/key"
+			require.Equal(t, tt.want, got)
+			if tt.want.ArgumentName == "" {
+				require.NotContains(t, resp.Body, "Argument")
+			}
+		})
+	}
+}
+
 func TestIfMatchNotImplemented(t *testing.T) {
 	deleteBody := []byte(`<Delete><Object><Key>key</Key><ETag>"etag"</ETag></Object></Delete>`)
 	deleteSum := md5.Sum(deleteBody)

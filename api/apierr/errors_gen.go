@@ -60,6 +60,7 @@ const (
 	CodeMethodNotAllowed
 	CodeMissingContentLength
 	CodeMissingContentMD5
+	CodeMissingObjectAttributes
 	CodeMissingPOSTPolicy
 	CodeMissingSecurityHeader
 	CodeNegativeExpires
@@ -92,7 +93,6 @@ const (
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
 	CodeSignatureDoesNotMatch
-	CodeUnsupportedAttributeName
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
 )
@@ -184,7 +184,7 @@ var codeToResponse = map[Code]Response{
 		HTTPStatusCode: http.StatusForbidden,
 	},
 	CodeInvalidAttributeName: {
-		Code:           "InvalidAttributeName",
+		Code:           "InvalidArgument",
 		Description:    "Invalid attribute name specified.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
@@ -368,6 +368,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Missing required header for this request: Content-MD5",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeMissingObjectAttributes: {
+		Code:           "InvalidRequest",
+		Description:    "The x-amz-object-attributes header specifying the attributes to be retrieved is either missing or empty",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMissingPOSTPolicy: {
 		Code:           "InvalidArgument",
 		Description:    "Bucket POST must contain a field named 'policy'.",
@@ -527,11 +532,6 @@ var codeToResponse = map[Code]Response{
 		Code:           "SignatureDoesNotMatch",
 		Description:    "The request signature we calculated does not match the signature you provided. Check your key and signing method.",
 		HTTPStatusCode: http.StatusForbidden,
-	},
-	CodeUnsupportedAttributeName: {
-		Code:           "NotImplemented",
-		Description:    "Unsupported attribute name specified.",
-		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeUnsupportedECDSAP256SHA256: {
 		Code:           "NotImplemented",

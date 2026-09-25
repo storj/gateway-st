@@ -668,40 +668,30 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeArgumentErrorResponse := func(argName, argValue string, err error) {
-		errResp, matched := errToResponse(err)
-		if !matched {
-			api.log.Error(r, "unexpected error", err)
-			errResp, _ = apierr.CodeInternal.ToResponse()
-		}
-
-		resp := cmd.ObjectAttributesErrorResponse{
-			ArgumentName:  argName,
-			ArgumentValue: argValue,
-			APIErrorResponse: cmd.APIErrorResponse{
-				Code:    errResp.Code,
-				Message: errResp.Description,
-			},
-		}
-
-		encodedResp, err := encodeResponse(resp)
-		if err != nil {
-			api.writeErrorResponse(w, r, err)
-			return
-		}
-		api.writeResponse(w, r, errResp.HTTPStatusCode, encodedResp, mimeXML)
-	}
-
 	versionID, err := extractVersionID(r.URL.Query())
 	if err != nil {
-		writeArgumentErrorResponse("versionId", r.URL.Query().Get(xhttp.VersionID), err)
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
 	attrs := strings.TrimSpace(r.Header.Get(xhttp.AmzObjectAttributes))
 	if attrs == "" {
-		writeArgumentErrorResponse(strings.ToLower(xhttp.AmzObjectAttributes), "", apierr.CodeInvalidAttributeName)
+		api.writeErrorResponse(w, r, apierr.CodeMissingObjectAttributes)
 		return
+	}
+
+	names := strings.Split(attrs, ",")
+	for i, name := range names {
+		names[i] = strings.TrimSpace(name)
+		switch names[i] {
+		case xhttp.ETag, xhttp.StorageClass, xhttp.ObjectSize, xhttp.ObjectParts, xhttp.Checksum:
+		default:
+			errResp, _ := apierr.CodeInvalidAttributeName.ToResponse()
+			errResp.ArgumentName = strings.ToLower(xhttp.AmzObjectAttributes)
+			errResp.ArgumentValue = names[i]
+			api.writeErrorResponse(w, r, errResp)
+			return
+		}
 	}
 
 	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
@@ -710,9 +700,16 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var resp cmd.ObjectAttributesResponse
-	for name := range strings.SplitSeq(attrs, ",") {
-		switch strings.TrimSpace(name) {
+	// ObjectSize is a pointer so that a requested size of 0 is still encoded.
+	var resp struct {
+		XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ GetObjectAttributesResponse"`
+		ETag         string   `xml:",omitempty"`
+		StorageClass string   `xml:",omitempty"`
+		ObjectSize   *int64   `xml:",omitempty"`
+	}
+	// ponytail: Checksum and ObjectParts are accepted but omitted; add them when checksums and parts are stored.
+	for _, name := range names {
+		switch name {
 		case xhttp.ETag:
 			resp.ETag = objInfo.ETag
 		case xhttp.StorageClass:
@@ -721,14 +718,7 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 				resp.StorageClass = objInfo.StorageClass
 			}
 		case xhttp.ObjectSize:
-			resp.ObjectSize = objInfo.Size
-		case xhttp.ObjectParts, xhttp.Checksum:
-			// TODO: Support these.
-			writeArgumentErrorResponse(strings.ToLower(xhttp.AmzObjectAttributes), name, apierr.CodeUnsupportedAttributeName)
-			return
-		default:
-			writeArgumentErrorResponse(strings.ToLower(xhttp.AmzObjectAttributes), name, apierr.CodeInvalidAttributeName)
-			return
+			resp.ObjectSize = &objInfo.Size
 		}
 	}
 
