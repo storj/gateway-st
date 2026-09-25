@@ -4,12 +4,19 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api"
 	"storj.io/minio/cmd"
 )
 
@@ -80,6 +87,46 @@ func TestObjectKeyIsNotCleaned(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodDelete, "/bucket//a//b/../c", nil, nil)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "/a//b/../c", gotKey)
+}
+
+func TestBucketRoutesDoNotMatchObjectPaths(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			t.Error("DeleteObjects must not be called")
+			return nil, nil, nil
+		},
+	}
+
+	body := []byte(`<Delete><Object><Key>key</Key></Object></Delete>`)
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket/key?delete", nil, body)
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, resp.Body)
+
+	resp = serve(t, objectAPI, http.MethodPost, "/bucket/key", http.Header{"Content-Type": {"multipart/form-data; boundary=x"}}, nil)
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, resp.Body)
+}
+
+func TestVirtualHostedRequestsDoNotFallThroughToPathStyle(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			t.Error("DeleteObjects must not be called")
+			return nil, nil, nil
+		},
+	}
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{Domains: []string{"example.com"}}).RegisterHandlers(router)
+
+	// The path would address another bucket if the request fell through to path-style routing.
+	for _, host := range []string{"mybucket.example.com", "mybucket.EXAMPLE.com"} {
+		body := []byte(`<Delete><Object><Key>victim</Key></Object></Delete>`)
+		sum := md5.Sum(body)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+host+"/other-bucket?delete", bytes.NewReader(body))
+		req.Header.Set("Content-MD5", base64.StdEncoding.EncodeToString(sum[:]))
+		signV4(req, body, time.Now())
+
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.NotEqual(t, http.StatusOK, rec.Code, host)
+	}
 }
 
 func TestUnmatchedRoutes(t *testing.T) {

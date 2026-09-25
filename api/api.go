@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/amwolff/awsig"
@@ -109,13 +110,23 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		api.writeErrorResponse(w, r, apierr.CodeMethodNotAllowed)
 	}))
 
-	var subrouters []*mux.Router
+	type bucketSubrouter struct {
+		*mux.Router
+		vHost bool
+	}
+	var subrouters []bucketSubrouter
 	for _, domain := range api.config.Domains {
 		subrouter := apiRouter.Host("{bucket:.+}." + domain).Subrouter()
 		subrouter.Use(withVirtualHostedStyleMiddleware)
-		subrouters = append(subrouters, subrouter)
+		subrouters = append(subrouters, bucketSubrouter{Router: subrouter, vHost: true})
 	}
-	subrouters = append(subrouters, apiRouter.PathPrefix("/{bucket}").Subrouter())
+	// A virtual-hosted-style request that no route of its domain matches must not fall through to
+	// path-style routing, where its path would address another bucket.
+	notVirtualHosted := func(r *http.Request, _ *mux.RouteMatch) bool {
+		host, _, _ := strings.Cut(r.Host, ":")
+		return !isVirtualHostedHost(host, api.config.Domains)
+	}
+	subrouters = append(subrouters, bucketSubrouter{Router: apiRouter.PathPrefix("/{bucket}").MatcherFunc(notVirtualHosted).Subrouter()})
 
 	for _, subrouter := range subrouters {
 		// Object-level operations
@@ -148,40 +159,42 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		objRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.CompleteMultipartUploadHandler)
 
 		// Registered after the object-level operations so that they only match bucket-level requests.
-		api.registerUnsupportedHandlers(subrouter)
+		api.registerUnsupportedHandlers(subrouter.Router)
 
 		// Bucket-level operations
-		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
-		subrouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)
-		subrouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutObjectLockConfigurationHandler)
-		subrouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler)
-		subrouter.Methods(http.MethodPut).Queries("versioning", "").HandlerFunc(api.PutBucketVersioningHandler)
-		subrouter.Methods(http.MethodPut).HandlerFunc(api.CreateBucketHandler)
+		bucketRouter := subrouter.MatcherFunc(bucketPathMatcher(subrouter.vHost)).Subrouter()
 
-		subrouter.Methods(http.MethodHead).HandlerFunc(api.HeadBucketHandler)
+		bucketRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
+		bucketRouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)
+		bucketRouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutObjectLockConfigurationHandler)
+		bucketRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler)
+		bucketRouter.Methods(http.MethodPut).Queries("versioning", "").HandlerFunc(api.PutBucketVersioningHandler)
+		bucketRouter.Methods(http.MethodPut).HandlerFunc(api.CreateBucketHandler)
 
-		subrouter.Methods(http.MethodGet).Queries("accelerate", "").HandlerFunc(api.GetBucketAccelerateHandler)
-		subrouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetBucketAclHandler)
-		subrouter.Methods(http.MethodGet).Queries("cors", "").HandlerFunc(api.GetBucketCorsHandler)
-		subrouter.Methods(http.MethodGet).Queries("location", "").HandlerFunc(api.GetBucketLocationHandler)
-		subrouter.Methods(http.MethodGet).Queries("logging", "").HandlerFunc(api.GetBucketLoggingHandler)
-		subrouter.Methods(http.MethodGet).Queries("notification", "").HandlerFunc(api.GetBucketNotificationConfigurationHandler)
-		subrouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetObjectLockConfigurationHandler)
-		subrouter.Methods(http.MethodGet).Queries("policyStatus", "").HandlerFunc(api.GetBucketPolicyStatusHandler)
-		subrouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler)
-		subrouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler)
-		subrouter.Methods(http.MethodGet).Queries("versioning", "").HandlerFunc(api.GetBucketVersioningHandler)
+		bucketRouter.Methods(http.MethodHead).HandlerFunc(api.HeadBucketHandler)
 
-		subrouter.Methods(http.MethodGet).HandlerFunc(api.ListMultipartUploadsHandler).Queries("uploads", "")
-		subrouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectVersionsHandler).Queries("versions", "")
-		subrouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsV2Handler).Queries("list-type", "2")
-		subrouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("accelerate", "").HandlerFunc(api.GetBucketAccelerateHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetBucketAclHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("cors", "").HandlerFunc(api.GetBucketCorsHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("location", "").HandlerFunc(api.GetBucketLocationHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("logging", "").HandlerFunc(api.GetBucketLoggingHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("notification", "").HandlerFunc(api.GetBucketNotificationConfigurationHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetObjectLockConfigurationHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("policyStatus", "").HandlerFunc(api.GetBucketPolicyStatusHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("versioning", "").HandlerFunc(api.GetBucketVersioningHandler)
 
-		subrouter.Methods(http.MethodPost).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
-		subrouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
+		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListMultipartUploadsHandler).Queries("uploads", "")
+		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectVersionsHandler).Queries("versions", "")
+		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsV2Handler).Queries("list-type", "2")
+		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsHandler)
 
-		subrouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
-		subrouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteBucketHandler)
+		bucketRouter.Methods(http.MethodPost).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
+		bucketRouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
+
+		bucketRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
+		bucketRouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteBucketHandler)
 	}
 
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).HandlerFunc((api.ListBucketsHandler))
@@ -192,6 +205,35 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		w.Header().Set(xhttp.AmzRequestID, fmt.Sprintf("%X", time.Now().UnixNano()))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isVirtualHostedHost returns whether host addresses a bucket as a subdomain of one of domains.
+// Host names are case-insensitive.
+func isVirtualHostedHost(host string, domains []string) bool {
+	host = strings.ToLower(host)
+	for _, domain := range domains {
+		if strings.EqualFold(host, domain) {
+			return false
+		}
+	}
+	for _, domain := range domains {
+		if strings.HasSuffix(host, "."+strings.ToLower(domain)) {
+			return true
+		}
+	}
+	return false
+}
+
+// bucketPathMatcher matches requests whose path addresses a bucket rather than an object:
+// "/" for virtual-hosted-style requests and "/bucket" or "/bucket/" for path-style ones.
+func bucketPathMatcher(vHost bool) mux.MatcherFunc {
+	return func(r *http.Request, _ *mux.RouteMatch) bool {
+		p := r.URL.EscapedPath()
+		if vHost {
+			return p == "/"
+		}
+		return !strings.Contains(strings.TrimSuffix(strings.TrimPrefix(p, "/"), "/"), "/")
+	}
 }
 
 type contextKey int
