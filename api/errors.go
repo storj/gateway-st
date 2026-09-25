@@ -65,9 +65,9 @@ func getChecksumMismatchFromError(err error) (mismatch awsig.ChecksumMismatch, o
 	slices.SortFunc(mismatchErr.Mismatches, func(a awsig.ChecksumMismatch, b awsig.ChecksumMismatch) int {
 		ord := func(mismatch awsig.ChecksumMismatch) int {
 			switch {
-			case a.Algorithm == awsig.AlgorithmMD5:
+			case mismatch.Algorithm == awsig.AlgorithmMD5:
 				return 0
-			case a.Algorithm == awsig.AlgorithmSHA256 && a.IsContentSHA256:
+			case mismatch.Algorithm == awsig.AlgorithmSHA256 && mismatch.IsContentSHA256:
 				return 1
 			default:
 				return 2
