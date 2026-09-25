@@ -291,3 +291,18 @@ func TestListMultipartUploads(t *testing.T) {
 	require.Contains(t, resp.Body, "Invalid Encoding Method specified in Request")
 
 }
+
+func TestListMultipartUploadsMaxUploadsClamped(t *testing.T) {
+	var got int
+	objectAPI := &fakeObjectLayer{
+		listMultipartUploads: func(_ context.Context, _, _, _, _, _ string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+			got = maxUploads
+			return cmd.ListMultipartsInfo{MaxUploads: maxUploads}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?uploads&max-uploads=5000", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, 1000, got)
+	require.Contains(t, resp.Body, "<MaxUploads>1000</MaxUploads>")
+}

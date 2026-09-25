@@ -328,6 +328,7 @@ func getListMultipartUploadsParams(values url.Values) (params listMultipartUploa
 		if maxUploads, err = strconv.Atoi(maxUploadsStr); err != nil {
 			return listMultipartUploadsParams{}, apierr.CodeInvalidMaxUploads
 		}
+		maxUploads = min(maxUploads, maxObjectList)
 	} else {
 		maxUploads = maxObjectList
 	}
