@@ -728,8 +728,9 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set(xhttp.Location, GetObjectURL(r, objectKey))
 
-	if successRedirect != "" {
-		queryValues := make(url.Values)
+	// Like S3, ignore a redirect URL that can't be interpreted and fall back to success_action_status.
+	if redirectURL != nil {
+		queryValues := redirectURL.Query()
 		queryValues.Set("bucket", objInfo.Bucket)
 		queryValues.Set("key", objInfo.Name)
 		queryValues.Set("etag", "\""+objInfo.ETag+"\"")
