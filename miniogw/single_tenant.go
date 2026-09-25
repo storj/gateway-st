@@ -86,6 +86,8 @@ func minioError(err error) bool {
 	switch {
 	case errors.As(err, &miniogo.ErrorResponse{}):
 		return true
+	case errors.As(err, new(minio.InvalidUploadID)):
+		return true
 	default:
 		return reflect.TypeOf(err).ConvertibleTo(reflect.TypeFor[minio.GenericError]())
 	}

@@ -3210,6 +3210,10 @@ func TestAbortMultipartUpload(t *testing.T) {
 
 		err = layer.AbortMultipartUpload(ctx, testBucket, testFile, uploadID, minio.ObjectOptions{})
 		require.NoError(t, err)
+
+		// already aborted
+		err = layer.AbortMultipartUpload(ctx, testBucket, testFile, uploadID, minio.ObjectOptions{})
+		require.ErrorIs(t, err, minio.InvalidUploadID{Bucket: testBucket, Object: testFile, UploadID: uploadID})
 	})
 }
 

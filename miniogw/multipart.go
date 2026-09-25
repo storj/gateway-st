@@ -316,11 +316,9 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 
 	err = project.AbortUpload(ctx, bucket, object, uploadID)
 	if err != nil {
-		// NOTE: It's not clear whether AbortMultipartUpload should return a 404
-		// for objects not found. MinIO tests only cover "bucket not found" and
-		// "invalid id".
+		// AWS S3 returns NoSuchUpload for an upload that doesn't exist.
 		if errors.Is(err, uplink.ErrObjectNotFound) {
-			return nil
+			return minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 		}
 		return convertMultipartError(err, bucket, object, uploadID)
 	}
