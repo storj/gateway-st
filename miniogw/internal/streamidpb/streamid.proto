@@ -1,0 +1,15 @@
+// Copyright (C) 2026 Storj Labs, Inc.
+// See LICENSE for copying information.
+
+syntax = "proto3";
+option go_package = "storj.io/gateway/miniogw/internal/streamidpb";
+
+package streamidpb;
+
+// StreamID is the subset of the satellite's internalpb.StreamID that an
+// upload ID carries. Fields must keep the satellite's numbers.
+message StreamID {
+    bytes bucket = 1;
+    bytes encrypted_object_key = 2;
+    bytes stream_id = 10;
+}

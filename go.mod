@@ -18,6 +18,7 @@ require (
 	storj.io/common v0.0.0-20261008150920-1c60c16e942e
 	storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f
 	storj.io/minio v0.0.0-20260609124736-fc17c581773a
+	storj.io/picobuf v0.0.4
 	storj.io/uplink v1.14.6-0.20260924092809-764fb8b1e07d
 )
 
@@ -208,5 +209,4 @@ require (
 	storj.io/drpc v1.0.0 // indirect
 	storj.io/infectious v1.0.1 // indirect
 	storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad // indirect
-	storj.io/picobuf v0.0.4 // indirect
 )

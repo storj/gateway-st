@@ -4,6 +4,7 @@
 package miniogw
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,12 +14,17 @@ import (
 
 	"github.com/zeebo/errs"
 
+	"storj.io/common/base58"
+	"storj.io/common/encryption"
 	"storj.io/common/memory"
+	"storj.io/common/paths"
 	"storj.io/common/sync2"
 	"storj.io/eventkit"
+	"storj.io/gateway/miniogw/internal/streamidpb"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
+	"storj.io/picobuf"
 	"storj.io/uplink"
 	"storj.io/uplink/private/metaclient"
 	"storj.io/uplink/private/multipart"
@@ -195,6 +201,10 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 		return minio.PartInfo{}, err
 	}
 
+	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+		return minio.PartInfo{}, err
+	}
+
 	partUpload, err := project.UploadPart(ctx, bucket, object, uploadID, uint32(partID))
 	if err != nil {
 		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
@@ -259,6 +269,10 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		ek.Event("ListParts", tags...)
 	}()
 
+	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+		return minio.ListPartsInfo{}, err
+	}
+
 	list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{
 		Cursor: uint32(partNumberMarker),
 	})
@@ -314,6 +328,10 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 		return err
 	}
 
+	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+		return err
+	}
+
 	err = project.AbortUpload(ctx, bucket, object, uploadID)
 	if err != nil {
 		// AWS S3 returns NoSuchUpload for an upload that doesn't exist.
@@ -335,6 +353,40 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	project, err := projectFromContext(ctx, bucket, object)
 	if err != nil {
 		return minio.ObjectInfo{}, err
+	}
+
+	// Listed upload IDs lack some fields, such as the object lock settings, so
+	// compare the stream IDs that they carry instead of the IDs themselves.
+	id, ok := parseUploadID(uploadID)
+	if !ok {
+		return minio.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
+	}
+
+	metadata := uplink.CustomMetadata{}
+	// TODO we can think about batching this request with ListUploadParts
+	uploads := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
+		Prefix: object,
+		Custom: true,
+	})
+	found := false
+	for uploads.Next() {
+		upload := uploads.Item()
+		if upload.Key != object {
+			continue
+		}
+		if listed, ok := parseUploadID(upload.UploadID); ok && bytes.Equal(listed.StreamId, id.StreamId) {
+			metadata = upload.Custom
+			found = true
+			break
+		}
+	}
+	if err := uploads.Err(); err != nil {
+		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+	// The satellite commits whatever upload the ID points to, so reject IDs
+	// that belong to another key (see checkUploadID).
+	if !found {
+		return minio.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 	}
 
 	var idx int
@@ -395,23 +447,6 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		delete(opts.UserDefined, xhttp.AmzObjectTagging)
 	}
 
-	metadata := uplink.CustomMetadata{}
-	// TODO we can think about batching this request with ListUploadParts
-	uploads := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
-		Prefix: object,
-		Custom: true,
-	})
-	for uploads.Next() {
-		upload := uploads.Item()
-		// TODO should we error if we didn't find corresponding upload
-		if upload.UploadID == uploadID {
-			metadata = upload.Custom
-		}
-	}
-	if err := uploads.Err(); err != nil {
-		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
-	}
-
 	if err := verifyIfNoneMatch(opts.IfNoneMatch); err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -440,6 +475,53 @@ func minioMultipartInfo(bucket string, object *uplink.UploadInfo) minio.Multipar
 		UploadID:    object.UploadID,
 		UserDefined: object.Custom,
 	}
+}
+
+// checkUploadID returns InvalidUploadID unless uploadID is an upload of
+// bucket/object. The satellite acts on the upload the ID points to and doesn't
+// check it against the key in the request. The ID is signed by the satellite,
+// so comparing its bucket and encrypted key with the request's is enough.
+func checkUploadID(ctx context.Context, bucket, object, uploadID string) error {
+	// Let uplink reject empty and malformed IDs with its own errors.
+	if object == "" || uploadID == "" {
+		return nil
+	}
+	invalid := minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
+
+	id, ok := parseUploadID(uploadID)
+	if !ok || string(id.Bucket) != bucket {
+		return invalid
+	}
+	store, err := encryptionStore(ctx)
+	if err != nil {
+		return err
+	}
+	encKey, err := encryption.EncryptPathWithStoreCipher(bucket, paths.NewUnencrypted(object), store)
+	if err != nil {
+		return ConvertError(err, bucket, object)
+	}
+	if string(id.EncryptedObjectKey) != encKey.Raw() {
+		return invalid
+	}
+	return nil
+}
+
+// parseUploadID decodes an upload ID, which is a base58 encoding of the
+// satellite's signed StreamID message. ok reports whether the ID could be
+// decoded and has a stream ID.
+//
+// A repeated field decodes to its last value here, as it does on the
+// satellite, which re-encodes the message before checking the signature.
+func parseUploadID(uploadID string) (id *streamidpb.StreamID, ok bool) {
+	data, version, err := base58.CheckDecode(uploadID)
+	if err != nil || version != 1 {
+		return nil, false
+	}
+	id = new(streamidpb.StreamID)
+	if err := picobuf.Unmarshal(data, id); err != nil {
+		return nil, false
+	}
+	return id, len(id.StreamId) > 0
 }
 
 func convertMultipartError(err error, bucket, object, uploadID string) error {

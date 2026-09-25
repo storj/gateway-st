@@ -153,8 +153,16 @@ func TestListObjectVersions(t *testing.T) {
 	})
 }
 
-func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOptimization bool) {
+// runListingTest is runTest without the access grant in the context, so the gateway doesn't know
+// the path cipher and takes the listing optimizations that these tests cover.
+func runListingTest(t *testing.T, test func(*testing.T, context.Context, minio.ObjectLayer, *uplink.Project)) {
 	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		test(t, miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{}), layer, project)
+	})
+}
+
+func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOptimization bool) {
+	runListingTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		// Check the error when listing objects in a bucket with empty name
 		_, _, _, _, _, err := listObjects(ctx, layer, "", "", "", "/", maxKeysLimit)
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
@@ -614,7 +622,7 @@ func testListObjectsLoop(t *testing.T, listObjects listObjectsFunc) {
 }
 
 func testListObjectsStatLoop(t *testing.T, listObjects listObjectsFunc) {
-	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+	runListingTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 
@@ -1220,7 +1228,7 @@ func listBucketObjects(ctx context.Context, listObjects listObjectsFunc, layer m
 }
 
 func testListObjectsLimits(t *testing.T, listObjects listObjectsFunc, testListExhaustiveOptimization bool) {
-	runTest(t, func(t *testing.T, ctx context.Context, _ minio.ObjectLayer, project *uplink.Project) {
+	runListingTest(t, func(t *testing.T, ctx context.Context, _ minio.ObjectLayer, project *uplink.Project) {
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
 

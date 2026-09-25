@@ -129,6 +129,10 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	// work
 
+	if err = checkUploadID(ctx, destBucket, destObject, uploadID); err != nil {
+		return minio.PartInfo{}, err
+	}
+
 	download, err := versioned.DownloadObject(ctx, project, srcBucket, srcObject, srcVersion, &versioned.DownloadObjectOptions{
 		Offset:         startOffset,
 		Length:         length,

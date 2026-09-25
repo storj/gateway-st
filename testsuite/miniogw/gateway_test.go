@@ -2751,7 +2751,16 @@ func TestNewMultipartUploadWithOL(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		_, err = project.CommitUpload(ctx, testBucket, testFile, uploadID, nil)
+		// The upload ID carries the object lock settings, which listed upload IDs don't,
+		// so the layer's upload ID check must still find the upload.
+		part, err := layer.PutObjectPart(ctx, testBucket, testFile, uploadID, 1, newMinioPutObjReader(t), minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		parts, err := layer.ListObjectParts(ctx, testBucket, testFile, uploadID, 0, 1000, minio.ObjectOptions{})
+		require.NoError(t, err)
+		require.Len(t, parts.Parts, 1)
+
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, []minio.CompletePart{{PartNumber: 1, ETag: part.ETag}}, minio.ObjectOptions{})
 		require.NoError(t, err)
 
 		objRetention, err := layer.GetObjectRetention(ctx, testBucket, testFile, "")
@@ -3217,6 +3226,84 @@ func TestAbortMultipartUpload(t *testing.T) {
 	})
 }
 
+func TestMultipartUploadIDOtherKey(t *testing.T) {
+	t.Parallel()
+
+	// The upload ID carries the encrypted key, so the check must also hold with encrypted keys.
+	for _, pathCipher := range []storj.CipherSuite{storj.EncNull, storj.EncAESGCM} {
+		t.Run(pathCipher.String(), func(t *testing.T) {
+			t.Parallel()
+			testMultipartUploadIDOtherKey(t, pathCipher)
+		})
+	}
+}
+
+func testMultipartUploadIDOtherKey(t *testing.T, pathCipher storj.CipherSuite) {
+	runTestWithPathCipher(t, pathCipher, false, false, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		otherBucket := testBucket + "-other"
+		for _, name := range []string{testBucket, otherBucket} {
+			_, err := project.CreateBucket(ctx, name)
+			require.NoError(t, err)
+		}
+
+		_, err := createFile(ctx, project, testBucket, "src", []byte("test"), nil)
+		require.NoError(t, err)
+
+		for _, key := range []string{testFile, "dir/"} {
+			uploadID, err := layer.NewMultipartUpload(ctx, testBucket, key, minio.ObjectOptions{})
+			require.NoError(t, err)
+
+			part, err := layer.PutObjectPart(ctx, testBucket, key, uploadID, 1, newMinioPutObjReader(t), minio.ObjectOptions{})
+			require.NoError(t, err)
+			completeParts := []minio.CompletePart{{PartNumber: 1, ETag: part.ETag}}
+
+			for _, other := range []struct{ bucket, key string }{
+				{testBucket, testFile2},
+				{testBucket, key + "x"},
+				{otherBucket, key},
+			} {
+				invalid := minio.InvalidUploadID{Bucket: other.bucket, Object: other.key, UploadID: uploadID}
+
+				_, err = layer.PutObjectPart(ctx, other.bucket, other.key, uploadID, 2, newMinioPutObjReader(t), minio.ObjectOptions{})
+				require.ErrorIs(t, err, invalid)
+
+				_, err = layer.CopyObjectPart(ctx, testBucket, "src", other.bucket, other.key, uploadID, 3, 0, 4, minio.ObjectInfo{}, minio.ObjectOptions{}, minio.ObjectOptions{})
+				require.ErrorIs(t, err, invalid)
+
+				_, err = layer.ListObjectParts(ctx, other.bucket, other.key, uploadID, 0, 1000, minio.ObjectOptions{})
+				require.ErrorIs(t, err, invalid)
+
+				err = layer.AbortMultipartUpload(ctx, other.bucket, other.key, uploadID, minio.ObjectOptions{})
+				require.ErrorIs(t, err, invalid)
+
+				_, err = layer.CompleteMultipartUpload(ctx, other.bucket, other.key, uploadID, completeParts, minio.ObjectOptions{})
+				require.ErrorIs(t, err, invalid)
+			}
+
+			// the upload is untouched
+			parts, err := layer.ListObjectParts(ctx, testBucket, key, uploadID, 0, 1000, minio.ObjectOptions{})
+			require.NoError(t, err)
+			require.Len(t, parts.Parts, 1)
+
+			// listed upload IDs are accepted too
+			uploads, err := layer.ListMultipartUploads(ctx, testBucket, key, "", "", "", 1000)
+			require.NoError(t, err)
+			var listedID string
+			for _, upload := range uploads.Uploads {
+				if upload.Object == key {
+					listedID = upload.UploadID
+				}
+			}
+			require.NotEmpty(t, listedID)
+			parts, err = layer.ListObjectParts(ctx, testBucket, key, listedID, 0, 1000, minio.ObjectOptions{})
+			require.NoError(t, err)
+			require.Len(t, parts.Parts, 1)
+
+			require.NoError(t, layer.AbortMultipartUpload(ctx, testBucket, key, uploadID, minio.ObjectOptions{}))
+		}
+	})
+}
+
 func TestCompleteMultipartUpload(t *testing.T) {
 	t.Parallel()
 
@@ -3260,14 +3347,13 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		completeInfo, err := layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{})
 		require.NoError(t, err)
 
-		obj, err := layer.ListObjects(ctx, testBucket, testFile, "", "", 2)
+		obj, err := layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
 		require.NoError(t, err)
-		require.Len(t, obj.Objects, 1)
-		require.Equal(t, testBucket, obj.Objects[0].Bucket)
-		require.Equal(t, testFile, obj.Objects[0].Name)
+		require.Equal(t, testBucket, obj.Bucket)
+		require.Equal(t, testFile, obj.Name)
 
-		require.Equal(t, completeInfo.ETag, obj.Objects[0].ETag)
-		require.Equal(t, expectedMetadata, obj.Objects[0].UserDefined)
+		require.Equal(t, completeInfo.ETag, obj.ETag)
+		require.Equal(t, expectedMetadata, obj.UserDefined)
 	})
 }
 
@@ -4223,7 +4309,9 @@ func runTestWithPathCipher(t *testing.T, pathCipher storj.CipherSuite, versionin
 		defer ctx.Check(project.Close)
 
 		// Establish new context with *uplink.Project for the gateway to pick up.
-		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{})
+		ctxWithProject := miniogw.WithCredentials(ctx, project, miniogw.CredentialsInfo{
+			Access: planet.Uplinks[0].Access[planet.Satellites[0].ID()],
+		})
 
 		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
 		require.NoError(t, err)

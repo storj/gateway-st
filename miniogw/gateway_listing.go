@@ -15,6 +15,7 @@ import (
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/spacemonkeygo/monkit/v3"
 
+	"storj.io/common/encryption"
 	"storj.io/common/grant"
 	"storj.io/common/storj"
 	"storj.io/eventkit"
@@ -54,25 +55,29 @@ var ErrUnsupportedListing = func(deadline time.Time) miniogo.ErrorResponse {
 
 // hasEncNullPathCipher determines if the access grant uses EncNull cipher for path encryption.
 func hasEncNullPathCipher(ctx context.Context) bool {
+	store, err := encryptionStore(ctx)
+	return err == nil && store.GetDefaultPathCipher() == storj.EncNull
+}
+
+// encryptionStore returns the encryption store of the access grant in ctx.
+func encryptionStore(ctx context.Context) (*encryption.Store, error) {
 	creds, err := credentialsFromContext(ctx)
 	if err != nil {
-		return false
+		return nil, err
 	}
-
 	if creds.Access == nil {
-		return false
+		return nil, ErrNoUplinkProject.New("access grant not found")
 	}
-
+	// uplink.Access doesn't expose its encryption store.
 	serializedAccess, err := creds.Access.Serialize()
 	if err != nil {
-		return false
+		return nil, err
 	}
 	access, err := grant.ParseAccess(serializedAccess)
 	if err != nil {
-		return false
+		return nil, err
 	}
-
-	return access.EncAccess.Store.GetDefaultPathCipher() == storj.EncNull
+	return access.EncAccess.Store, nil
 }
 
 func projectCreatedAtFromCredentials(ctx context.Context) time.Time {
