@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 )
 
@@ -113,4 +115,39 @@ func TestListMultipartUploadsRouting(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 	require.Contains(t, body, "<ListMultipartUploadsResult")
 	require.Contains(t, body, "<UploadId>upload-id</UploadId>")
+}
+
+func TestErrorResponse(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listMultipartUploads: func(context.Context, string, string, string, string, string, int) (cmd.ListMultipartsInfo, error) {
+			return cmd.ListMultipartsInfo{}, apierr.CodeAccessDenied
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?uploads", nil, nil)
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+
+	var errResp struct {
+		XMLName    xml.Name `xml:"Error"`
+		Code       string
+		Message    string
+		BucketName string
+		Resource   string
+		RequestID  string `xml:"RequestId"`
+	}
+	require.NoError(t, xml.Unmarshal([]byte(resp.Body), &errResp))
+	require.Equal(t, "AccessDenied", errResp.Code)
+	require.Equal(t, "Access Denied", errResp.Message)
+	require.Equal(t, "bucket", errResp.BucketName)
+	require.Equal(t, "/bucket", errResp.Resource)
+	require.Equal(t, resp.Header.Get("X-Amz-Request-Id"), errResp.RequestID)
+	require.NotEmpty(t, errResp.RequestID)
+
+	// Virtual-hosted-style requests take the bucket from the host.
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{Domains: []string{"example.com"}}).RegisterHandlers(router)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://bucket.example.com/key?tagging", nil))
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.Equal(t, "/bucket/key", errResp.Resource)
 }

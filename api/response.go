@@ -30,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/amwolff/awsig"
+	"github.com/gorilla/mux"
 	miniogo "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
@@ -117,14 +118,41 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 
-	buf := bytes.NewBufferString(xml.Header)
-	e := xml.NewEncoder(buf)
-	if xmlErr := e.Encode(resp); xmlErr != nil {
-		api.log.Error(r, "error encoding XML error response", err)
+	encodedResp, xmlErr := encodeResponse(newErrorResponse(w, r, resp))
+	if xmlErr != nil {
+		api.log.Error(r, "error encoding XML error response", xmlErr)
 		api.writeResponse(w, r, http.StatusInternalServerError, nil, mimeNone)
+		return
 	}
 
-	api.writeResponse(w, r, resp.HTTPStatusCode, buf.Bytes(), mimeXML)
+	api.writeResponse(w, r, resp.HTTPStatusCode, encodedResp, mimeXML)
+}
+
+// errorResponse is the XML body of an S3 error response.
+type errorResponse struct {
+	XMLName    xml.Name `xml:"Error"`
+	Code       string
+	Message    string
+	BucketName string `xml:",omitempty"`
+	Key        string `xml:",omitempty"`
+	Resource   string
+	RequestID  string `xml:"RequestId"`
+}
+
+func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Response) errorResponse {
+	vars := mux.Vars(r)
+	objectKey, err := unescapePath(vars["object"])
+	if err != nil {
+		objectKey = ""
+	}
+	return errorResponse{
+		Code:       resp.Code,
+		Message:    resp.Description,
+		BucketName: vars["bucket"],
+		Key:        objectKey,
+		Resource:   getResource(r),
+		RequestID:  w.Header().Get(xhttp.AmzRequestID),
+	}
 }
 
 func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWriter, err error) {
