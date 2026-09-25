@@ -8,8 +8,11 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"runtime/debug"
 	"testing"
 	"time"
 
@@ -44,21 +47,6 @@ func TestUnsupportedSubresourceDoesNotDeleteBucket(t *testing.T) {
 		resp := serve(t, objectAPI, http.MethodDelete, "/bucket?"+query, nil, nil)
 		require.Equal(t, http.StatusNotImplemented, resp.StatusCode, query+": "+resp.Body)
 	}
-}
-
-func TestUnsupportedSubresourceOnObject(t *testing.T) {
-	var deleted string
-	objectAPI := &fakeObjectLayer{
-		deleteObject: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			deleted = object
-			return cmd.ObjectInfo{}, nil
-		},
-	}
-
-	// Bucket subresource names on an object URL don't select the unsupported bucket operation.
-	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?cors", nil, nil)
-	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
-	require.Equal(t, "key", deleted)
 }
 
 func TestRequestPathIsNotCleaned(t *testing.T) {
@@ -262,6 +250,155 @@ func TestUnmatchedRoutes(t *testing.T) {
 			require.Equal(t, tt.status, resp.StatusCode, resp.Body)
 			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
 			require.NotEmpty(t, resp.Header.Get("X-Amz-Request-Id"))
+		})
+	}
+}
+
+// TestSubresourceRouting checks which handler serves each method, path and subresource. Every
+// object layer call panics, so a request that reaches storage is identified by the handler on the
+// panicking stack, and a rejected request is known to have touched no storage.
+func TestMalformedQueryIsRejected(t *testing.T) {
+	objectAPI := &routingObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{
+			deleteObject: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				t.Error("DeleteObject must not be called")
+				return cmd.ObjectInfo{}, nil
+			},
+		},
+		deleteBucket: func(context.Context, string, bool) error {
+			t.Error("DeleteBucket must not be called")
+			return nil
+		},
+	}
+
+	// The router treats ';' as a separator, so these name a subresource that
+	// r.URL.Query() doesn't see.
+	for _, target := range []string{"/bucket/key?x=1;retention", "/bucket/key?retention;x=1", "/bucket?x=1;versioning", "/bucket/key?versionId=%zz"} {
+		resp := serve(t, objectAPI, http.MethodDelete, target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidURI</Code>", target)
+	}
+}
+
+func TestSubresourceRouting(t *testing.T) {
+	handlerName := regexp.MustCompile(`\(\*API\)\.(\w+Handler)\(`)
+	errorCode := regexp.MustCompile(`<Code>(\w+)</Code>`)
+	router := newTestRouter(&fakeObjectLayer{})
+
+	serveRecover := func(req *http.Request) (got string) {
+		defer func() {
+			if recover() != nil {
+				got = handlerName.FindStringSubmatch(string(debug.Stack()))[1]
+			}
+		}()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		got = fmt.Sprint(rec.Code)
+		if m := errorCode.FindStringSubmatch(rec.Body.String()); m != nil {
+			got += " " + m[1]
+		}
+		return got
+	}
+
+	const (
+		notAllowed  = "405 MethodNotAllowed"
+		keyRequired = "400 InvalidRequest"
+	)
+	for _, tt := range []struct {
+		method, target string
+		copySource     bool
+		want           string // handler name, or status and error code
+	}{
+		// Object paths: supported.
+		{method: http.MethodPut, target: "/bucket/key", want: "PutObjectHandler"},
+		{method: http.MethodPut, target: "/bucket/key?x-id=PutObject", want: "PutObjectHandler"},
+		{method: http.MethodPut, target: "/bucket/key", copySource: true, want: "CopyObjectHandler"},
+		{method: http.MethodPut, target: "/bucket/key?partNumber=1&uploadId=x", want: "UploadPartHandler"},
+		{method: http.MethodPut, target: "/bucket/key?partNumber=1&uploadId=x", copySource: true, want: "UploadPartCopyHandler"},
+		{method: http.MethodGet, target: "/bucket/key", want: "GetObjectHandler"},
+		{method: http.MethodGet, target: "/bucket/key?partNumber=1&versionId=null&response-content-type=a%2Fb", want: "GetObjectHandler"},
+		{method: http.MethodGet, target: "/bucket/key?X-Amz-Expires=60&X-Amz-SignedHeaders=host&x-id=GetObject", want: "GetObjectHandler"},
+		{method: http.MethodGet, target: "/bucket/key?tagging", want: "GetObjectTaggingHandler"},
+		{method: http.MethodGet, target: "/bucket/key?uploadId=x", want: "ListPartsHandler"},
+		{method: http.MethodHead, target: "/bucket/key", want: "HeadObjectHandler"},
+		{method: http.MethodHead, target: "/bucket/key?partNumber=1", want: "HeadObjectHandler"},
+		{method: http.MethodDelete, target: "/bucket/key", want: "DeleteObjectHandler"},
+		{method: http.MethodDelete, target: "/bucket/key?versionId=null", want: "DeleteObjectHandler"},
+		{method: http.MethodDelete, target: "/bucket/key?tagging", want: "DeleteObjectTaggingHandler"},
+		{method: http.MethodDelete, target: "/bucket/key?uploadId=x", want: "AbortMultipartUploadHandler"},
+		{method: http.MethodPost, target: "/bucket/key?uploads", want: "CreateMultipartUploadHandler"},
+
+		// Object paths: unrouted subresources must not reach PutObject, CopyObject, GetObject or DeleteObject.
+		{method: http.MethodPut, target: "/bucket/key?attributes", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?uploads", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?uploadId=x", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?partNumber=1", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?annotation", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?renameObject", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?attributes", copySource: true, want: notAllowed},
+		{method: http.MethodGet, target: "/bucket/key?uploads", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket/key?versions", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket/key?torrent", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket/key?annotation", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket/key?retention", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket/key?legal-hold", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket/key?acl", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket/key?attributes", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket/key?uploads", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket/key?annotation", want: notAllowed},
+
+		// Bucket paths: supported.
+		{method: http.MethodPut, target: "/bucket", want: "CreateBucketHandler"},
+		{method: http.MethodHead, target: "/bucket", want: "HeadBucketHandler"},
+		{method: http.MethodGet, target: "/bucket", want: "ListObjectsHandler"},
+		{method: http.MethodGet, target: "/bucket?list-type=2", want: "ListObjectsV2Handler"},
+		{method: http.MethodGet, target: "/bucket?versions", want: "ListObjectVersionsHandler"},
+		{method: http.MethodGet, target: "/bucket?uploads", want: "ListMultipartUploadsHandler"},
+		{method: http.MethodGet, target: "/bucket?location", want: "GetBucketLocationHandler"},
+		{method: http.MethodDelete, target: "/bucket", want: "DeleteBucketHandler"},
+
+		// Bucket paths: unrouted subresources must not reach CreateBucket, ListObjects or DeleteBucket.
+		{method: http.MethodPut, target: "/bucket?location", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket?policyStatus", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket?uploads", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket?session", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket?abac", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket?metadataConfiguration", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket?list-type=1", want: "400 InvalidArgument"},
+		{method: http.MethodGet, target: "/bucket?list-type=3", want: "400 InvalidArgument"},
+		{method: http.MethodGet, target: "/bucket?list-type=20", want: "400 InvalidArgument"},
+		{method: http.MethodDelete, target: "/bucket?versioning", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket?notification", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket?object-lock", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket?acl", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket?location", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket?uploads", want: notAllowed},
+		{method: http.MethodDelete, target: "/bucket?metadataTable", want: "501 NotImplemented"},
+		{method: http.MethodDelete, target: "/bucket?metadataConfiguration", want: "501 NotImplemented"},
+		{method: http.MethodPost, target: "/bucket?uploads", want: "400 InvalidURI"},
+		{method: http.MethodPost, target: "/bucket?uploadId=x", want: "400 InvalidURI"},
+
+		// Bucket paths: multipart parameters need a key.
+		{method: http.MethodPut, target: "/bucket?partNumber=1&uploadId=x", want: keyRequired},
+		{method: http.MethodGet, target: "/bucket?uploadId=x", want: keyRequired},
+		{method: http.MethodDelete, target: "/bucket?uploadId=x", want: keyRequired},
+		{method: http.MethodDelete, target: "/bucket?partNumber=1", want: keyRequired},
+		{method: http.MethodHead, target: "/bucket?uploadId=x", want: "400"},
+	} {
+		name := tt.method + " " + tt.target
+		if tt.copySource {
+			name += " copy"
+		}
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, nil)
+			if tt.method == http.MethodPut {
+				req.Header.Set("Content-Length", "0")
+			}
+			if tt.copySource {
+				req.Header.Set("X-Amz-Copy-Source", "src/key")
+			}
+			signV4(req, nil, time.Now())
+			require.Equal(t, tt.want, serveRecover(req))
 		})
 	}
 }

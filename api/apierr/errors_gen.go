@@ -29,6 +29,7 @@ const (
 	CodeInvalidCopySourceRange
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
+	CodeInvalidListType
 	CodeInvalidMaxKeys
 	CodeInvalidMaxParts
 	CodeInvalidMaxUploads
@@ -41,6 +42,8 @@ const (
 	CodeInvalidRequest
 	CodeInvalidStorageClass
 	CodeInvalidTagDirective
+	CodeInvalidURI
+	CodeKeyMustBeSpecified
 	CodeMalformedCopySourceRange
 	CodeMalformedDate
 	CodeMalformedExpires
@@ -205,6 +208,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "X-Minio-Force-Delete must be a valid boolean.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidListType: {
+		Code:           "InvalidArgument",
+		Description:    "Invalid List Type specified in Request",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidMaxKeys: {
 		Code:           "InvalidArgument",
 		Description:    "Provided max-keys not an integer or within integer range",
@@ -263,6 +271,16 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidTagDirective: {
 		Code:           "InvalidArgument",
 		Description:    "Unknown tag directive.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidURI: {
+		Code:           "InvalidURI",
+		Description:    "Couldn't parse the specified URI.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeKeyMustBeSpecified: {
+		Code:           "InvalidRequest",
+		Description:    "A key must be specified",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMalformedCopySourceRange: {

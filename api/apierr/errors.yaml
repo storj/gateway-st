@@ -108,6 +108,11 @@
   description: X-Minio-Force-Delete must be a valid boolean.
   http_status: 400
 
+- name: InvalidListType
+  code: InvalidArgument
+  description: Invalid List Type specified in Request
+  http_status: 400
+
 - name: InvalidMaxKeys
   code: InvalidArgument
   description: Provided max-keys not an integer or within integer range
@@ -163,6 +168,11 @@
   description: The request is invalid.
   http_status: 400
 
+- name: InvalidURI
+  code: InvalidURI
+  description: Couldn't parse the specified URI.
+  http_status: 400
+
 - name: InvalidStorageClass
   code: InvalidArgument
   description: The specified storage class is not valid.
@@ -171,6 +181,11 @@
 - name: IncorrectContinuationToken
   code: InvalidArgument
   description: The continuation token provided is incorrect
+  http_status: 400
+
+- name: KeyMustBeSpecified
+  code: InvalidRequest
+  description: A key must be specified
   http_status: 400
 
 - name: MalformedDate

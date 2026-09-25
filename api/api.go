@@ -26,6 +26,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -107,7 +108,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	router.SkipClean(true)
 	apiRouter.SkipClean(true)
 
-	apiRouter.Use(requestIDMiddleware)
+	apiRouter.Use(requestIDMiddleware, api.rejectMalformedQuery)
 
 	// Middleware only runs for matched routes, so these handlers set the request ID themselves.
 	router.NotFoundHandler = requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,8 +160,8 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		objRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutObjectTaggingHandler)
 		objRouter.Methods(http.MethodPut).Queries("partNumber", "", "uploadId", "").Headers(xhttp.AmzCopySource, "").HandlerFunc(api.UploadPartCopyHandler)
 		objRouter.Methods(http.MethodPut).Queries("partNumber", "", "uploadId", "").HandlerFunc(api.UploadPartHandler)
-		objRouter.Methods(http.MethodPut).Headers(xhttp.AmzCopySource, "").HandlerFunc(api.CopyObjectHandler)
-		objRouter.Methods(http.MethodPut).HandlerFunc(api.PutObjectHandler)
+		objRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).Headers(xhttp.AmzCopySource, "").HandlerFunc(api.CopyObjectHandler)
+		objRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).HandlerFunc(api.PutObjectHandler)
 
 		objRouter.Methods(http.MethodHead).HandlerFunc(api.HeadObjectHandler)
 
@@ -170,11 +171,11 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		objRouter.Methods(http.MethodGet).Queries("legal-hold", "").HandlerFunc(api.GetObjectLegalHoldHandler)
 		objRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetObjectTaggingHandler)
 		objRouter.Methods(http.MethodGet).Queries("retention", "").HandlerFunc(api.GetObjectRetentionHandler)
-		objRouter.Methods(http.MethodGet).HandlerFunc(api.GetObjectHandler)
+		objRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources("partNumber")).HandlerFunc(api.GetObjectHandler)
 
 		objRouter.Methods(http.MethodDelete).Queries("uploadId", "").HandlerFunc(api.AbortMultipartUploadHandler)
 		objRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteObjectTaggingHandler)
-		objRouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteObjectHandler)
+		objRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteObjectHandler)
 
 		objRouter.Methods(http.MethodPost).Queries("uploads", "").HandlerFunc(api.CreateMultipartUploadHandler)
 		objRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.CompleteMultipartUploadHandler)
@@ -185,12 +186,17 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		// Bucket-level operations
 		bucketRouter := subrouter.MatcherFunc(bucketPathMatcher(subrouter.vHost)).Subrouter()
 
+		bucketRouter.Methods(http.MethodPost).Queries("uploads", "").HandlerFunc(api.errorHandler(apierr.CodeInvalidURI))
+		bucketRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.errorHandler(apierr.CodeInvalidURI))
+		bucketRouter.Queries("uploadId", "").HandlerFunc(api.errorHandler(apierr.CodeKeyMustBeSpecified))
+		bucketRouter.Queries("partNumber", "").HandlerFunc(api.errorHandler(apierr.CodeKeyMustBeSpecified))
+
 		bucketRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
 		bucketRouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)
 		bucketRouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutObjectLockConfigurationHandler)
 		bucketRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler)
 		bucketRouter.Methods(http.MethodPut).Queries("versioning", "").HandlerFunc(api.PutBucketVersioningHandler)
-		bucketRouter.Methods(http.MethodPut).HandlerFunc(api.CreateBucketHandler)
+		bucketRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).HandlerFunc(api.CreateBucketHandler)
 
 		bucketRouter.Methods(http.MethodHead).HandlerFunc(api.HeadBucketHandler)
 
@@ -209,13 +215,14 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListMultipartUploadsHandler).Queries("uploads", "")
 		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectVersionsHandler).Queries("versions", "")
 		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsV2Handler).Queries("list-type", "2")
-		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("list-type", "").HandlerFunc(api.errorHandler(apierr.CodeInvalidListType))
+		bucketRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListObjectsHandler)
 
-		bucketRouter.Methods(http.MethodPost).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
+		bucketRouter.Methods(http.MethodPost).MatcherFunc(withoutSubresources()).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
 		bucketRouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
 
 		bucketRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
-		bucketRouter.Methods(http.MethodDelete).HandlerFunc(api.DeleteBucketHandler)
+		bucketRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteBucketHandler)
 	}
 
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).HandlerFunc((api.ListBucketsHandler))
@@ -223,6 +230,20 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 // amzID2 is the header carrying the extended request ID.
 const amzID2 = "x-amz-id-2"
+
+// rejectMalformedQuery rejects requests whose query url.ParseQuery can't parse, such as ones with
+// ';' separators or invalid escapes. The router's Queries matchers split on ';' too, but
+// r.URL.Query() drops such pairs, so handlers and matchers like withoutSubresources would
+// disagree with the router about which parameters were sent.
+func (api *API) rejectMalformedQuery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := url.ParseQuery(r.URL.RawQuery); err != nil {
+			api.writeErrorResponse(w, r, apierr.CodeInvalidURI)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -275,6 +296,38 @@ func bucketPathMatcher(vHost bool) mux.MatcherFunc {
 			return p == "/"
 		}
 		return !strings.Contains(strings.TrimSuffix(strings.TrimPrefix(p, "/"), "/"), "/")
+	}
+}
+
+// subresources are the S3 subresource query keys. A catch-all route must not serve a request
+// carrying one it doesn't own: DELETE /bucket/key?retention must not delete the object.
+// It's a deny-list because presigned URLs and SDKs add arbitrary parameters (X-Amz-*, x-id).
+var subresources = []string{
+	"acl", "attributes", "legal-hold", "retention", "tagging", "uploads", "uploadId", "partNumber",
+	"versions", "versioning", "notification", "object-lock", "location", "policyStatus", "policy",
+	"cors", "accelerate", "logging", "requestPayment", "lifecycle", "encryption", "replication",
+	"website", "ownershipControls", "publicAccessBlock", "metrics", "analytics", "inventory",
+	"intelligent-tiering", "restore", "select", "annotation", "renameObject", "metadataTable",
+	"metadataConfiguration", "metadataInventoryTable", "metadataJournalTable",
+	"metadataAnnotationTable", "abac", "session", "torrent", "list-type", "delete",
+}
+
+// withoutSubresources matches requests whose query has no subresource key other than owned.
+// Requests it rejects fall through to the MethodNotAllowed or NotFound handler.
+func withoutSubresources(owned ...string) mux.MatcherFunc {
+	return func(r *http.Request, _ *mux.RouteMatch) bool {
+		for key := range r.URL.Query() {
+			if slices.Contains(subresources, key) && !slices.Contains(owned, key) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func (api *API) errorHandler(code apierr.Code) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		api.writeErrorResponse(w, r, code)
 	}
 }
 
