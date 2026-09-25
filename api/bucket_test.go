@@ -17,11 +17,33 @@ import (
 type bucketObjectLayer struct {
 	*fakeObjectLayer
 
-	listObjectsV2 func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
+	makeBucketWithLocation func(ctx context.Context, bucket string, opts cmd.BucketOptions) error
+	listObjectsV2          func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
 }
 
 func (f *bucketObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error) {
 	return f.listObjectsV2(ctx, bucket, prefix, continuationToken, delimiter, maxKeys, fetchOwner, startAfter)
+}
+
+func (f *bucketObjectLayer) MakeBucketWithLocation(ctx context.Context, bucket string, opts cmd.BucketOptions) error {
+	return f.makeBucketWithLocation(ctx, bucket, opts)
+}
+
+func TestCreateBucketInvalidObjectLockHeader(t *testing.T) {
+	var called bool
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		makeBucketWithLocation: func(context.Context, string, cmd.BucketOptions) error {
+			called = true
+			return nil
+		},
+	}
+
+	header := http.Header{"X-Amz-Bucket-Object-Lock-Enabled": {"bogus"}}
+	resp := serve(t, objectAPI, http.MethodPut, "/bucket", header, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
+	require.False(t, called)
 }
 
 func TestListObjectsV2(t *testing.T) {

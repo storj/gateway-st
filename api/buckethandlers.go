@@ -77,6 +77,7 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		case "false":
 		default:
 			api.writeErrorResponse(w, r, apierr.CodeInvalidRequest)
+			return
 		}
 	}
 
