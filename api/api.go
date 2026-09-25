@@ -101,6 +101,14 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 	apiRouter.Use(requestIDMiddleware)
 
+	// Middleware only runs for matched routes, so these handlers set the request ID themselves.
+	router.NotFoundHandler = requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.writeErrorResponse(w, r, apierr.CodeOperationNotSupported)
+	}))
+	router.MethodNotAllowedHandler = requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.writeErrorResponse(w, r, apierr.CodeMethodNotAllowed)
+	}))
+
 	var subrouters []*mux.Router
 	for _, domain := range api.config.Domains {
 		subrouter := apiRouter.Host("{bucket:.+}." + domain).Subrouter()
@@ -258,6 +266,14 @@ var unsupportedEndpoints = []struct {
 	{
 		query:   "intelligent-tiering",
 		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "restore",
+		methods: []string{http.MethodPost},
+	},
+	{
+		query:   "select",
+		methods: []string{http.MethodPost},
 	},
 	// GET requests for the following are served by dedicated handlers.
 	{

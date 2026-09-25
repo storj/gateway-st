@@ -81,3 +81,23 @@ func TestObjectKeyIsNotCleaned(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "/a//b/../c", gotKey)
 }
+
+func TestUnmatchedRoutes(t *testing.T) {
+	for _, tt := range []struct {
+		method, target string
+		status         int
+		code           string
+	}{
+		{http.MethodPost, "/bucket/key?restore", http.StatusNotImplemented, "NotImplemented"},
+		{http.MethodPost, "/bucket/key?select&select-type=2", http.StatusNotImplemented, "NotImplemented"},
+		{http.MethodPost, "/bucket/key", http.StatusMethodNotAllowed, "MethodNotAllowed"},
+		{http.MethodDelete, "/", http.StatusMethodNotAllowed, "MethodNotAllowed"},
+	} {
+		t.Run(tt.method+" "+tt.target, func(t *testing.T) {
+			resp := serve(t, &fakeObjectLayer{}, tt.method, tt.target, nil, nil)
+			require.Equal(t, tt.status, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
+			require.NotEmpty(t, resp.Header.Get("X-Amz-Request-Id"))
+		})
+	}
+}
