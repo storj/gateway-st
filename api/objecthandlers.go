@@ -1505,13 +1505,22 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 // parseCopySource parses the X-Amz-Copy-Source header of a copy request.
 func parseCopySource(copySource string) (bucketName, objectKey, versionID string, err error) {
-	if u, err := url.Parse(copySource); err == nil {
-		versionID, err = extractVersionID(u.Query())
+	// Only a versionId query is split off, so that a '?' or '#' in the key is kept.
+	if i := strings.LastIndex(copySource, "?"); i >= 0 && strings.HasPrefix(copySource[i+1:], xhttp.VersionID+"=") {
+		query, err := url.ParseQuery(copySource[i+1:])
+		if err != nil {
+			return "", "", "", apierr.CodeInvalidCopySource
+		}
+		versionID, err = extractVersionID(query)
 		if err != nil {
 			return "", "", "", err
 		}
-		// Note that url.Parse does the unescaping
-		copySource = u.Path
+		copySource = copySource[:i]
+	}
+
+	copySource, err = unescapePath(copySource)
+	if err != nil {
+		return "", "", "", apierr.CodeInvalidCopySource
 	}
 
 	bucketName, objectKey = splitCopySourcePath(copySource)
@@ -1741,8 +1750,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	// so errors are reported in the body of a 200 OK response, like S3 does.
 	// The ETag and x-amz-version-id headers are lost once whitespace has been sent, but the ETag
 	// is still in the body.
-	w.Header().Set(xhttp.ContentType, "text/event-stream")
-	w.Header().Set(xhttp.CacheControl, "no-cache")
+	w.Header().Set(xhttp.ContentType, "application/xml")
 	w.Header().Set("X-Accel-Buffering", "no")
 	kw := &keepAliveWriter{ResponseWriter: w}
 	stopKeepAlive := kw.start(ctx, completeMultipartUploadKeepAliveInterval)

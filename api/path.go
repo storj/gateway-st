@@ -169,10 +169,9 @@ func GetObjectURL(r *http.Request, object string) string {
 
 	var urlPath string
 	if len(getVirtualHostedBucket(r)) != 0 {
-		urlPath = path.Join(cmd.SlashSeparator, object)
+		urlPath = cmd.SlashSeparator + object
 	} else {
-		bucket := mux.Vars(r)["bucket"]
-		urlPath = path.Join(cmd.SlashSeparator, bucket, object)
+		urlPath = cmd.SlashSeparator + mux.Vars(r)["bucket"] + cmd.SlashSeparator + object
 	}
 
 	return (&url.URL{

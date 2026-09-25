@@ -72,6 +72,28 @@ func TestGetObjectURL(t *testing.T) {
 			vHost:       true,
 			expectedURL: "http://my-bucket.localhost:9000/my-object",
 		},
+		{
+			name:        "Path-style URL keeps the key verbatim",
+			host:        "localhost:9000",
+			bucket:      "my-bucket",
+			object:      "a//../b/ c?#",
+			expectedURL: "http://localhost:9000/my-bucket/a//../b/%20c%3F%23",
+		},
+		{
+			name:        "Path-style URL keeps a trailing slash",
+			host:        "localhost:9000",
+			bucket:      "my-bucket",
+			object:      "a/",
+			expectedURL: "http://localhost:9000/my-bucket/a/",
+		},
+		{
+			name:        "Virtual-hosted-style URL keeps the key verbatim",
+			host:        "my-bucket.localhost:9000",
+			bucket:      "my-bucket",
+			object:      "a//../b/",
+			vHost:       true,
+			expectedURL: "http://my-bucket.localhost:9000/a//../b/",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()

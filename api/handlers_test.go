@@ -64,6 +64,7 @@ type fakeObjectLayer struct {
 	deleteObject            func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	deleteObjectTags        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	deleteObjects           func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
+	copyObjectPart          func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.PartInfo, error)
 	newMultipartUpload      func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error)
 	completeMultipartUpload func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	abortMultipartUpload    func(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error
@@ -137,6 +138,13 @@ func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, obje
 		return nil, nil, err
 	}
 	return f.deleteObjects(ctx, bucket, objects, opts)
+}
+
+func (f *fakeObjectLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.PartInfo, error) {
+	if err := f.record("CopyObjectPart"); err != nil {
+		return cmd.PartInfo{}, err
+	}
+	return f.copyObjectPart(ctx, srcBucket, srcObject, dstBucket, dstObject, uploadID, partID, startOffset, length, srcInfo, srcOpts, dstOpts)
 }
 
 func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error) {
@@ -998,7 +1006,7 @@ func TestCopyObject(t *testing.T) {
 			return info, err
 		}
 		// The header reports the version copied, also when the request names none.
-		for _, source := range []string{"/bucket/src", "/bucket/src?versionId=" + versionID} {
+		for _, source := range []string{"/bucket/src", "/bucket/s%72c?versionId=" + versionID} {
 			resp := serve(t, objectAPI, http.MethodPut, "/dstbucket/dst", http.Header{
 				"X-Amz-Copy-Source": {source},
 			}, nil)
@@ -1034,6 +1042,31 @@ func TestCopyObject(t *testing.T) {
 			expCode:   "InvalidArgument",
 		},
 		{
+			name:      "invalid escape in copy source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src%zz?versionId=" + versionID}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			name:      "invalid UTF-8 in copy source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src%ff"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			// The whole key is looked up, not the prefix before '#'.
+			name:      "fragment in copy source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src#x"}},
+			expStatus: http.StatusNotFound,
+			expCode:   "NoSuchKey",
+		},
+		{
+			name:      "non-version query in copy source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src?x"}},
+			expStatus: http.StatusNotFound,
+			expCode:   "NoSuchKey",
+		},
+		{
 			name:      "nonexistent source",
 			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/missing"}},
 			expStatus: http.StatusNotFound,
@@ -1063,6 +1096,52 @@ func TestCopyObject(t *testing.T) {
 			resp := serve(t, objectAPI, http.MethodPut, "/bucket/src", tt.header, nil)
 			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
 			require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+		})
+	}
+}
+
+func TestUploadPartCopy(t *testing.T) {
+	const gib = int64(1) << 30
+
+	for _, tt := range []struct {
+		name      string
+		size      int64
+		rangeStr  string
+		expStatus int
+		expCode   string
+		expOffset int64
+		expLength int64
+	}{
+		{name: "whole source", size: 10, expStatus: http.StatusOK, expLength: -1},
+		{name: "range", size: 10, rangeStr: "bytes=2-5", expStatus: http.StatusOK, expOffset: 2, expLength: 4},
+		{name: "range to last byte", size: 10, rangeStr: "bytes=0-9", expStatus: http.StatusOK, expLength: 10},
+		{name: "end past source", size: 10, rangeStr: "bytes=0-10", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+		{name: "end overflows length", size: 10, rangeStr: "bytes=0-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+		{name: "huge start", size: 10, rangeStr: "bytes=9223372036854775806-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+		{name: "source too large", size: 6 * gib, expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
+		{name: "range too large", size: 6 * gib, rangeStr: fmt.Sprintf("bytes=0-%d", 5*gib), expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: tt.size, ETag: "etag"}, "")
+			var gotOffset, gotLength int64
+			objectAPI.copyObjectPart = func(_ context.Context, _, _, _, _, _ string, _ int, startOffset, length int64, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+				gotOffset, gotLength = startOffset, length
+				return cmd.PartInfo{ETag: "part-etag"}, nil
+			}
+
+			header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}
+			if tt.rangeStr != "" {
+				header.Set("X-Amz-Copy-Source-Range", tt.rangeStr)
+			}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload-id", header, nil)
+			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
+			if tt.expCode != "" {
+				require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+				require.NotContains(t, objectAPI.Calls(), "CopyObjectPart")
+				return
+			}
+			require.Equal(t, tt.expOffset, gotOffset)
+			require.Equal(t, tt.expLength, gotLength)
 		})
 	}
 }
@@ -1123,6 +1202,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Contains(t, resp.Body, "<Location>http://example.com/bucket/key</Location>")
 		require.Contains(t, resp.Body, "<ETag>&#34;etag-2&#34;</ETag>")
 		require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
+		require.Empty(t, resp.Header.Values("Cache-Control"))
 		require.Equal(t, `"etag-2"`, resp.Header.Get("ETag"))
 		require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
 		require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}}, gotParts)
@@ -1184,6 +1264,8 @@ func TestCompleteMultipartUpload(t *testing.T) {
 
 		resp := serve(t, slowObjectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
+		require.Empty(t, resp.Header.Values("Cache-Control"))
 		require.True(t, strings.HasPrefix(resp.Body, xml.Header+" "), resp.Body)
 		require.Equal(t, 1, strings.Count(resp.Body, "<?xml"), resp.Body)
 		require.Contains(t, resp.Body, "<CompleteMultipartUploadResult")
