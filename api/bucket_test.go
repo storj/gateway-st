@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
+	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 )
 
@@ -305,4 +306,35 @@ func TestListMultipartUploadsMaxUploadsClamped(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Equal(t, 1000, got)
 	require.Contains(t, resp.Body, "<MaxUploads>1000</MaxUploads>")
+}
+
+func TestListObjectVersionsVersionIDMarker(t *testing.T) {
+	var got string
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		listObjectVersions: func(_ context.Context, bucket, _, marker, versionMarker, _ string, _ int) (cmd.ListObjectVersionsInfo, error) {
+			got = versionMarker
+			if marker == "" && versionMarker != "" {
+				return cmd.ListObjectVersionsInfo{}, miniogw.ErrVersionIDMarkerWithoutKeyMarker(bucket)
+			}
+			return cmd.ListObjectVersionsInfo{}, nil
+		},
+	}
+
+	for _, marker := range []string{"garbage", "00000000-0000-0000-0000-000000000001", "%2000000000000000000000000000000001"} {
+		got = ""
+		resp := serve(t, objectAPI, http.MethodGet, "/bucket?versions&key-marker=key&version-id-marker="+marker, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, marker)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>", marker)
+		require.Empty(t, got, marker)
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?versions&key-marker=key&version-id-marker=00000000000000000000000000000001", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, "00000000000000000000000000000001", got)
+
+	// The object layer rejects a version-id-marker without a key-marker.
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?versions&version-id-marker=00000000000000000000000000000001", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
 }

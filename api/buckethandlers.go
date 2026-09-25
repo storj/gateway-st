@@ -38,7 +38,6 @@ import (
 	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/common/memory"
-	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/crypto"
@@ -901,17 +900,16 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[loc] = struct{}{}
 
-		if object.VersionID != "" && object.VersionID != nullVersionID {
-			if _, err := uuid.FromString(object.VersionID); err != nil {
-				resp, _ := apierr.CodeNoSuchVersion.ToResponse()
-				deleteErrs = append(deleteErrs, cmd.DeleteError{
-					Code:      resp.Code,
-					Message:   resp.Description,
-					Key:       object.ObjectName,
-					VersionID: object.VersionID,
-				})
-				continue
-			}
+		if err := validateVersionID(object.VersionID); object.VersionID != "" && err != nil {
+			// Like the single-object operations.
+			resp, _ := errToResponse(err)
+			deleteErrs = append(deleteErrs, cmd.DeleteError{
+				Code:      resp.Code,
+				Message:   resp.Description,
+				Key:       object.ObjectName,
+				VersionID: object.VersionID,
+			})
+			continue
 		}
 
 		deleteReq.Objects[filteredIndex] = object
@@ -919,13 +917,18 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteReq.Objects = deleteReq.Objects[:filteredIndex]
 
-	deletedObjects, apiDeleteErrs, err := api.objectAPI.DeleteObjects(ctx, bucketName, deleteReq.Objects, cmd.ObjectOptions{
-		BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
-		Quiet:                     deleteReq.Quiet,
-	})
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
+	var deletedObjects []cmd.DeletedObject
+	var apiDeleteErrs []cmd.DeleteObjectsError
+	if len(deleteReq.Objects) > 0 {
+		var err error
+		deletedObjects, apiDeleteErrs, err = api.objectAPI.DeleteObjects(ctx, bucketName, deleteReq.Objects, cmd.ObjectOptions{
+			BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
+			Quiet:                     deleteReq.Quiet,
+		})
+		if err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
 	}
 
 	var internalErrs []error

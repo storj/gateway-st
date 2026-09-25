@@ -832,7 +832,7 @@ func TestObjectMetadataHeaders(t *testing.T) {
 }
 
 func TestDeleteObject(t *testing.T) {
-	const versionID = "00000000-0000-0000-0000-000000000001"
+	const versionID = "00000000000000000000000000000001"
 
 	var gotOpts cmd.ObjectOptions
 	objectAPI := &fakeObjectLayer{
@@ -873,14 +873,15 @@ func TestDeleteObject(t *testing.T) {
 
 	t.Run("invalid version ID", func(t *testing.T) {
 		resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?versionId=invalid", nil, nil)
-		require.Contains(t, resp.Body, "<Code>NoSuchVersion</Code>")
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
 	})
 }
 
 func TestDeleteObjectMissingStorageObject(t *testing.T) {
 	for _, storageErr := range []error{
 		cmd.ObjectNotFound{Bucket: "bucket", Object: "missing"},
-		cmd.VersionNotFound{Bucket: "bucket", Object: "missing", VersionID: "00000000-0000-0000-0000-000000000001"},
+		cmd.VersionNotFound{Bucket: "bucket", Object: "missing", VersionID: "00000000000000000000000000000001"},
 	} {
 		for _, wrapped := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%T/wrapped=%t", storageErr, wrapped), func(t *testing.T) {
@@ -890,7 +891,7 @@ func TestDeleteObjectMissingStorageObject(t *testing.T) {
 					}
 					return cmd.ObjectInfo{}, storageErr
 				}}
-				resp := serve(t, layer, http.MethodDelete, "/bucket/missing?versionId=00000000-0000-0000-0000-000000000001", nil, nil)
+				resp := serve(t, layer, http.MethodDelete, "/bucket/missing?versionId=00000000000000000000000000000001", nil, nil)
 				require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 				require.Empty(t, resp.Body)
 			})
@@ -911,7 +912,7 @@ func TestDeleteObjectTagging(t *testing.T) {
 }
 
 func TestCopyObject(t *testing.T) {
-	const versionID = "00000000-0000-0000-0000-000000000001"
+	const versionID = "00000000000000000000000000000001"
 
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	srcInfo := cmd.ObjectInfo{
@@ -1029,8 +1030,8 @@ func TestCopyObject(t *testing.T) {
 		{
 			name:      "invalid source version",
 			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src?versionId=invalid"}},
-			expStatus: http.StatusNotFound,
-			expCode:   "NoSuchVersion",
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
 		},
 		{
 			name:      "nonexistent source",
@@ -1456,4 +1457,114 @@ func TestIfMatchNotImplemented(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		require.Equal(t, []string{"*"}, gotCompleteOpts.IfNoneMatch)
 	})
+}
+
+func TestVersionIDValidation(t *testing.T) {
+	type request struct {
+		method, target string
+		header         func(versionID string) http.Header
+	}
+	requests := map[string]request{
+		"GetObject":           {method: http.MethodGet, target: "/bucket/key?versionId="},
+		"HeadObject":          {method: http.MethodHead, target: "/bucket/key?versionId="},
+		"DeleteObject":        {method: http.MethodDelete, target: "/bucket/key?versionId="},
+		"DeleteObjectTagging": {method: http.MethodDelete, target: "/bucket/key?tagging&versionId="},
+		"CopyObject": {method: http.MethodPut, target: "/bucket/dst", header: func(versionID string) http.Header {
+			return http.Header{"X-Amz-Copy-Source": {"/bucket/src?versionId=" + versionID}}
+		}},
+	}
+
+	for name, req := range requests {
+		for _, tc := range []struct {
+			versionID string
+			expStatus int
+			expCode   string
+		}{
+			// The object layer can't address the null version.
+			{versionID: "null", expStatus: http.StatusNotImplemented, expCode: "NotImplemented"},
+			{versionID: "", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+			{versionID: "00000000-0000-0000-0000-000000000001", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+			{versionID: "garbage", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+			{versionID: "%2000000000000000000000000000000001", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+			{versionID: "000000000000000000000000000001", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+			// A valid ID reaches the object layer, which denies access here.
+			{versionID: "00000000000000000000000000000001", expStatus: http.StatusForbidden, expCode: "AccessDenied"},
+		} {
+			t.Run(name+"/"+tc.versionID, func(t *testing.T) {
+				expStatus, expCode := tc.expStatus, tc.expCode
+				objectAPI := &fakeObjectLayer{err: apierr.CodeAccessDenied}
+				target, header := req.target+tc.versionID, http.Header(nil)
+				if req.header != nil {
+					target, header = req.target, req.header(tc.versionID)
+				}
+				resp := serve(t, objectAPI, req.method, target, header, nil)
+				require.Equal(t, expStatus, resp.StatusCode, resp.Body)
+				if expCode != "" && req.method != http.MethodHead {
+					require.Contains(t, resp.Body, "<Code>"+expCode+"</Code>")
+				}
+				require.Equal(t, expCode == "AccessDenied", len(objectAPI.Calls()) > 0, objectAPI.Calls())
+			})
+		}
+	}
+}
+
+func TestDeleteObjectsVersionIDs(t *testing.T) {
+	var got []cmd.ObjectToDelete
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			got = objects
+			deleted := make([]cmd.DeletedObject, 0, len(objects))
+			for _, object := range objects {
+				deleted = append(deleted, cmd.DeletedObject{ObjectName: object.ObjectName, VersionID: object.VersionID})
+			}
+			return deleted, nil, nil
+		},
+	}
+
+	body := []byte(`<Delete>` +
+		`<Object><Key>latest</Key></Object>` +
+		`<Object><Key>valid</Key><VersionId>00000000000000000000000000000001</VersionId></Object>` +
+		`<Object><Key>null</Key><VersionId>null</VersionId></Object>` +
+		`<Object><Key>dashed</Key><VersionId>00000000-0000-0000-0000-000000000001</VersionId></Object>` +
+		`<Object><Key>garbage</Key><VersionId>garbage</VersionId></Object>` +
+		`</Delete>`)
+	sum := md5.Sum(body)
+	header := http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(sum[:])}}
+
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, []cmd.ObjectToDelete{
+		{ObjectName: "latest"},
+		{ObjectName: "valid", VersionID: "00000000000000000000000000000001"},
+	}, got)
+	require.Contains(t, resp.Body, "<Deleted><Key>latest</Key></Deleted>")
+	require.Contains(t, resp.Body, "<Deleted><Key>valid</Key><VersionId>00000000000000000000000000000001</VersionId></Deleted>")
+	require.Contains(t, resp.Body, "<Error><Code>NotImplemented</Code>")
+	require.Contains(t, resp.Body, "<Key>null</Key><VersionId>null</VersionId></Error>")
+	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>dashed</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>garbage</Key>")
+}
+
+func TestDeleteObjectsOnlyFiltered(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			if len(objects) == 0 {
+				return nil, nil, errs.New("empty delete list")
+			}
+			return nil, nil, nil
+		},
+	}
+
+	body := []byte(`<Delete>` +
+		`<Object><Key>dashed</Key><VersionId>00000000-0000-0000-0000-000000000001</VersionId></Object>` +
+		`<Object><Key>garbage</Key><VersionId>garbage</VersionId></Object>` +
+		`</Delete>`)
+	sum := md5.Sum(body)
+	header := http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(sum[:])}}
+
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Empty(t, objectAPI.Calls())
+	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>dashed</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>garbage</Key>")
 }

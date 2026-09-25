@@ -22,6 +22,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -32,7 +33,6 @@ import (
 	"github.com/amwolff/awsig"
 	"github.com/minio/minio-go/v7/pkg/tags"
 
-	"storj.io/common/uuid"
 	"storj.io/gateway/api/apierr"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -53,13 +53,33 @@ func xmlDecoder(body io.Reader, v any) error {
 }
 
 func extractVersionID(v url.Values) (string, error) {
-	versionID := strings.TrimSpace(v.Get(xhttp.VersionID))
-	if versionID != "" && versionID != nullVersionID {
-		if _, err := uuid.FromString(versionID); err != nil {
-			return "", apierr.CodeNoSuchVersion
-		}
+	if !v.Has(xhttp.VersionID) {
+		return "", nil
+	}
+	versionID := v.Get(xhttp.VersionID)
+	if versionID == "" {
+		return "", apierr.CodeEmptyVersionID
+	}
+	if err := validateVersionID(versionID); err != nil {
+		return "", err
 	}
 	return versionID, nil
+}
+
+// validateVersionID checks that versionID is a version ID the object layer can address: hex that
+// decodes to a 16-byte stream version ID.
+//
+// TODO: "null" addresses the object without a version ID, which the object layer can't address.
+// Its latest version is only the same in buckets that were never versioned, so "null" is
+// rejected until the object layer can address it.
+func validateVersionID(versionID string) error {
+	if versionID == nullVersionID {
+		return apierr.CodeNotImplemented
+	}
+	if b, err := hex.DecodeString(versionID); err != nil || len(b) != 16 {
+		return apierr.CodeInvalidVersionID
+	}
+	return nil
 }
 
 func extractContentMD5(h http.Header) ([]byte, error) {

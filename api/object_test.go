@@ -333,8 +333,8 @@ func (l *versionedCopyPartLayer) CopyObjectPart(_ context.Context, _, _, _, _, _
 }
 
 func TestUploadPartCopySourceVersion(t *testing.T) {
-	const oldVersion = "00000000-0000-0000-0000-000000000001"
-	const newVersion = "00000000-0000-0000-0000-000000000002"
+	const oldVersion = "00000000000000000000000000000001"
+	const newVersion = "00000000000000000000000000000002"
 	for _, source := range []string{"/bucket/src", "/bucket/src?versionId=" + oldVersion} {
 		t.Run(source, func(t *testing.T) {
 			layer := &versionedCopyPartLayer{

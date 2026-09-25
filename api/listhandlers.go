@@ -253,6 +253,10 @@ func getListObjectVersionsParams(values url.Values) (params listObjectVersionsPa
 		return listObjectVersionsParams{}, err
 	}
 
+	if marker := values.Get("version-id-marker"); marker != "" && validateVersionID(marker) != nil {
+		return listObjectVersionsParams{}, apierr.CodeInvalidVersionID
+	}
+
 	return listObjectVersionsParams{
 		prefix:          values.Get("prefix"),
 		marker:          values.Get("key-marker"),
