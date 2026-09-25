@@ -293,6 +293,76 @@ func TestListMultipartUploads(t *testing.T) {
 
 }
 
+func TestListPartsLimits(t *testing.T) {
+	var gotMaxParts int
+	parts := []cmd.PartInfo{{PartNumber: 1, ETag: "a", Size: 1}, {PartNumber: 2, ETag: "b", Size: 1}}
+	objectAPI := &fakeObjectLayer{
+		listObjectParts: func(_ context.Context, _, _, _ string, _, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+			gotMaxParts = maxParts
+			// Like miniogw.ListObjectParts, at most maxParts parts are returned.
+			n := min(maxParts, len(parts))
+			return cmd.ListPartsInfo{MaxParts: maxParts, Parts: parts[:n], IsTruncated: n < len(parts)}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=2147483647", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, 1000, gotMaxParts)
+	require.Contains(t, resp.Body, "<MaxParts>1000</MaxParts>")
+
+	// max-parts=0 returns no parts, like S3.
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=0", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, 0, gotMaxParts)
+	require.NotContains(t, resp.Body, "<Part>")
+	require.Contains(t, resp.Body, "<MaxParts>0</MaxParts><IsTruncated>true</IsTruncated>")
+
+	for _, query := range []string{"part-number-marker=10000", "part-number-marker=20000", "part-number-marker=2147483647"} {
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&"+query, nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, query)
+	}
+
+	for _, query := range []string{"max-parts=x", "max-parts=-1", "max-parts=2147483648", "part-number-marker=-1", "part-number-marker=2147483648", "part-number-marker=4294967297"} {
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&"+query, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>", query)
+	}
+}
+
+func TestListMultipartUploadsKeyMarkerOutsidePrefix(t *testing.T) {
+	var gotKeyMarker string
+	objectAPI := &fakeObjectLayer{
+		listMultipartUploads: func(_ context.Context, _, prefix, keyMarker, _, _ string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+			gotKeyMarker = keyMarker
+			return cmd.ListMultipartsInfo{
+				Prefix:     prefix,
+				MaxUploads: maxUploads,
+				Uploads:    []cmd.MultipartInfo{{Object: "p/key", UploadID: "upload-id"}},
+			}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?uploads&prefix=p/&key-marker=a", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Empty(t, gotKeyMarker)
+	require.Contains(t, resp.Body, "<UploadId>upload-id</UploadId>")
+	// The requested marker is echoed, not the one passed to the object layer.
+	require.Contains(t, resp.Body, "<KeyMarker>a</KeyMarker>")
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?uploads&prefix=p/&key-marker=q", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	// The object layer is called anyway, so that bucket and permission errors are reported.
+	require.Equal(t, []string{"ListMultipartUploads", "ListMultipartUploads"}, objectAPI.Calls())
+	require.Contains(t, resp.Body, "<KeyMarker>q</KeyMarker>")
+	require.Contains(t, resp.Body, "<Prefix>p/</Prefix><MaxUploads>1000</MaxUploads><IsTruncated>false</IsTruncated>")
+	require.NotContains(t, resp.Body, "<Upload>")
+
+	for _, query := range []string{"max-uploads=2147483648", "max-uploads=-1"} {
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket?uploads&"+query, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
+	}
+}
+
 func TestListMultipartUploadsMaxUploadsClamped(t *testing.T) {
 	var got int
 	objectAPI := &fakeObjectLayer{

@@ -6,8 +6,10 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -235,6 +237,21 @@ func TestPutObjectVersionID(t *testing.T) {
 	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
 }
 
+func TestPutObjectStreamingWithoutContentLength(t *testing.T) {
+	data := []byte("hello")
+	body := []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data)))
+	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	// Transfer-Encoding: chunked requests have no Content-Length header.
+	resp := serve(t, objectAPI, http.MethodPut, "/bucket/key", http.Header{
+		"X-Amz-Content-Sha256":         {"STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
+		"Content-Encoding":             {"aws-chunked"},
+		"X-Amz-Decoded-Content-Length": {strconv.Itoa(len(data))},
+		"X-Amz-Trailer":                {"x-amz-checksum-crc32"},
+	}, body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, data, objectAPI.data)
+}
+
 type copyPartObjectLayer struct {
 	*fakeObjectLayer
 	gotSrcInfo cmd.ObjectInfo
@@ -271,6 +288,12 @@ func TestUploadPartCopySource(t *testing.T) {
 		{name: "whole source too large", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}}, expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
 		{name: "range of large source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}, "X-Amz-Copy-Source-Range": {"bytes=0-9"}}, expStatus: http.StatusOK},
 		{name: "range length overflows", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}, "X-Amz-Copy-Source-Range": {"bytes=0-9223372036854775807"}}, expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+		{name: "owner and payer headers", header: http.Header{
+			"X-Amz-Copy-Source":                  {"/bucket/small"},
+			"X-Amz-Expected-Bucket-Owner":        {"123456789012"},
+			"X-Amz-Source-Expected-Bucket-Owner": {"123456789012"},
+			"X-Amz-Request-Payer":                {"requester"},
+		}, expStatus: http.StatusOK},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			objectAPI.gotSrcInfo = cmd.ObjectInfo{}
@@ -391,6 +414,7 @@ func TestUploadPartCopySourceVersion(t *testing.T) {
 			}, nil)
 			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 			require.Equal(t, "old contents", layer.copied)
+			require.Equal(t, oldVersion, resp.Header.Get("X-Amz-Copy-Source-Version-Id"))
 		})
 	}
 }

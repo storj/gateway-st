@@ -1496,40 +1496,6 @@ func TestListPartsEmptyETag(t *testing.T) {
 	require.Contains(t, resp.Body, "<ETag></ETag>")
 }
 
-func TestListPartsLimits(t *testing.T) {
-	var gotMaxParts int
-	parts := []cmd.PartInfo{{PartNumber: 1, ETag: "a", Size: 1}, {PartNumber: 2, ETag: "b", Size: 1}}
-	objectAPI := &fakeObjectLayer{
-		listObjectParts: func(_ context.Context, _, _, _ string, _, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
-			gotMaxParts = maxParts
-			// Like miniogw.ListObjectParts, at most maxParts parts are returned.
-			n := min(maxParts, len(parts))
-			return cmd.ListPartsInfo{MaxParts: maxParts, Parts: parts[:n], IsTruncated: n < len(parts)}, nil
-		},
-	}
-
-	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=2147483647", nil, nil)
-	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Equal(t, 1000, gotMaxParts)
-	require.Contains(t, resp.Body, "<MaxParts>1000</MaxParts>")
-
-	// max-parts=0 returns no parts, like S3.
-	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&max-parts=0", nil, nil)
-	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Equal(t, 0, gotMaxParts)
-	require.NotContains(t, resp.Body, "<Part>")
-	require.Contains(t, resp.Body, "<MaxParts>0</MaxParts><IsTruncated>true</IsTruncated>")
-
-	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&part-number-marker=10000", nil, nil)
-	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-
-	for _, query := range []string{"max-parts=x", "max-parts=-1", "part-number-marker=-1", "part-number-marker=10001", "part-number-marker=4294967297"} {
-		resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&"+query, nil, nil)
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
-		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>", query)
-	}
-}
-
 func TestSignatureVerification(t *testing.T) {
 	router := newTestRouter(&fakeObjectLayer{})
 

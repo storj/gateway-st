@@ -104,11 +104,17 @@ func getMaxKeys(values url.Values) (int, error) {
 	if maxKeysStr == "" {
 		return maxObjectList, nil
 	}
-	maxKeys, err := strconv.Atoi(maxKeysStr)
-	if err != nil {
+	maxKeys, ok := parseListInt(maxKeysStr)
+	if !ok {
 		return 0, apierr.CodeInvalidMaxKeys
 	}
 	return min(maxKeys, maxObjectList), nil
+}
+
+// parseListInt parses a list limit or marker, accepting 0..math.MaxInt32 as S3 does.
+func parseListInt(s string) (int, bool) {
+	n, err := strconv.ParseInt(s, 10, 32)
+	return int(n), err == nil && n >= 0
 }
 
 func validateListObjectsParams(maxKeys int, encodingType string) error {
@@ -295,16 +301,27 @@ func (api *API) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if params.keyMarker != "" && !strings.HasPrefix(params.keyMarker, params.prefix) {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
+	// The layer expects key-marker to start with prefix. A marker sorting before
+	// prefix is ignored, and one sorting after it is past every matching key. The
+	// layer is called either way, so that bucket and permission errors are reported.
+	keyMarker := params.keyMarker
+	pastPrefix := !strings.HasPrefix(keyMarker, params.prefix) && keyMarker > params.prefix
+	if !strings.HasPrefix(keyMarker, params.prefix) {
+		keyMarker = ""
 	}
-
-	listMultipartsInfo, err := api.objectAPI.ListMultipartUploads(ctx, bucketName, params.prefix, params.keyMarker,
+	listMultipartsInfo, err := api.objectAPI.ListMultipartUploads(ctx, bucketName, params.prefix, keyMarker,
 		params.uploadIDMarker, params.delimiter, params.maxUploads)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
+	}
+	listMultipartsInfo.KeyMarker = params.keyMarker
+	if pastPrefix {
+		listMultipartsInfo.Uploads = nil
+		listMultipartsInfo.CommonPrefixes = nil
+		listMultipartsInfo.IsTruncated = false
+		listMultipartsInfo.NextKeyMarker = ""
+		listMultipartsInfo.NextUploadIDMarker = ""
 	}
 
 	response := generateListMultipartUploadsResponse(bucketName, listMultipartsInfo, params.encodingType)
@@ -329,7 +346,8 @@ type listMultipartUploadsParams struct {
 func getListMultipartUploadsParams(values url.Values) (params listMultipartUploadsParams, err error) {
 	var maxUploads int
 	if maxUploadsStr := values.Get("max-uploads"); maxUploadsStr != "" {
-		if maxUploads, err = strconv.Atoi(maxUploadsStr); err != nil {
+		var ok bool
+		if maxUploads, ok = parseListInt(maxUploadsStr); !ok {
 			return listMultipartUploadsParams{}, apierr.CodeInvalidMaxUploads
 		}
 		maxUploads = min(maxUploads, maxObjectList)
@@ -426,16 +444,17 @@ type listPartsParams struct {
 }
 
 func getListPartsParams(values url.Values) (params listPartsParams, err error) {
+	var ok bool
 	params.maxParts = maxPartsList
 	if maxPartsStr := values.Get("max-parts"); maxPartsStr != "" {
-		if params.maxParts, err = strconv.Atoi(maxPartsStr); err != nil || params.maxParts < 0 {
+		if params.maxParts, ok = parseListInt(maxPartsStr); !ok {
 			return listPartsParams{}, apierr.CodeInvalidMaxParts
 		}
 		params.maxParts = min(params.maxParts, maxPartsList)
 	}
 
 	if markerStr := values.Get("part-number-marker"); markerStr != "" {
-		if params.partNumberMarker, err = strconv.Atoi(markerStr); err != nil || params.partNumberMarker < 0 || params.partNumberMarker > maxPartNumber {
+		if params.partNumberMarker, ok = parseListInt(markerStr); !ok {
 			return listPartsParams{}, apierr.CodeInvalidPartNumberMarker
 		}
 	}

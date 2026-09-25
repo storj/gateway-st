@@ -392,9 +392,6 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		xhttp.AmzServerSideEncryptionCopyCustomerAlgorithm,
 		xhttp.AmzServerSideEncryptionCopyCustomerKey,
 		xhttp.AmzServerSideEncryptionCopyCustomerKeyMD5,
-		"X-Amz-Request-Payer",
-		"X-Amz-Expected-Bucket-Owner",
-		"X-Amz-Source-Expected-Bucket-Owner",
 	} {
 		if _, ok := r.Header[header]; ok {
 			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
@@ -493,8 +490,8 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if srcVersionID != "" {
-		w.Header().Set(xhttp.AmzCopySourceVersionID, srcVersionID)
+	if srcInfo.VersionID != "" {
+		w.Header().Set(xhttp.AmzCopySourceVersionID, srcInfo.VersionID)
 	}
 
 	api.writeSuccessResponseXML(w, r, encodedSuccessResponse)
@@ -540,11 +537,6 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	size := r.ContentLength
-
-	if _, err := strconv.ParseInt(r.Header.Get(xhttp.ContentLength), 10, 64); err != nil {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
-		return
-	}
 
 	if isStreamingSigV4(r) {
 		size, err = strconv.ParseInt(r.Header.Get(xhttp.AmzDecodedContentLength), 10, 64)
