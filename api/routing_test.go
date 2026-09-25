@@ -173,6 +173,19 @@ func TestHeadErrorHasNoBody(t *testing.T) {
 	require.Empty(t, rec.Body.String())
 }
 
+func TestInvalidUTF8Key(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		deleteObject: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			t.Error("DeleteObject must not be called")
+			return cmd.ObjectInfo{}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/%FF", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
+}
+
 func TestUnmatchedRoutes(t *testing.T) {
 	for _, tt := range []struct {
 		method, target string

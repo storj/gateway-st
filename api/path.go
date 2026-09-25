@@ -25,9 +25,11 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 )
 
@@ -62,7 +64,15 @@ func pathClean(p string) string {
 // unescapePath unescapes an object key taken from a request URL. S3 keeps keys verbatim, so the
 // result is not cleaned: "/bucket//a/../b" refers to the key "/a/../b".
 func unescapePath(p string) (string, error) {
-	return url.PathUnescape(p)
+	ep, err := url.PathUnescape(p)
+	if err != nil {
+		return "", err
+	}
+	if !utf8.ValidString(ep) {
+		// S3 responds with InvalidURI here, which apierr does not define.
+		return "", apierr.CodeInvalidRequest
+	}
+	return ep, nil
 }
 
 func shouldEscape(c byte) bool {
