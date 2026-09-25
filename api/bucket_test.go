@@ -1,0 +1,47 @@
+// Copyright (C) 2026 Storj Labs, Inc.
+// See LICENSE for copying information.
+
+package api_test
+
+import (
+	"context"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"storj.io/minio/cmd"
+)
+
+// bucketObjectLayer extends fakeObjectLayer with the bucket-level methods used by these tests.
+type bucketObjectLayer struct {
+	*fakeObjectLayer
+
+	listObjectsV2 func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
+}
+
+func (f *bucketObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error) {
+	return f.listObjectsV2(ctx, bucket, prefix, continuationToken, delimiter, maxKeys, fetchOwner, startAfter)
+}
+
+func TestListObjectsV2(t *testing.T) {
+	var gotToken string
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		listObjectsV2: func(_ context.Context, _, _, continuationToken, _ string, _ int, _ bool, _ string) (cmd.ListObjectsV2Info, error) {
+			gotToken = continuationToken
+			return cmd.ListObjectsV2Info{}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Empty(t, gotToken)
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=dG9rZW4%3D", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, "token", gotToken)
+
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=%21", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+}

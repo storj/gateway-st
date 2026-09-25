@@ -167,14 +167,11 @@ type listObjectsV2Params struct {
 }
 
 func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err error) {
-	tokenStr := values.Get("continuation-token")
-	if tokenStr == "" {
-		return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
-	}
-
-	decodedToken, err := base64.StdEncoding.DecodeString(tokenStr)
-	if err != nil {
-		return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
+	var decodedToken []byte
+	if tokenStr := values.Get("continuation-token"); tokenStr != "" {
+		if decodedToken, err = base64.StdEncoding.DecodeString(tokenStr); err != nil {
+			return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
+		}
 	}
 
 	var maxKeys int
