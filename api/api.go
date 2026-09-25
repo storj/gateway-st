@@ -108,8 +108,6 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	subrouters = append(subrouters, apiRouter.PathPrefix("/{bucket}").Subrouter())
 
 	for _, subrouter := range subrouters {
-		api.registerUnsupportedHandlers(subrouter)
-
 		// Object-level operations
 		objRouter := subrouter.Path("/{object:.+}").Subrouter()
 
@@ -138,6 +136,9 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 		objRouter.Methods(http.MethodPost).Queries("uploads", "").HandlerFunc(api.CreateMultipartUploadHandler)
 		objRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.CompleteMultipartUploadHandler)
+
+		// Registered after the object-level operations so that they only match bucket-level requests.
+		api.registerUnsupportedHandlers(subrouter)
 
 		// Bucket-level operations
 		subrouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
@@ -231,6 +232,55 @@ var unsupportedEndpoints = []struct {
 	{
 		query:   "website",
 		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "ownershipControls",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "publicAccessBlock",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "metrics",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "analytics",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "inventory",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	{
+		query:   "intelligent-tiering",
+		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+	},
+	// GET requests for the following are served by dedicated handlers.
+	{
+		query:   "cors",
+		methods: []string{http.MethodPut, http.MethodDelete},
+	},
+	{
+		query:   "accelerate",
+		methods: []string{http.MethodPut, http.MethodDelete},
+	},
+	{
+		query:   "logging",
+		methods: []string{http.MethodPut, http.MethodDelete},
+	},
+	{
+		query:   "requestPayment",
+		methods: []string{http.MethodPut, http.MethodDelete},
+	},
+	{
+		query:   "metadataTable",
+		methods: []string{http.MethodPost, http.MethodDelete},
+	},
+	{
+		query:   "metadataConfiguration",
+		methods: []string{http.MethodPost, http.MethodDelete},
 	},
 }
 
