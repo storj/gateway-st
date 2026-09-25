@@ -1323,6 +1323,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		body      string
 		expStatus int
 		expCode   string
+		expBody   string
 	}{
 		{
 			name:      "parts out of order",
@@ -1330,6 +1331,36 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			body:      `<CompleteMultipartUpload><Part><PartNumber>2</PartNumber></Part><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`,
 			expStatus: http.StatusBadRequest,
 			expCode:   "InvalidPartOrder",
+		},
+		{
+			name:      "part number zero",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>0</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+			expBody:   "<ArgumentName>PartNumber</ArgumentName><ArgumentValue>0</ArgumentValue>",
+		},
+		{
+			name:      "part number too large",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>10001</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+			expBody:   "<ArgumentName>PartNumber</ArgumentName><ArgumentValue>10001</ArgumentValue>",
+		},
+		{
+			name:      "missing ETag",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "MalformedXML",
+		},
+		{
+			name:      "empty ETag",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>""</ETag></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "MalformedXML",
 		},
 		{
 			name:      "no parts",
@@ -1348,7 +1379,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		{
 			name:      "nonexistent upload",
 			uploadID:  "other",
-			body:      `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`,
+			body:      `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,
 			expStatus: http.StatusNotFound,
 			expCode:   "NoSuchUpload",
 		},
@@ -1357,6 +1388,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			resp := complete(t, tt.uploadID, tt.body)
 			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
 			require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+			require.Contains(t, resp.Body, tt.expBody)
 		})
 	}
 
@@ -1369,7 +1401,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 				return objectAPI.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
 			},
 		}
-		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`)
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
 
 		resp := serve(t, slowObjectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
@@ -1610,7 +1642,7 @@ func TestIfMatchNotImplemented(t *testing.T) {
 	deleteSizeSum := md5.Sum(deleteSizeBody)
 	deleteTimeBody := []byte(`<Delete><Object><Key>key</Key><LastModifiedTime>2025-01-01T00:00:00.000Z</LastModifiedTime></Object></Delete>`)
 	deleteTimeSum := md5.Sum(deleteTimeBody)
-	completeBody := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`)
+	completeBody := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
 
 	for _, tt := range []struct {
 		name, method, target string

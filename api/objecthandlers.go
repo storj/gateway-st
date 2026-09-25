@@ -1764,13 +1764,24 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	for i, part := range completeUpload.Parts {
+		if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
+			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
+			errResp.ArgumentName = "PartNumber"
+			errResp.ArgumentValue = strconv.Itoa(part.PartNumber)
+			api.writeErrorResponse(w, r, errResp)
+			return
+		}
+		completeUpload.Parts[i].ETag = strings.Trim(part.ETag, `"`)
+		if completeUpload.Parts[i].ETag == "" {
+			api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+			return
+		}
+	}
+
 	if objectlock.IsObjectLockRequested(r.Header) || objectlock.IsObjectLockGovernanceBypassSet(r.Header) {
 		api.writeErrorResponse(w, r, apierr.CodeInvalidRequest)
 		return
-	}
-
-	for i := range completeUpload.Parts {
-		completeUpload.Parts[i].ETag = strings.Trim(completeUpload.Parts[i].ETag, `"`)
 	}
 
 	// Completing an upload may take a while, so whitespace is sent periodically to keep the
