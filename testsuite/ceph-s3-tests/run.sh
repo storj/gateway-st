@@ -3,8 +3,6 @@ set -Eueo pipefail
 
 # use 'make integration-ceph-tests' to run this script
 
-apt-get update && apt-get -yqq install tox
-
 SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:=$GATEWAY_0_ACCESS_KEY}
@@ -21,9 +19,18 @@ rm -rf "$BUILD_DIR/s3-tests/"
 pushd "$BUILD_DIR"
     # Don't bump past 88daca5 (botocore unpin) until storj/minio's
     # bucket-handlers.go stops requiring Content-Md5 on DeleteObjects.
-    git clone https://github.com/ceph/s3-tests && \
-        cd s3-tests && \
-        git reset --hard 7a1aa1b42251c94f120393062deb9531ff7c45ef
+    # The checksum pins the tarball's content, like the commit hash pinned the clone. GitHub
+    # doesn't guarantee archives stay byte-identical, so if the check starts failing on its own,
+    # update the checksum after verifying the new tarball.
+    curl -sSfL -o s3-tests.tar.gz https://github.com/ceph/s3-tests/archive/7a1aa1b42251c94f120393062deb9531ff7c45ef.tar.gz
+    echo "7bcb9199b91d7bae980922601ec1ad426e90ff81657b0c03214b2dcb5bd6c7a4  s3-tests.tar.gz" | sha256sum -c -
+    mkdir s3-tests
+    tar -xzf s3-tests.tar.gz --strip-components=1 -C s3-tests
+    rm s3-tests.tar.gz
+    cd s3-tests
+
+    python -m venv .venv
+    .venv/bin/pip install -q -r "$SCRIPTDIR/requirements.txt"
 
     cp "$SCRIPTDIR/storj.conf" ./
 
@@ -34,5 +41,5 @@ pushd "$BUILD_DIR"
 
     # args in quota are not working for some reason so disable check for now
     #shellcheck disable=SC2046
-    S3TEST_CONF="storj.conf" tox $( grep "^[^#]" "$SCRIPTDIR/all.tests" | xargs) -- --junitxml="$BUILD_DIR/ceph.xml"
+    S3TEST_CONF="storj.conf" .venv/bin/pytest -n 4 $( grep "^[^#]" "$SCRIPTDIR/all.tests" | xargs) --junitxml="$BUILD_DIR/ceph.xml"
 popd

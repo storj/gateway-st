@@ -112,26 +112,21 @@ lint-testsuite-do:
 
 ##@ Verification/Cross-Vet
 
+# TODO(artur): add windows/arm and windows/arm64 once upstream supports them.
+CROSS_VET_PLATFORMS := \
+	linux/386 linux/amd64 linux/arm linux/arm64 \
+	freebsd/386 freebsd/amd64 freebsd/arm freebsd/arm64 \
+	windows/386 windows/amd64 \
+	darwin/amd64 darwin/arm64
+
 .PHONY: cross-vet
-cross-vet: ## Run `go vet` across the supported GOOS/GOARCH matrix
-	GOOS=linux   GOARCH=386   go vet ./...
-	GOOS=linux   GOARCH=amd64 go vet ./...
-	GOOS=linux   GOARCH=arm   go vet ./...
-	GOOS=linux   GOARCH=arm64 go vet ./...
-	GOOS=freebsd GOARCH=386   go vet ./...
-	GOOS=freebsd GOARCH=amd64 go vet ./...
-	GOOS=freebsd GOARCH=arm   go vet ./...
-	GOOS=freebsd GOARCH=arm64 go vet ./...
-	GOOS=windows GOARCH=386   go vet ./...
-	GOOS=windows GOARCH=amd64 go vet ./...
+cross-vet: $(addprefix cross-vet/,$(CROSS_VET_PLATFORMS)) ## Run `go vet` across the supported GOOS/GOARCH matrix (parallel with -j)
 
-	# TODO(artur): enable once upstream supports them:
-	# GOOS=windows GOARCH=arm   go vet ./...
-	# GOOS=windows GOARCH=arm64 go vet ./...
-
-	# kqueue tag avoids Cgo on darwin.
-	GOOS=darwin  GOARCH=amd64 go vet -tags kqueue ./...
-	GOOS=darwin  GOARCH=arm64 go vet -tags kqueue ./...
+# Not .PHONY: make skips implicit rules for phony targets.
+# kqueue tag avoids Cgo on darwin.
+cross-vet/%:
+	GOOS=$(word 1,$(subst /, ,$*)) GOARCH=$(word 2,$(subst /, ,$*)) \
+		go vet $(if $(filter darwin/%,$*),-tags kqueue) ./...
 
 ##@ Verification/Test
 
@@ -143,7 +138,7 @@ test: test-main test-testsuite ## Run the unit-test suite for both modules
 
 .PHONY: test-main
 test-main: ## Run the unit-test suite for the root module
-	go test -json=$(JSON) -p 16 -parallel 4 -race -short=$(SHORT) -vet=off ./...
+	go test -json=$(JSON) -p 16 -parallel 6 -race -short=$(SHORT) -vet=off ./...
 
 .PHONY: test-testsuite
 test-testsuite: ## Run the unit-test suite for the testsuite module
@@ -151,8 +146,7 @@ test-testsuite: ## Run the unit-test suite for the testsuite module
 
 .PHONY: test-testsuite-do
 test-testsuite-do:
-	go vet ./...
-	go test -json=$(JSON) -p 16 -parallel 4 -race -short=$(SHORT) -vet=off ./...
+	go test -json=$(JSON) -p 16 -parallel 6 -race -short=$(SHORT) -vet=off ./...
 
 ##@ Verification/Integration
 
@@ -261,21 +255,27 @@ integration-gateway-st-tests-s3fs: ## Run the gateway-st s3fs subtest (privilege
 	--rm storjlabs/ci:latest \
 	testsuite/integration/s3fs.sh
 
-# umask 0000 because the container runs as root and writes to bind-mounted /build/.build/.
+# Runs as the host user so that the agent can clean up what it leaves in /build/.build/. The pip
+# cache is created first, so that docker doesn't create it owned by root.
+# Python 3.11: s3-tests' boto 2 imports imp, which 3.12 removed.
 .PHONY: integration-ceph-tests
 integration-ceph-tests: ## Run ceph s3-tests suite (environment needs to be started first)
+	mkdir -p /tmp/pipcache && \
 	$$($(INTEGRATION_CREDENTIALS)) && \
 	docker run \
 	--network $(INTEGRATION_NETWORK) \
+	-u "$$(id -u):$$(id -g)" \
 	-e GATEWAY_0_ADDR=gateway:9999 \
 	-e "GATEWAY_0_ACCESS_KEY=$$AWS_ACCESS_KEY_ID" \
 	-e "GATEWAY_0_SECRET_KEY=$$AWS_SECRET_ACCESS_KEY" \
+	-e HOME=/tmp -e PIP_CACHE_DIR=/pipcache \
 	-v $$PWD:/build \
 	-w /build \
+	-v /tmp/pipcache:/pipcache \
 	--name integration-ceph-tests-${BUILD_NUMBER}-$$TEST \
 	--entrypoint /bin/bash \
-	--rm python:3.13-bookworm \
-	-c "umask 0000; testsuite/ceph-s3-tests/run.sh"
+	--rm python:3.11-bookworm \
+	testsuite/ceph-s3-tests/run.sh
 
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)
