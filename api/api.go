@@ -38,6 +38,7 @@ import (
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
+	"storj.io/minio/cmd/logger"
 )
 
 // Config contains configuration parameters for an API.
@@ -251,8 +252,11 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		var hostID [32]byte
 		_, _ = rand.Read(id[:]) // never returns an error
 		_, _ = rand.Read(hostID[:])
-		w.Header().Set(xhttp.AmzRequestID, strings.ToUpper(hex.EncodeToString(id[:])))
+		requestID := strings.ToUpper(hex.EncodeToString(id[:]))
+		w.Header().Set(xhttp.AmzRequestID, requestID)
 		w.Header().Set(amzID2, base64.StdEncoding.EncodeToString(hostID[:]))
+		// Handlers log with the request, so the request ID must be in its context.
+		r = r.WithContext(logger.SetReqInfo(r.Context(), &logger.ReqInfo{RequestID: requestID}))
 		next.ServeHTTP(w, r)
 	})
 }

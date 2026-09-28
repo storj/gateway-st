@@ -50,10 +50,13 @@ func (log *zapLogger) getCommonFields(r *http.Request) []zap.Field {
 	if reqInfo == nil {
 		return nil
 	}
-	return []zap.Field{
-		zap.String("operation", reqInfo.API),
-		zap.String("amz_request_id", reqInfo.RequestID),
+	fields := []zap.Field{zap.String("amz_request_id", reqInfo.RequestID)}
+	// TODO: the operation is never set yet, because handlers keep the context from
+	// cmd.NewContext, which names it, to themselves. Pass it on with the request.
+	if reqInfo.API != "" {
+		fields = append(fields, zap.String("operation", reqInfo.API))
 	}
+	return fields
 }
 
 type nopLogger struct{}
