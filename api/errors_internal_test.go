@@ -5,6 +5,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"testing"
 
@@ -37,4 +39,23 @@ func TestObjectLayerErrorMessages(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.HTTPStatusCode)
 	require.Equal(t, "InvalidArgument", resp.Code)
 	require.Equal(t, "partID is out of range", resp.Description)
+}
+
+func TestAwsigErrToCode(t *testing.T) {
+	for _, tt := range []struct {
+		err  error
+		code string
+	}{
+		// awsig nests these errors in more general ones.
+		{fmt.Errorf("%w: %w", awsig.ErrInvalidChunkSize, awsig.ErrEntityTooSmall), "InvalidChunkSizeError"},
+		{fmt.Errorf("%w: %w", awsig.ErrMalformedPOSTRequest, awsig.ErrMessageTooLarge), "MaxPostPreDataLengthExceededError"},
+		{fmt.Errorf("%w: %w", awsig.ErrMalformedTrailer, io.ErrUnexpectedEOF), "MalformedTrailerError"},
+		{awsig.ErrAuthorizationQueryParametersError, "AuthorizationQueryParametersError"},
+		{awsig.ErrInvalidChecksumRequest, "InvalidRequest"},
+		{awsig.ErrUnsignedHeader, "AccessDenied"},
+	} {
+		resp, ok := errToResponse(tt.err)
+		require.True(t, ok, tt.err)
+		require.Equal(t, tt.code, resp.Code, tt.err)
+	}
 }

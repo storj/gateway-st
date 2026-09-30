@@ -9,6 +9,7 @@ const (
 	CodeAccessControlListNotSupported
 	CodeAccessDenied
 	CodeAuthorizationHeaderMalformed
+	CodeAuthorizationQueryParameters
 	CodeBadDigest
 	CodeBadRequest
 	CodeChecksumMismatch
@@ -25,6 +26,7 @@ const (
 	CodeInvalidAccessKeyID
 	CodeInvalidAttributeName
 	CodeInvalidChecksumAlgorithm
+	CodeInvalidChunkSize
 	CodeInvalidContentMD5
 	CodeInvalidContentSHA256
 	CodeInvalidCopyDest
@@ -58,7 +60,9 @@ const (
 	CodeMalformedPOSTDate
 	CodeMalformedPOSTRequest
 	CodeMalformedPresignedDate
+	CodeMalformedTrailer
 	CodeMalformedXML
+	CodeMaxPostPreDataLengthExceeded
 	CodeMaximumExpires
 	CodeMethodNotAllowed
 	CodeMissingChecksumForSdkAlgorithm
@@ -98,6 +102,7 @@ const (
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
 	CodeSignatureDoesNotMatch
+	CodeUnsignedHeaders
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
 )
@@ -116,6 +121,11 @@ var codeToResponse = map[Code]Response{
 	CodeAuthorizationHeaderMalformed: {
 		Code:           "AuthorizationHeaderMalformed",
 		Description:    "The authorization header that you provided is not valid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeAuthorizationQueryParameters: {
+		Code:           "AuthorizationQueryParametersError",
+		Description:    "The authorization query parameters that you provided are not valid.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeBadDigest: {
@@ -197,6 +207,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidRequest",
 		Description:    "The algorithm type you specified in x-amz-checksum- header is invalid.",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidChunkSize: {
+		Code:           "InvalidChunkSizeError",
+		Description:    "Only the last chunk is allowed to have a size less than 8192 bytes",
+		HTTPStatusCode: http.StatusForbidden,
 	},
 	CodeInvalidContentMD5: {
 		Code:           "InvalidDigest",
@@ -363,9 +378,19 @@ var codeToResponse = map[Code]Response{
 		Description:    "X-Amz-Date must be in the ISO8601 Long Format \"yyyyMMdd'T'HHmmss'Z'\"",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeMalformedTrailer: {
+		Code:           "MalformedTrailerError",
+		Description:    "The request contained trailing data that was not well-formed or did not conform to our published schema.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMalformedXML: {
 		Code:           "MalformedXML",
 		Description:    "The XML you provided was not well-formed or did not validate against our published schema.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMaxPostPreDataLengthExceeded: {
+		Code:           "MaxPostPreDataLengthExceededError",
+		Description:    "Your POST request fields preceding the upload file were too large.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMaximumExpires: {
@@ -561,6 +586,11 @@ var codeToResponse = map[Code]Response{
 	CodeSignatureDoesNotMatch: {
 		Code:           "SignatureDoesNotMatch",
 		Description:    "The request signature we calculated does not match the signature you provided. Check your key and signing method.",
+		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeUnsignedHeaders: {
+		Code:           "AccessDenied",
+		Description:    "There were headers present in the request which were not signed",
 		HTTPStatusCode: http.StatusForbidden,
 	},
 	CodeUnsupportedECDSAP256SHA256: {

@@ -13,6 +13,11 @@
   description: The authorization header that you provided is not valid.
   http_status: 400
 
+- name: AuthorizationQueryParameters
+  code: AuthorizationQueryParametersError
+  description: The authorization query parameters that you provided are not valid.
+  http_status: 400
+
 - name: BadRequest
   code: BadRequest
   description: 400 BadRequest
@@ -53,9 +58,24 @@
   description: The algorithm type you specified in x-amz-checksum- header is invalid.
   http_status: 400
 
+- name: InvalidChunkSize
+  code: InvalidChunkSizeError
+  description: Only the last chunk is allowed to have a size less than 8192 bytes
+  http_status: 403
+
 - name: InvalidSdkChecksumAlgorithm
   code: InvalidRequest
   description: Value for x-amz-sdk-checksum-algorithm header is invalid.
+  http_status: 400
+
+- name: MalformedTrailer
+  code: MalformedTrailerError
+  description: The request contained trailing data that was not well-formed or did not conform to our published schema.
+  http_status: 400
+
+- name: MaxPostPreDataLengthExceeded
+  code: MaxPostPreDataLengthExceededError
+  description: Your POST request fields preceding the upload file were too large.
   http_status: 400
 
 - name: MissingChecksumForSdkAlgorithm
@@ -456,6 +476,11 @@
 - name: SignatureDoesNotMatch
   code: SignatureDoesNotMatch
   description: The request signature we calculated does not match the signature you provided. Check your key and signing method.
+  http_status: 403
+
+- name: UnsignedHeaders
+  code: AccessDenied
+  description: There were headers present in the request which were not signed
   http_status: 403
 
 - name: UnsupportedECDSAP256SHA256

@@ -12,43 +12,54 @@ import (
 	"storj.io/gateway/api/apierr"
 )
 
-// awsigErrToCodeMap maps awsig errors to their corresponding error codes.
-var awsigErrToCodeMap = map[error]apierr.Code{
-	awsig.ErrAccessDenied:                      apierr.CodeAccessDenied,
-	awsig.ErrAuthorizationHeaderMalformed:      apierr.CodeAuthorizationHeaderMalformed,
-	awsig.ErrBadDigest:                         apierr.CodeBadDigest,
-	awsig.ErrContentLengthWithTransferEncoding: apierr.CodeContentLengthWithTransferEncoding,
-	awsig.ErrEntityTooLarge:                    apierr.CodeEntityTooLarge,
-	awsig.ErrEntityTooSmall:                    apierr.CodeEntityTooSmall,
-	awsig.ErrInvalidAccessKeyID:                apierr.CodeInvalidAccessKeyID,
-	awsig.ErrInvalidDateHeader:                 apierr.CodeMalformedDate,
-	awsig.ErrInvalidDigest:                     apierr.CodeInvalidContentMD5,
-	awsig.ErrInvalidPOSTDate:                   apierr.CodeMalformedPOSTDate,
-	awsig.ErrInvalidPresignedDate:              apierr.CodeMalformedPresignedDate,
-	awsig.ErrInvalidPresignedExpiration:        apierr.CodeMalformedExpires,
-	awsig.ErrInvalidPresignedXAmzContentSHA256: apierr.CodeContentSHA256Mismatch,
-	awsig.ErrInvalidRequest:                    apierr.CodeInvalidRequest,
-	awsig.ErrInvalidSignature:                  apierr.CodeSignatureDoesNotMatch,
-	awsig.ErrInvalidXAmzContentSHA256:          apierr.CodeInvalidContentSHA256,
-	awsig.ErrInvalidXAmzDecodedContentLength:   apierr.CodeMissingContentLength,
-	awsig.ErrMalformedPOSTRequest:              apierr.CodeMalformedPOSTRequest,
-	awsig.ErrMissingContentLength:              apierr.CodeMissingContentLength,
-	awsig.ErrMissingPOSTPolicy:                 apierr.CodeMissingPOSTPolicy,
-	awsig.ErrMissingSecurityHeader:             apierr.CodeMissingSecurityHeader,
-	awsig.ErrNegativePresignedExpiration:       apierr.CodeNegativeExpires,
-	awsig.ErrNotImplemented:                    apierr.CodeUnsupportedECDSAP256SHA256,
-	awsig.ErrPresignedExpirationTooLarge:       apierr.CodeMaximumExpires,
-	awsig.ErrRequestExpired:                    apierr.CodeExpiredPresignedRequest,
-	awsig.ErrRequestNotYetValid:                apierr.CodeRequestNotReadyYet,
-	awsig.ErrRequestTimeTooSkewed:              apierr.CodeRequestTimeTooSkewed,
-	awsig.ErrSignatureDoesNotMatch:             apierr.CodeSignatureDoesNotMatch,
-	awsig.ErrUnsupportedSignature:              apierr.CodeUnsupportedSignature,
+// awsigErrToCodes maps awsig errors to their corresponding error codes. awsig nests some errors
+// in others, such as ErrInvalidChunkSize in ErrEntityTooSmall and ErrMessageTooLarge in
+// ErrMalformedPOSTRequest, so the more specific errors come first.
+var awsigErrToCodes = []struct {
+	err  error
+	code apierr.Code
+}{
+	{awsig.ErrInvalidChunkSize, apierr.CodeInvalidChunkSize},
+	{awsig.ErrMessageTooLarge, apierr.CodeMaxPostPreDataLengthExceeded},
+	{awsig.ErrMalformedTrailer, apierr.CodeMalformedTrailer},
+	{awsig.ErrAccessDenied, apierr.CodeAccessDenied},
+	{awsig.ErrAuthorizationHeaderMalformed, apierr.CodeAuthorizationHeaderMalformed},
+	{awsig.ErrAuthorizationQueryParametersError, apierr.CodeAuthorizationQueryParameters},
+	{awsig.ErrBadDigest, apierr.CodeBadDigest},
+	{awsig.ErrContentLengthWithTransferEncoding, apierr.CodeContentLengthWithTransferEncoding},
+	{awsig.ErrEntityTooLarge, apierr.CodeEntityTooLarge},
+	{awsig.ErrEntityTooSmall, apierr.CodeEntityTooSmall},
+	{awsig.ErrInvalidAccessKeyID, apierr.CodeInvalidAccessKeyID},
+	{awsig.ErrInvalidChecksumRequest, apierr.CodeInvalidRequest},
+	{awsig.ErrInvalidDateHeader, apierr.CodeMalformedDate},
+	{awsig.ErrInvalidDigest, apierr.CodeInvalidContentMD5},
+	{awsig.ErrInvalidPOSTDate, apierr.CodeMalformedPOSTDate},
+	{awsig.ErrInvalidPresignedDate, apierr.CodeMalformedPresignedDate},
+	{awsig.ErrInvalidPresignedExpiration, apierr.CodeMalformedExpires},
+	{awsig.ErrInvalidPresignedXAmzContentSHA256, apierr.CodeContentSHA256Mismatch},
+	{awsig.ErrInvalidRequest, apierr.CodeInvalidRequest},
+	{awsig.ErrInvalidSignature, apierr.CodeSignatureDoesNotMatch},
+	{awsig.ErrInvalidXAmzContentSHA256, apierr.CodeInvalidContentSHA256},
+	{awsig.ErrInvalidXAmzDecodedContentLength, apierr.CodeMissingContentLength},
+	{awsig.ErrMalformedPOSTRequest, apierr.CodeMalformedPOSTRequest},
+	{awsig.ErrMissingContentLength, apierr.CodeMissingContentLength},
+	{awsig.ErrMissingPOSTPolicy, apierr.CodeMissingPOSTPolicy},
+	{awsig.ErrMissingSecurityHeader, apierr.CodeMissingSecurityHeader},
+	{awsig.ErrNegativePresignedExpiration, apierr.CodeNegativeExpires},
+	{awsig.ErrNotImplemented, apierr.CodeUnsupportedECDSAP256SHA256},
+	{awsig.ErrPresignedExpirationTooLarge, apierr.CodeMaximumExpires},
+	{awsig.ErrRequestExpired, apierr.CodeExpiredPresignedRequest},
+	{awsig.ErrRequestNotYetValid, apierr.CodeRequestNotReadyYet},
+	{awsig.ErrRequestTimeTooSkewed, apierr.CodeRequestTimeTooSkewed},
+	{awsig.ErrSignatureDoesNotMatch, apierr.CodeSignatureDoesNotMatch},
+	{awsig.ErrUnsignedHeader, apierr.CodeUnsignedHeaders},
+	{awsig.ErrUnsupportedSignature, apierr.CodeUnsupportedSignature},
 }
 
 func awsigErrToCode(err error) (code apierr.Code, ok bool) {
-	for awsigErr, code := range awsigErrToCodeMap {
-		if errors.Is(err, awsigErr) {
-			return code, true
+	for _, m := range awsigErrToCodes {
+		if errors.Is(err, m.err) {
+			return m.code, true
 		}
 	}
 	return apierr.CodeNone, false

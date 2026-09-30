@@ -257,11 +257,6 @@ func serveHTTP(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, h
 // signV4 signs a request with AWS Signature Version 4 using the test credentials, following the
 // AWS specification. Every header present on the request is signed. X-Amz-Content-Sha256 is set
 // to the hash of body unless the request already has it.
-//
-// TODO: awsig differs from the specification for repeated headers (a line per value instead of
-// comma-joined values), runs of spaces inside header values (kept instead of collapsed) and
-// repeated values of the first query parameter (not separated by '&'). Requests with those are
-// rejected with 403 until awsig is fixed.
 func signV4(req *http.Request, body []byte, now time.Time) {
 	const region, service = "us-east-1", "s3"
 
@@ -301,8 +296,8 @@ func signV4(req *http.Request, body []byte, now time.Time) {
 
 	canonicalRequest := strings.Join([]string{
 		req.Method,
-		// Like the verifier, encode everything in the path except unreserved characters and '/'.
-		strings.ReplaceAll(uriEncode(req.URL.Path), "%2F", "/"),
+		// S3 signs the path as the client escaped it.
+		req.URL.EscapedPath(),
 		strings.Join(queryParams, "&"),
 		canonicalHeaders.String(),
 		signedHeaders,
@@ -331,6 +326,19 @@ func hmacSHA256(key []byte, data string) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(data))
 	return mac.Sum(nil)
+}
+
+func TestSignV4Canonicalization(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+
+	// Repeated query parameters, repeated headers and runs of spaces are signed like the
+	// specification says, which the verifier accepts.
+	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key?x=1&x=2", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/key", http.Header{"X-Amz-Meta-A": {"1", "2"}}, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/key", http.Header{"X-Amz-Meta-A": {"a  b"}}, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestSignV4QueryOrder(t *testing.T) {

@@ -66,7 +66,7 @@ func TestPutObjectChecksums(t *testing.T) {
 		}
 		resp := serve(t, objectAPI, http.MethodPut, "/bucket/key", header, body)
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
-		require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
+		require.Contains(t, resp.Body, "<Code>MalformedTrailerError</Code>")
 	})
 
 	t.Run("mismatch", func(t *testing.T) {

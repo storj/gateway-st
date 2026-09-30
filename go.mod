@@ -209,3 +209,5 @@ require (
 	storj.io/infectious v1.0.1 // indirect
 	storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad // indirect
 )
+
+replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261008121712-91c1c3ed4192
