@@ -5,6 +5,7 @@ package api_test
 
 import (
 	"context"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -164,15 +165,15 @@ func TestChecksumHeaderValidation(t *testing.T) {
 		{name: "wrong decoded length", header: with(nil, "X-Amz-Checksum-Crc32", "AAAAAAA="), status: 400, message: invalidCRC32},
 		{name: "wrong encoded length", header: with(nil, "X-Amz-Checksum-Crc64nvme", crc32Base64(data)), status: 400, message: "Value for x-amz-checksum-crc64nvme header is invalid."},
 		{name: "unknown algorithm", header: with(nil, "X-Amz-Checksum-Foo", "AAAAAA=="), status: 400, message: "The algorithm type you specified in x-amz-checksum- header is invalid."},
-		{name: "unimplemented algorithm", header: with(nil, "X-Amz-Checksum-Sha512", "AAAA"), status: 501, message: notImplemented},
-		{name: "unimplemented trailer", header: with(trailer, "X-Amz-Trailer", "x-amz-checksum-xxhash64"), trailer: true, status: 501, message: notImplemented},
+		{name: "unimplemented algorithm", header: with(nil, "X-Amz-Checksum-Md5", "AAAA"), status: 501, message: notImplemented},
+		{name: "unimplemented trailer", header: with(trailer, "X-Amz-Trailer", "x-amz-checksum-md5"), trailer: true, status: 501, message: notImplemented},
 		{name: "multiple algorithms", header: with(nil, "X-Amz-Checksum-Crc32", crc32Base64(data), "X-Amz-Checksum-Crc32c", "AAAAAA=="), status: 400, message: multiple},
 		{name: "header and trailer", header: with(trailer, "X-Amz-Checksum-Crc32c", "AAAAAA=="), trailer: true, status: 400, message: multiple},
 		{name: "sdk algorithm without checksum", header: with(nil, "X-Amz-Sdk-Checksum-Algorithm", "CRC32"), status: 400, message: "x-amz-sdk-checksum-algorithm specified, but no corresponding x-amz-checksum-* or x-amz-trailer headers were found."},
 		{name: "sdk algorithm mismatches header", header: with(nil, "X-Amz-Sdk-Checksum-Algorithm", "SHA1", "X-Amz-Checksum-Crc32", crc32Base64(data)), status: 400, message: invalidSdk},
 		{name: "sdk algorithm mismatches trailer", header: with(trailer, "X-Amz-Sdk-Checksum-Algorithm", "CRC32C"), trailer: true, status: 400, message: invalidSdk},
 		{name: "unknown sdk algorithm", header: with(nil, "X-Amz-Sdk-Checksum-Algorithm", "FOO", "X-Amz-Checksum-Crc32", crc32Base64(data)), status: 400, message: invalidSdk},
-		{name: "unimplemented sdk algorithm", header: with(nil, "X-Amz-Sdk-Checksum-Algorithm", "SHA512", "X-Amz-Checksum-Crc32", crc32Base64(data)), status: 501, message: notImplemented},
+		{name: "unimplemented sdk algorithm", header: with(nil, "X-Amz-Sdk-Checksum-Algorithm", "MD5", "X-Amz-Checksum-Crc32", crc32Base64(data)), status: 501, message: notImplemented},
 		{name: "sdk algorithm matches header", header: with(nil, "X-Amz-Sdk-Checksum-Algorithm", "CRC32", "X-Amz-Checksum-Crc32", crc32Base64(data)), status: 200},
 		{name: "sdk algorithm matches trailer", header: with(trailer, "X-Amz-Sdk-Checksum-Algorithm", "crc32"), trailer: true, status: 200},
 		{name: "checksum type alone", header: with(nil, "X-Amz-Checksum-Type", "FULL_OBJECT"), status: 200},
@@ -212,7 +213,7 @@ func TestCompleteMultipartUploadChecksumHeaders(t *testing.T) {
 		// The completed-object checksum isn't verified yet, so even a composite value passes.
 		{name: "object checksum deferred", header: http.Header{"X-Amz-Checksum-Crc32": {"AAAAAA==-2"}}, status: 200},
 		{name: "unknown algorithm", header: http.Header{"X-Amz-Checksum-Foo": {"AAAAAA=="}}, status: 400, code: "InvalidRequest"},
-		{name: "unimplemented algorithm", header: http.Header{"X-Amz-Checksum-Sha512": {"AAAA"}}, status: 501, code: "NotImplemented"},
+		{name: "unimplemented algorithm", header: http.Header{"X-Amz-Checksum-Md5": {"AAAA"}}, status: 501, code: "NotImplemented"},
 		{name: "XML still verified", header: http.Header{"X-Amz-Checksum-Crc32": {"AAAAAA=="}, "Content-Md5": {"AAAAAAAAAAAAAAAAAAAAAA=="}}, status: 400, code: "BadDigest"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -283,4 +284,25 @@ func TestPutObjectChecksumStrict(t *testing.T) {
 	}, data)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Equal(t, "FULL_OBJECT", resp.Header.Get("X-Amz-Checksum-Type"))
+}
+
+func TestPutObjectSHA512AndXXHASHChecksums(t *testing.T) {
+	data := []byte("hello")
+	sum := sha512.Sum512(data)
+	sha512Base64 := base64.StdEncoding.EncodeToString(sum[:])
+
+	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	header := http.Header{"X-Amz-Checksum-Sha512": {sha512Base64}, "Content-Length": {"5"}}
+	resp := serveHTTP(t, objectAPI, http.MethodPut, "/bucket/key", header, data)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, sha512Base64, resp.Header.Get("X-Amz-Checksum-Sha512"))
+	require.Equal(t, data, objectAPI.data)
+
+	// A wrong XXHASH64 value is verified and rejected.
+	objectAPI = &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	header = http.Header{"X-Amz-Checksum-Xxhash64": {"AAAAAAAAAAA="}, "Content-Length": {"5"}}
+	resp = serveHTTP(t, objectAPI, http.MethodPut, "/bucket/key", header, data)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>BadDigest</Code>")
+	require.Nil(t, objectAPI.data)
 }
