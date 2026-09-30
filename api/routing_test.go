@@ -271,12 +271,31 @@ func TestMalformedQueryIsRejected(t *testing.T) {
 		},
 	}
 
-	// The router treats ';' as a separator, so these name a subresource that
-	// r.URL.Query() doesn't see.
-	for _, target := range []string{"/bucket/key?x=1;retention", "/bucket/key?retention;x=1", "/bucket?x=1;versioning", "/bucket/key?versionId=%zz"} {
+	resp := serve(t, objectAPI, http.MethodDelete, "/bucket/key?versionId=%zz", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidURI</Code>")
+}
+
+func TestQuerySemicolonIsLiteral(t *testing.T) {
+	var deleted string
+	objectAPI := &fakeObjectLayer{
+		deleteObject: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			deleted = object
+			return cmd.ObjectInfo{}, nil
+		},
+		deleteObjectTags: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			t.Error("routed to DeleteObjectTags")
+			return cmd.ObjectInfo{}, nil
+		},
+	}
+
+	// Like S3, ';' is part of a key or value rather than a separator, so these don't name the
+	// tagging subresource, and the router and the handlers agree about it.
+	for _, target := range []string{"/bucket/key?x=1;tagging", "/bucket/key?tagging;x=1"} {
+		deleted = ""
 		resp := serve(t, objectAPI, http.MethodDelete, target, nil, nil)
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
-		require.Contains(t, resp.Body, "<Code>InvalidURI</Code>", target)
+		require.Equal(t, http.StatusNoContent, resp.StatusCode, target+": "+resp.Body)
+		require.Equal(t, "key", deleted, target)
 	}
 }
 

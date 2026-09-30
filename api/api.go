@@ -92,7 +92,11 @@ type Option func(*API)
 
 // RegisterHandlers registers S3-compatible HTTP handlers on the provided router.
 func (api *API) RegisterHandlers(router *mux.Router) {
-	apiRouter := router.PathPrefix(cmd.SlashSeparator).Subrouter()
+	// Like S3 and awsig, ';' is part of a query key or value rather than a separator, but the
+	// Queries matchers split on it and url.ParseQuery rejects it. Middleware runs only after routing,
+	// so it's escaped by a matcher, which runs before the matchers of the routes below. That doesn't
+	// change the signature, which is computed from the decoded parameters.
+	apiRouter := router.MatcherFunc(escapeQuerySemicolons).PathPrefix(cmd.SlashSeparator).Subrouter()
 	// UseEncodedPath configures the router to match routes using the raw (percent-encoded) form of
 	// the request path instead of the unescaped one. This is required because object keys which
 	// are present in the URL may contain characters that, when decoded, break request routing.
@@ -232,10 +236,16 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 // amzID2 is the header carrying the extended request ID.
 const amzID2 = "x-amz-id-2"
 
+// escapeQuerySemicolons is a matcher that always matches and escapes ';' in the query.
+func escapeQuerySemicolons(r *http.Request, _ *mux.RouteMatch) bool {
+	if strings.Contains(r.URL.RawQuery, ";") {
+		r.URL.RawQuery = strings.ReplaceAll(r.URL.RawQuery, ";", "%3B")
+	}
+	return true
+}
+
 // rejectMalformedQuery rejects requests whose query url.ParseQuery can't parse, such as ones with
-// ';' separators or invalid escapes. The router's Queries matchers split on ';' too, but
-// r.URL.Query() drops such pairs, so handlers and matchers like withoutSubresources would
-// disagree with the router about which parameters were sent.
+// invalid escapes, so that the router's matchers and the handlers see the same parameters.
 func (api *API) rejectMalformedQuery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := url.ParseQuery(r.URL.RawQuery); err != nil {

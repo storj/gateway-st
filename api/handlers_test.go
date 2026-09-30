@@ -285,8 +285,8 @@ func signV4(req *http.Request, body []byte, now time.Time) {
 	uriEncode := func(s string) string {
 		return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 	}
-	// Parameters are sorted by name, then by value.
-	query := req.URL.Query()
+	// Parameters are sorted by name, then by value. Like S3, ';' is part of a key or value.
+	query, _ := url.ParseQuery(strings.ReplaceAll(req.URL.RawQuery, ";", "%3B"))
 	var queryParams []string
 	for _, k := range slices.Sorted(maps.Keys(query)) {
 		for _, v := range slices.Sorted(slices.Values(query[k])) {
