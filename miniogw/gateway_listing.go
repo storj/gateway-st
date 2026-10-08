@@ -46,8 +46,9 @@ var ErrVersionIDMarkerWithoutKeyMarker = func(bucketName string) miniogo.ErrorRe
 // with an unsupported prefix or delimiter.
 var ErrUnsupportedListing = func(deadline time.Time) miniogo.ErrorResponse {
 	return miniogo.ErrorResponse{
-		Code:    "NotImplemented",
-		Message: "Projects with self-managed encryption created after " + deadline.Format(time.RFC3339) + " only support empty prefixes/delimiters or those ending with '/'.",
+		Code:       "NotImplemented",
+		Message:    "Projects with self-managed encryption created after " + deadline.Format(time.RFC3339) + " only support empty prefixes/delimiters or those ending with '/'.",
+		StatusCode: http.StatusNotImplemented,
 	}
 }
 

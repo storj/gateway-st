@@ -4,10 +4,17 @@
 package miniogw
 
 import (
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestErrUnsupportedListingHasStatusCode(t *testing.T) {
+	err := ErrUnsupportedListing(time.Now())
+	assert.Equal(t, http.StatusNotImplemented, err.StatusCode)
+}
 
 func TestLimitResultsWithAlignment(t *testing.T) {
 	for i, tt := range [...]struct {
