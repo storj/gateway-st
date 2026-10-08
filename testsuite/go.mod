@@ -10,11 +10,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.28.0
-	storj.io/common v0.0.0-20260818140313-d38275a3768b
+	storj.io/common v0.0.0-20261008150920-1c60c16e942e
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20260609124736-fc17c581773a
-	storj.io/storj v1.162.4
-	storj.io/uplink v1.14.5
+	storj.io/storj v1.164.2
+	storj.io/uplink v1.14.6-0.20260924092809-764fb8b1e07d
 )
 
 require (
