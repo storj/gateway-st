@@ -2706,14 +2706,10 @@ func TestPutObjectWithOL(t *testing.T) {
 		userDefined := map[string]string{}
 		opts := minio.ObjectOptions{UserDefined: userDefined, Retention: retention}
 
-		// FIXME(artur, jeremy): re-enable the check below once
-		// https://review.dev.storj.tools/c/storj/storj/+/18569 is
-		// included in the next satellite release.
-		//
-		// _, err := layer.PutObject(ctx, unversionedBucket, testFile, nil, opts)
-		// require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
+		_, err := layer.PutObject(ctx, unversionedBucket, testFile, nil, opts)
+		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 
-		_, err := layer.PutObject(ctx, versionedBucketWithoutOL, testFile, nil, opts)
+		_, err = layer.PutObject(ctx, versionedBucketWithoutOL, testFile, nil, opts)
 		require.ErrorIs(t, err, miniogw.ErrBucketObjectLockNotEnabled)
 
 		_, err = layer.PutObject(ctx, testBucket, testFile, nil, opts)
