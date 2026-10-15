@@ -35,7 +35,6 @@ import (
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
-	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
@@ -46,6 +45,7 @@ import (
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
 	"storj.io/minio/pkg/hash"
+	"storj.io/minio/pkg/tags"
 )
 
 const (

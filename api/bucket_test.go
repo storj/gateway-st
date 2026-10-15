@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
+	"storj.io/minio/pkg/tags"
 )
 
 // bucketObjectLayer extends fakeObjectLayer with the bucket-level methods used by these tests.

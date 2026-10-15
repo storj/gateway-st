@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/minio/cmd"
 	"storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
+	"storj.io/minio/pkg/tags"
 )
 
 // bodyObjectLayer extends fakeObjectLayer with recorded, successful implementations of the

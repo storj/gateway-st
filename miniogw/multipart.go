@@ -27,7 +27,6 @@ import (
 	"storj.io/picobuf"
 	"storj.io/uplink"
 	"storj.io/uplink/private/metaclient"
-	"storj.io/uplink/private/multipart"
 	versioned "storj.io/uplink/private/object"
 )
 
@@ -167,12 +166,14 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		}
 	}
 
-	info, err := multipart.BeginUpload(ctx, project, bucket, object, &multipart.UploadOptions{
+	info, err := versioned.BeginUpload(ctx, project, bucket, object, &versioned.MultipartUploadOptions{
 		// TODO: Truncate works around https://github.com/storj/storj-private/issues/84 until fixed on the satellite.
-		Expires:        e.Truncate(time.Microsecond),
-		CustomMetadata: uplink.CustomMetadata(opts.UserDefined).Clone(),
-		Retention:      retention,
-		LegalHold:      legalHold,
+		Expires: e.Truncate(time.Microsecond),
+		UserData: metaclient.ObjectUserData{
+			Custom: uplink.CustomMetadata(opts.UserDefined).Clone(),
+		},
+		Retention: retention,
+		LegalHold: legalHold,
 	})
 	if err != nil {
 		return "", convertMultipartError(err, bucket, object, "")
@@ -452,9 +453,11 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	}
 
 	obj, err := versioned.CommitUpload(ctx, project, bucket, object, uploadID, &metaclient.CommitUploadOptions{
-		CustomMetadata: metadata,
-		IfNoneMatch:    opts.IfNoneMatch,
-		ETag:           []byte(etag),
+		UserData: metaclient.ObjectUserData{
+			Custom: metadata,
+			ETag:   []byte(etag),
+		},
+		IfNoneMatch: opts.IfNoneMatch,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)

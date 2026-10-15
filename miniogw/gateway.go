@@ -17,7 +17,6 @@ import (
 	"time"
 
 	miniogo "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/zeebo/errs"
 
@@ -35,6 +34,7 @@ import (
 	"storj.io/minio/pkg/event"
 	"storj.io/minio/pkg/hash"
 	"storj.io/minio/pkg/madmin"
+	"storj.io/minio/pkg/tags"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
 	"storj.io/uplink/private/metaclient"
@@ -781,8 +781,10 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 
 		upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
 
-		err = versioned.UpdateObjectMetadata(ctx, project, srcBucket, srcObject, srcInfo.UserDefined, &versioned.UpdateObjectMetadataOptions{
-			ETag: info.ETag,
+		err = versioned.UpdateObjectMetadata(ctx, project, srcBucket, srcObject, metaclient.ObjectUserData{
+			Custom:   srcInfo.UserDefined,
+			ETag:     info.ETag,
+			Checksum: info.Checksum,
 		})
 		if err != nil {
 			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
@@ -840,8 +842,10 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// don't have a solution to not override ETag stored in custom metadata
 		upsertObjectMetadata(srcInfo.UserDefined, object.Custom)
 
-		err = versioned.UpdateObjectMetadata(ctx, project, destBucket, destObject, srcInfo.UserDefined, &versioned.UpdateObjectMetadataOptions{
-			ETag: object.ETag,
+		err = versioned.UpdateObjectMetadata(ctx, project, destBucket, destObject, metaclient.ObjectUserData{
+			Custom:   srcInfo.UserDefined,
+			ETag:     object.ETag,
+			Checksum: object.Checksum,
 		})
 		if err != nil {
 			return minio.ObjectInfo{}, ConvertError(err, destBucket, destObject)
@@ -1100,8 +1104,10 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 		newMetadata["s3:tags"] = tags
 	}
 
-	err = versioned.UpdateObjectMetadata(ctx, project, bucket, objectPath, newMetadata, &versioned.UpdateObjectMetadataOptions{
-		ETag: object.ETag,
+	err = versioned.UpdateObjectMetadata(ctx, project, bucket, objectPath, metaclient.ObjectUserData{
+		Custom:   newMetadata,
+		ETag:     object.ETag,
+		Checksum: object.Checksum,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
@@ -1173,8 +1179,10 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 	newMetadata := object.Custom.Clone()
 	delete(newMetadata, "s3:tags")
 
-	err = versioned.UpdateObjectMetadata(ctx, project, bucket, objectPath, newMetadata, &versioned.UpdateObjectMetadataOptions{
-		ETag: object.ETag,
+	err = versioned.UpdateObjectMetadata(ctx, project, bucket, objectPath, metaclient.ObjectUserData{
+		Custom:   newMetadata,
+		ETag:     object.ETag,
+		Checksum: object.Checksum,
 	})
 	if err != nil {
 		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)

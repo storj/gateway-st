@@ -37,7 +37,6 @@ import (
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
-	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/common/errs2"
 	"storj.io/common/memory"
@@ -48,6 +47,7 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/hash"
+	"storj.io/minio/pkg/tags"
 )
 
 const (

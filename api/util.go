@@ -31,11 +31,11 @@ import (
 	"strings"
 
 	"github.com/amwolff/awsig"
-	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/gateway/api/apierr"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
+	"storj.io/minio/pkg/tags"
 )
 
 const urlEncodingType = "url"

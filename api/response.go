@@ -36,7 +36,6 @@ import (
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 	miniogo "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/tags"
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
@@ -45,6 +44,7 @@ import (
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
+	"storj.io/minio/pkg/tags"
 )
 
 const (

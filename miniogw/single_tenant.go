@@ -10,7 +10,6 @@ import (
 	"reflect"
 
 	miniogo "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 
@@ -21,6 +20,7 @@ import (
 	"storj.io/minio/pkg/bucket/policy"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
+	"storj.io/minio/pkg/tags"
 	"storj.io/uplink"
 )
 
