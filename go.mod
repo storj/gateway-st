@@ -17,9 +17,9 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	storj.io/common v0.0.0-20261009084351-793a367e9857
 	storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f
-	storj.io/minio v0.0.0-20260925122452-2bec22793d7b
+	storj.io/minio v0.0.0-20261019204001-103c23ba7578
 	storj.io/picobuf v0.0.4
-	storj.io/uplink v1.14.6-0.20261015120657-0b025fe21de3
+	storj.io/uplink v1.14.6-0.20261015224055-4d6dc3c40b70
 )
 
 require (

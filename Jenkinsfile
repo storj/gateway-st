@@ -172,7 +172,9 @@ pipeline {
                                             sh 'make integration-ceph-tests'
                                         }
                                     }
-                                    ['awscli', 'awscli_multipart', 'duplicity', 'duplicati', 'rclone'].each { test ->
+                                    // todo(sean): re-enable rclone once module downloads from proxy.golang.org
+                                    // are reliable on Jenkins; test_all fails building its test binary.
+                                    ['awscli', 'awscli_multipart', 'duplicity', 'duplicati', /*'rclone'*/].each { test ->
                                         tests["gateway-st-test ${test}"] = {
                                             stage("gateway-st-test ${test}") {
                                                 sh "TEST=${test} make integration-gateway-st-tests"
