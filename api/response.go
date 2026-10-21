@@ -733,12 +733,7 @@ func setObjectHeaders(w http.ResponseWriter, objInfo cmd.ObjectInfo, rangeSpec *
 		h.Set(xhttp.Expires, objInfo.Expires.UTC().Format(http.TimeFormat))
 	}
 
-	userTags := objInfo.UserTags
-	if userTags == "" {
-		// The object layer keeps tags in the metadata instead of UserTags.
-		userTags = objInfo.UserDefined["s3:tags"]
-	}
-	if userTags != "" {
+	if userTags := objectUserTags(objInfo); userTags != "" {
 		if objTags, _ := url.ParseQuery(userTags); len(objTags) > 0 {
 			h[xhttp.AmzTagCount] = []string{strconv.Itoa(len(objTags))}
 		}
@@ -823,4 +818,13 @@ func encodeHeaderValue(v string) string {
 		}
 	}
 	return v
+}
+
+// objectUserTags returns the encoded tags of an object.
+func objectUserTags(objInfo cmd.ObjectInfo) string {
+	if objInfo.UserTags != "" {
+		return objInfo.UserTags
+	}
+	// The object layer keeps tags in the metadata instead of UserTags.
+	return objInfo.UserDefined["s3:tags"]
 }

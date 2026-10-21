@@ -435,3 +435,18 @@ func TestUnparsableXMLIsMalformed(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>MalformedXML</Code>")
 }
+
+func TestGetObjectTaggingVersionID(t *testing.T) {
+	const versionID = "00000000000000000000000000000001"
+	objectAPI := &fakeObjectLayer{
+		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{VersionID: versionID, UserDefined: map[string]string{"s3:tags": "a=1"}}, nil
+		},
+	}
+
+	// The version that was read is named even when the request names none.
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?tagging", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, versionID, resp.Header.Get("X-Amz-Version-Id"))
+	require.Contains(t, resp.Body, "<Tag><Key>a</Key><Value>1</Value></Tag>")
+}

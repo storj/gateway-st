@@ -47,6 +47,7 @@ import (
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/hash"
+	"storj.io/minio/pkg/tags"
 )
 
 const (
@@ -831,17 +832,24 @@ func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tags, err := api.objectAPI.GetObjectTags(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	// The object's info is read instead of only its tags, because the response names the version
+	// that was read.
+	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	objTags, err := tags.ParseObjectTags(objectUserTags(objInfo))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	if versionID != "" {
-		w.Header()[xhttp.AmzVersionID] = []string{versionID}
+	if objInfo.VersionID != "" {
+		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
 
-	encodedResponse, err := encodeResponse(taggingResponse{XMLNS: s3XMLNS, Tags: tags})
+	encodedResponse, err := encodeResponse(taggingResponse{XMLNS: s3XMLNS, Tags: objTags})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

@@ -513,8 +513,8 @@ func (configObjectLayer) GetObjectLegalHold(context.Context, string, string, str
 	return &objectlock.ObjectLegalHold{Status: objectlock.LegalHoldOn}, nil
 }
 
-func (configObjectLayer) GetObjectTags(context.Context, string, string, cmd.ObjectOptions) (*tags.Tags, error) {
-	return tags.NewTags(map[string]string{"k": "v"}, true)
+func (configObjectLayer) GetObjectInfo(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	return cmd.ObjectInfo{UserDefined: map[string]string{"s3:tags": "k=v"}}, nil
 }
 
 func (configObjectLayer) GetObjectRetention(context.Context, string, string, string) (*objectlock.ObjectRetention, error) {
