@@ -193,3 +193,15 @@ func TestPostObjectChecksum(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "x-amz-checksum-crc32")
 }
+
+func TestPostObjectPolicyOnlyAuthenticatesPostObject(t *testing.T) {
+	// The policy's expiration and conditions are checked only by PostObject, so a signed form
+	// must not authenticate other POST operations.
+	for _, target := range []string{"/bucket?delete", "/bucket/key?uploads", "/bucket/key?uploadId=id"} {
+		resp := postObject(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, target,
+			[]any{map[string]string{"bucket": "bucket"}}, nil,
+			`<Delete><Object><Key>key</Key></Object></Delete>`)
+		require.Equal(t, http.StatusForbidden, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>AccessDenied</Code>", target)
+	}
+}

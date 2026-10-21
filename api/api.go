@@ -59,7 +59,7 @@ type AuthData struct {
 type API struct {
 	log       Logger
 	objectAPI cmd.ObjectLayer
-	verifier  *awsig.V2V4[AuthData]
+	verifier  verifier
 
 	config Config
 }
@@ -73,7 +73,7 @@ func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[Auth
 
 	api := &API{
 		objectAPI: objectAPI,
-		verifier:  v2v4,
+		verifier:  verifier{v2v4},
 		config:    config,
 	}
 
@@ -85,6 +85,22 @@ func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[Auth
 	}
 
 	return api
+}
+
+// verifier verifies request signatures. Its Verify refuses POST policy authentication, because
+// awsig leaves the policy's expiration and conditions to the caller and only PostObjectHandler
+// checks them. PostObjectHandler calls the embedded V2V4's Verify instead.
+type verifier struct {
+	*awsig.V2V4[AuthData]
+}
+
+// Verify verifies r like awsig.V2V4.Verify but fails for POST policy authentication.
+func (v verifier) Verify(r *http.Request, virtualHostedBucket string) (awsig.VerifiedRequest[AuthData], error) {
+	vr, err := v.V2V4.Verify(r, virtualHostedBucket)
+	if err == nil && vr.PostForm() != nil {
+		return nil, apierr.CodeAccessDenied
+	}
+	return vr, err
 }
 
 // Option is an option for constructing an API.

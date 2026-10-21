@@ -646,7 +646,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	vr, err := api.verifier.V2V4.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
