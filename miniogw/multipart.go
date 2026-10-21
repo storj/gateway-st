@@ -30,6 +30,10 @@ import (
 	versioned "storj.io/uplink/private/object"
 )
 
+// maxSameKeyUploadsFactor times MaxUploadsLimit is the most uploads of a single key that
+// ListMultipartUploads returns in a page.
+const maxSameKeyUploadsFactor = 10
+
 // ListMultipartUploads lists all multipart uploads.
 func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
@@ -71,37 +75,63 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		Custom: false,
 	})
 
-	var (
-		nextKeyMarker string
-		uploads       []minio.MultipartInfo
-		prefixes      []string
-	)
-
 	limit := limitResultsWithAlignment(maxUploads, layer.compatibilityConfig.MaxUploadsLimit)
 
-	for fetchedCount < int64(limit) && list.Next() {
-		fetchedCount++
-		object := list.Item()
-		nextKeyMarker = object.Key
-
-		if object.IsPrefix {
-			prefixes = append(prefixes, object.Key)
-			continue
-		}
-
-		uploads = append(uploads, minioMultipartInfo(bucket, object))
+	var items []*uplink.UploadInfo
+	for len(items) < limit && list.Next() {
+		items = append(items, list.Item())
 	}
 	if list.Err() != nil {
 		return result, convertMultipartError(list.Err(), bucket, "", "")
 	}
 
 	more := list.Next()
+	// The next page starts after NextKeyMarker, so a page must not end in the middle of a key's
+	// uploads.
+	if more && len(items) > 0 && list.Item().Key == items[len(items)-1].Key {
+		key := list.Item().Key
+		n := len(items)
+		for n > 0 && items[n-1].Key == key {
+			n--
+		}
+		if n > 0 {
+			items = items[:n]
+		} else {
+			// The page holds only uploads of this key, so it ends after all of them, even when
+			// there are more than maxUploads. Returning NextUploadIdMarker instead needs uplink to
+			// list from an upload (https://github.com/storj/gateway-mt/issues/213).
+			//
+			// The page is capped to bound the memory and satellite requests of a key with many
+			// uploads. The uploads past the cap aren't listed.
+			maxItems := maxSameKeyUploadsFactor * layer.compatibilityConfig.MaxUploadsLimit
+			for more && list.Item().Key == key && len(items) < maxItems {
+				items = append(items, list.Item())
+				more = list.Next()
+			}
+			if more && list.Item().Key == key {
+				mon.Event("ListMultipartUploads_same_key_truncated")
+			}
+		}
+	}
 	if list.Err() != nil {
 		return result, convertMultipartError(list.Err(), bucket, "", "")
 	}
+	fetchedCount = int64(len(items))
 
-	if !more {
-		nextKeyMarker = ""
+	var (
+		nextKeyMarker string
+		uploads       []minio.MultipartInfo
+		prefixes      []string
+	)
+	for _, object := range items {
+		if object.IsPrefix {
+			prefixes = append(prefixes, object.Key)
+			continue
+		}
+		uploads = append(uploads, minioMultipartInfo(bucket, object))
+	}
+	if more && len(items) > 0 {
+		nextKeyMarker = items[len(items)-1].Key
 	}
 
 	// TODO: support NextUploadID (https://github.com/storj/gateway-mt/issues/213)

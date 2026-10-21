@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -2634,25 +2635,50 @@ func TestListMultipartUploads(t *testing.T) {
 			}
 		}
 
-		// Paging one entry at a time must visit every upload and prefix once.
-		var paged []string
-		for marker := ""; ; {
-			result, err := layer.ListMultipartUploads(ctx, testBucket, "", marker, "", "/", 1)
-			require.NoError(t, err)
-			for _, upload := range result.Uploads {
-				paged = append(paged, upload.Object)
+		// A key can have several uploads, and a page must not end between them, because the next
+		// page starts after the key.
+		_, err = layer.NewMultipartUpload(ctx, testBucket, "c", minio.ObjectOptions{})
+		require.NoError(t, err)
+
+		// Paging must visit every upload and prefix once, whatever the page size.
+		for maxUploads := 1; maxUploads <= 8; maxUploads++ {
+			var paged []string
+			for marker := ""; ; {
+				result, err := layer.ListMultipartUploads(ctx, testBucket, "", marker, "", "/", maxUploads)
+				require.NoError(t, err)
+				for _, upload := range result.Uploads {
+					paged = append(paged, upload.Object)
+				}
+				paged = append(paged, result.CommonPrefixes...)
+				if !result.IsTruncated {
+					break
+				}
+				require.NotEqual(t, marker, result.NextKeyMarker)
+				marker = result.NextKeyMarker
 			}
-			paged = append(paged, result.CommonPrefixes...)
-			if !result.IsTruncated {
-				break
-			}
-			require.NotEqual(t, marker, result.NextKeyMarker)
-			marker = result.NextKeyMarker
+			slices.Sort(paged)
+			assert.Equal(t, []string{
+				"a", "a/", "aa", "b", "b/", "bb", "c", "c", "i", "i/", "ii", "j", "j/",
+				"k", "kk", "l", "m/", "mm", "n/", "oo",
+			}, paged, maxUploads)
 		}
-		assert.Equal(t, []string{
-			"a", "a/", "aa", "b", "b/", "bb", "c", "i", "i/", "ii", "j", "j/",
-			"k", "kk", "l", "m/", "mm", "n/", "oo",
-		}, paged)
+
+		// A page of a single key's uploads is capped at 10 times MaxUploadsLimit.
+		cappedConfig := defaultS3CompatibilityConfig
+		cappedConfig.MaxUploadsLimit = 1
+		cappedLayer, err := miniogw.NewStorjGateway(cappedConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, cappedLayer.Shutdown(ctx)) }()
+
+		for range 10 {
+			_, err = layer.NewMultipartUpload(ctx, testBucket, "c", minio.ObjectOptions{})
+			require.NoError(t, err)
+		}
+		result, err := cappedLayer.ListMultipartUploads(ctx, testBucket, "c", "", "", "", 1)
+		require.NoError(t, err)
+		assert.Len(t, result.Uploads, 10)
+		assert.True(t, result.IsTruncated)
+		assert.Equal(t, "c", result.NextKeyMarker)
 	})
 }
 
