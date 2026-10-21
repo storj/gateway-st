@@ -240,6 +240,14 @@ func conditionArgToInt64(v any) (int64, error) {
 		if math.Trunc(n) != n {
 			return 0, apierr.CodePostPolicyInvalidJSON
 		}
+		// Converting a float64 out of the range of int64 is implementation-defined, so such numbers
+		// are clamped, which keeps their meaning as bounds.
+		switch {
+		case n >= math.MaxInt64:
+			return math.MaxInt64, nil
+		case n <= math.MinInt64:
+			return math.MinInt64, nil
+		}
 		return int64(n), nil
 	case string:
 		i, err := strconv.ParseInt(n, 10, 64)

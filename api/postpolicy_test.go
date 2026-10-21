@@ -91,6 +91,7 @@ func TestPostPolicyUnmarshal(t *testing.T) {
 		require.ErrorIs(t, err, apierr.PostPolicyUnexpectedElementError{
 			ElementName: "unexpected",
 		})
+		require.EqualError(t, err, "Invalid Policy: Unexpected: 'unexpected'")
 	})
 
 	t.Run("Invalid expiration type", func(t *testing.T) {

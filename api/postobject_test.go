@@ -144,6 +144,10 @@ func TestPostObjectContentLengthRange(t *testing.T) {
 	resp = upload(strings.Repeat("x", 30), []any{10, 20}, []any{0, 100})
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>EntityTooLarge</Code>")
+
+	// A maximum beyond the range of int64 doesn't limit the size.
+	resp = upload("data", []any{0, 1e30})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 }
 
 func TestPostObjectMetadata(t *testing.T) {

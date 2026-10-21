@@ -180,7 +180,7 @@ type PostPolicyUnexpectedElementError struct {
 
 // Error implements the error interface.
 func (err PostPolicyUnexpectedElementError) Error() string {
-	return fmt.Sprintf("Invalid Policy: Unexpected: '%q'", err.ElementName)
+	return fmt.Sprintf("Invalid Policy: Unexpected: '%s'", err.ElementName)
 }
 
 // ToResponse implements the ResponseProvider interface.
