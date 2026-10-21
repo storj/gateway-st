@@ -159,15 +159,40 @@ func TestBucketConfigurationErrors(t *testing.T) {
 }
 
 func TestBackendEOFIsInternalError(t *testing.T) {
-	objectAPI := &fakeObjectLayer{
-		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{}, fmt.Errorf("metainfo: %w", io.EOF)
-		},
-	}
+	// An io.EOF from the object layer isn't an XML parsing error, and an io.ErrUnexpectedEOF isn't
+	// an incomplete request body, even as the IncompleteBody miniogw.ConvertError makes of it.
+	for _, eof := range []error{io.EOF, io.ErrUnexpectedEOF} {
+		objectAPI := &fakeObjectLayer{
+			getObjectInfo: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				return cmd.ObjectInfo{}, miniogw.ConvertError(fmt.Errorf("download: %w", eof), bucket, object)
+			},
+		}
 
-	// An io.EOF from the object layer isn't an XML parsing error.
-	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key", nil, nil)
-	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		resp := serve(t, objectAPI, http.MethodHead, "/bucket/key", nil, nil)
+		require.Equal(t, http.StatusInternalServerError, resp.StatusCode, eof)
+	}
+}
+
+// copyingPutObjectLayer reads the body like miniogw's PutObject.
+type copyingPutObjectLayer struct {
+	*fakeObjectLayer
+}
+
+func (copyingPutObjectLayer) PutObject(_ context.Context, bucket, object string, data *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	_, err := io.Copy(io.Discard, data)
+	return cmd.ObjectInfo{}, miniogw.ConvertError(err, bucket, object)
+}
+
+func TestTruncatedBodyIsIncompleteBody(t *testing.T) {
+	// The chunk declares 0x40 bytes, but the body ends early.
+	resp := serve(t, copyingPutObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", http.Header{
+		"X-Amz-Content-Sha256":         {"STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
+		"Content-Encoding":             {"aws-chunked"},
+		"X-Amz-Decoded-Content-Length": {"64"},
+		"X-Amz-Trailer":                {"x-amz-checksum-crc32"},
+	}, []byte("40\r\nshort"))
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>IncompleteBody</Code>")
 }
 
 func TestDeleteObjectsLimits(t *testing.T) {

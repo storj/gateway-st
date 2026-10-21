@@ -14,6 +14,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -4361,6 +4362,43 @@ func createVersionedFile(ctx context.Context, project *uplink.Project, bucket, k
 	}
 
 	return upload.Info(), nil
+}
+
+// truncatedBodyError stands for the error of a request body that ends early.
+type truncatedBodyError struct{ error }
+
+func (e truncatedBodyError) Unwrap() error { return e.error }
+
+func TestPutObjectTruncatedBody(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		truncated := func() *minio.PutObjReader {
+			body := io.MultiReader(strings.NewReader("te"), iotest.ErrReader(truncatedBodyError{io.ErrUnexpectedEOF}))
+			hashReader, err := hash.NewDefaultReader(body, int64(len("test")), "", "", int64(len("test")))
+			require.NoError(t, err)
+			return minio.NewPutObjReader(hashReader)
+		}
+
+		// The error keeps its cause, so that the handler can tell a truncated body from an
+		// io.ErrUnexpectedEOF of the backend.
+		requireTruncatedBody := func(err error) {
+			var incomplete minio.IncompleteBody
+			require.ErrorAs(t, err, &incomplete)
+			require.ErrorAs(t, incomplete.Err, new(truncatedBodyError))
+		}
+
+		_, err = layer.PutObject(ctx, testBucket, testFile, truncated(), minio.ObjectOptions{})
+		requireTruncatedBody(err)
+
+		upload, err := layer.NewMultipartUpload(ctx, testBucket, testFile, minio.ObjectOptions{})
+		require.NoError(t, err)
+		_, err = layer.PutObjectPart(ctx, testBucket, testFile, upload, 1, truncated(), minio.ObjectOptions{})
+		requireTruncatedBody(err)
+	})
 }
 
 func newMinioPutObjReader(t *testing.T) *minio.PutObjReader {

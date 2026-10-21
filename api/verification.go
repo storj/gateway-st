@@ -42,8 +42,37 @@ func (api *API) verifyWithBody(r *http.Request, requireChecksum bool) (awsig.Rea
 		return nil, apierr.CodeMissingContentMD5
 	}
 
-	return vr.Reader(checksumReqs...)
+	return requestBody(vr.Reader(checksumReqs...))
 }
+
+// requestBody wraps the reader of a request's body so that a body ending before its declared
+// length can be told apart from an io.ErrUnexpectedEOF of the object layer.
+func requestBody(r awsig.Reader, err error) (awsig.Reader, error) {
+	if err != nil {
+		return nil, err
+	}
+	return requestBodyReader{r}, nil
+}
+
+type requestBodyReader struct {
+	awsig.Reader
+}
+
+func (r requestBodyReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		err = incompleteBodyError{err}
+	}
+	return n, err
+}
+
+// incompleteBodyError is the error of a request body that ends before its declared chunk or
+// content length.
+type incompleteBodyError struct {
+	error
+}
+
+func (e incompleteBodyError) Unwrap() error { return e.error }
 
 // readVerifiedBody reads the entire body, failing with apierr.CodeEntityTooLarge if it is
 // longer than limit. awsig verifies Content-MD5, x-amz-checksum-* and the signed payload

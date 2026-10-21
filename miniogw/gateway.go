@@ -1673,7 +1673,11 @@ func ConvertError(err error, bucketName, object string) error {
 	case errors.Is(err, versioned.ErrMethodNotAllowed):
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, io.ErrUnexpectedEOF):
-		return minio.IncompleteBody{Bucket: bucketName, Object: object}
+		// MinIO's handlers can't tell a truncated request body from a backend error, so every
+		// io.ErrUnexpectedEOF is IncompleteBody. Err keeps the cause for the api package, which can.
+		//
+		// TODO: return the error unchanged once storj.io/minio is dropped.
+		return minio.IncompleteBody{Bucket: bucketName, Object: object, Err: err}
 	case errors.Is(err, versioned.ErrFailedPrecondition):
 		return ErrFailedPrecondition
 	case errors.Is(err, versioned.ErrUnimplemented), errors.Is(err, bucket.ErrUnimplemented):

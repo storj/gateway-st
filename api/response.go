@@ -26,7 +26,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -285,6 +284,12 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		}, true
 	}
 
+	// miniogw.ConvertError makes every io.ErrUnexpectedEOF IncompleteBody, but only a truncated
+	// request body is the client's fault.
+	if e := (cmd.IncompleteBody{}); errors.As(err, &e) && e.Err != nil && !errors.As(e.Err, new(incompleteBodyError)) {
+		return apierr.Response{}, false
+	}
+
 	if code, ok := minioErrToAPIErrorCode(err); ok {
 		apiErr := cmd.GetAPIError(code)
 		resp := apierr.Response{
@@ -301,8 +306,7 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		return resp, true
 	}
 
-	// A body that ends before its declared chunk or content length.
-	if errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.As(err, new(incompleteBodyError)) {
 		apiErr := cmd.GetAPIError(cmd.ErrIncompleteBody)
 		return apierr.Response{Code: apiErr.Code, Description: apiErr.Description, HTTPStatusCode: apiErr.HTTPStatusCode}, true
 	}
