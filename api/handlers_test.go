@@ -542,6 +542,21 @@ func TestGetAndHeadObject(t *testing.T) {
 			expCode:   "InvalidRange",
 		},
 		{
+			name:      "unsatisfiable range with if-range mismatch",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=10-"}, "If-Range": {`"other"`}},
+			expStatus: http.StatusOK,
+			expBody:   "0123456789",
+			expHeader: map[string]string{"Content-Length": "10", "Content-Range": ""},
+		},
+		{
+			name:      "unsatisfiable range with if-range match",
+			target:    "/bucket/key",
+			header:    http.Header{"Range": {"bytes=10-"}, "If-Range": {`"etag"`}},
+			expStatus: http.StatusRequestedRangeNotSatisfiable,
+			expCode:   "InvalidRange",
+		},
+		{
 			name:      "range with first after last is ignored",
 			target:    "/bucket/key",
 			header:    http.Header{"Range": {"bytes=5-1"}},
@@ -784,6 +799,30 @@ func TestGetObjectUnsatisfiableRange(t *testing.T) {
 	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>InvalidRange</Code>")
 	require.Contains(t, resp.Body, "<ActualObjectSize>10</ActualObjectSize><RangeRequested>bytes=10-</RangeRequested>")
+}
+
+func TestGetObjectIfRangeRetryOfReplacedObject(t *testing.T) {
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	// The object is replaced by a larger one with the same modification time between the
+	// downloads, so the range becomes satisfiable.
+	var downloads int
+	objectAPI := &fakeObjectLayer{
+		getObjectNInfo: func(_ context.Context, _, _ string, rs *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+			downloads++
+			if downloads == 1 {
+				return nil, apierr.CodeInvalidRange
+			}
+			require.Nil(t, rs)
+			objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 20, ModTime: modTime}
+			return cmd.NewGetObjectReaderFromReader(strings.NewReader("01234567890123456789"), objInfo, opts)
+		},
+	}
+
+	header := http.Header{"Range": {"bytes=10-"}, "If-Range": {modTime.Format(http.TimeFormat)}}
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key", header, nil)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidRange</Code>")
+	require.Empty(t, resp.Header.Get("Content-Range"))
 }
 
 func TestHeadObjectUnsatisfiableRange(t *testing.T) {

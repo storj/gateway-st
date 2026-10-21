@@ -956,13 +956,26 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// The lock type is ignored by our object layer.
 	var noLock cmd.LockType
 	reader, err := api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, rangeSpec, r.Header, noLock, opts)
-	if err == nil && rangeSpec != nil && !ifRangeMatches(reader.ObjInfo, r.Header.Get("If-Range")) {
+	ifRange := r.Header.Get("If-Range")
+	switch {
+	case err == nil && rangeSpec != nil && !ifRangeMatches(reader.ObjInfo, ifRange):
 		// The object changed since the client got the validator, so the entire object is sent
 		// instead of the range. The object layer starts the ranged download before the object is
 		// known, so the object is downloaded again.
 		_ = reader.Close()
 		rangeSpec = nil
 		reader, err = api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, nil, r.Header, noLock, opts)
+	case err != nil && rangeSpec != nil && ifRange != "" && isInvalidRange(err):
+		// The range may be unsatisfiable only because the object changed since the client got the
+		// validator. If it didn't, the range is rejected. The object may have been replaced since
+		// the first download, so the whole object is never sent as the range.
+		rangeErr := err
+		reader, err = api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, nil, r.Header, noLock, opts)
+		if err == nil && ifRangeMatches(reader.ObjInfo, ifRange) {
+			_ = reader.Close()
+			err = rangeErr
+		}
+		rangeSpec = nil
 	}
 	if err != nil {
 		if !preconditionFailed {
@@ -1235,6 +1248,13 @@ func setDeleteMarkerHeaders(w http.ResponseWriter, err error, versionID string) 
 		w.Header().Set(xhttp.AmzDeleteMarker, "true")
 		w.Header()[xhttp.AmzVersionID] = []string{versionID}
 	}
+}
+
+// isInvalidRange returns whether err is an unsatisfiable range error, whichever form the object
+// layer returns it in.
+func isInvalidRange(err error) bool {
+	resp, ok := errToResponse(err)
+	return ok && resp.Code == "InvalidRange"
 }
 
 // ifRangeMatches returns whether a range request's If-Range value, which is empty if the
