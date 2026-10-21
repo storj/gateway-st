@@ -93,6 +93,16 @@ func TestBucketRoutesDoNotMatchObjectPaths(t *testing.T) {
 	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, resp.Body)
 }
 
+func TestPostObjectContentTypeIsCaseInsensitive(t *testing.T) {
+	// Media types are case-insensitive, so this is a PostObject request, which fails because it
+	// has no form.
+	resp := serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket", http.Header{"Content-Type": {"Multipart/Form-Data; boundary=x"}}, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+
+	resp = serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket", http.Header{"Content-Type": {"text/plain; a=multipart/form-data"}}, nil)
+	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, resp.Body)
+}
+
 func TestVirtualHostedRequestsDoNotFallThroughToPathStyle(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
 		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {

@@ -30,6 +30,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 
@@ -767,7 +768,16 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	hashReader := hash.NewAwsigReader(NewLimitedAwsigReader(awsigReader, sizeLimit), -1, -1)
 	pReader := cmd.NewPutObjReader(hashReader)
 
+	// Like keys in the URL, the key must be valid UTF-8.
 	objectKey := postForm.Get("key").Value
+	if objectKey == "" {
+		api.writeErrorResponse(w, r, apierr.CodeKeyMustBeSpecified)
+		return
+	}
+	if !utf8.ValidString(objectKey) {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidURI)
+		return
+	}
 	objInfo, err := api.objectAPI.PutObject(ctx, bucketName, objectKey, pReader, opts)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

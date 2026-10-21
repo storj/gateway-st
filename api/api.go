@@ -239,7 +239,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		bucketRouter.Methods(http.MethodGet).Queries("list-type", "").HandlerFunc(api.errorHandler(apierr.CodeInvalidListType))
 		bucketRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListObjectsHandler)
 
-		bucketRouter.Methods(http.MethodPost).MatcherFunc(withoutSubresources()).HeadersRegexp(xhttp.ContentType, "multipart/form-data").HandlerFunc(api.PostObjectHandler)
+		bucketRouter.Methods(http.MethodPost).MatcherFunc(withoutSubresources()).HeadersRegexp(xhttp.ContentType, "(?i)^multipart/form-data").HandlerFunc(api.PostObjectHandler)
 		bucketRouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
 
 		bucketRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)

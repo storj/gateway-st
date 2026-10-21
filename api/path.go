@@ -61,6 +61,8 @@ func unescapePath(p string) (string, error) {
 		return "", err
 	}
 	if !utf8.ValidString(ep) {
+		// TODO: Storj allows keys that aren't valid UTF-8, such as ones uploaded with uplink, so
+		// such objects can be listed but not addressed through the gateway.
 		return "", apierr.CodeInvalidURI
 	}
 	return ep, nil

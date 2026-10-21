@@ -222,3 +222,20 @@ func TestPostObjectEncryptionField(t *testing.T) {
 	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
 	require.Empty(t, objectAPI.object)
 }
+
+func TestPostObjectInvalidKey(t *testing.T) {
+	for _, tt := range []struct {
+		key, code string
+	}{
+		{"", "InvalidRequest"},
+		{"\xff\xfe", "InvalidURI"},
+	} {
+		objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+		resp := postObject(t, objectAPI, "/bucket",
+			[]any{map[string]string{"bucket": "bucket"}, []string{"starts-with", "$key", ""}},
+			[][2]string{{"key", tt.key}}, "data")
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
+		require.Empty(t, objectAPI.data)
+	}
+}
