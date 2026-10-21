@@ -503,7 +503,8 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 // your own risk.
 //
 // If maxKeys is 0, it will return an empty minio.ListObjectsV2Info,
-// which later translates into a result that is compatible with AWS S3.
+// which later translates into a result that is compatible with AWS S3,
+// or the error of the bucket.
 func (layer *gatewayLayer) listObjectsGeneral(
 	ctx context.Context,
 	project *uplink.Project,
@@ -514,7 +515,9 @@ func (layer *gatewayLayer) listObjectsGeneral(
 	defer mon.Task()(&ctx)(&err)
 
 	if maxKeys == 0 {
-		return minio.ListObjectsV2Info{}, nil
+		// Stat the bucket anyway, so that bucket and permission errors are reported.
+		_, err := project.StatBucket(ctx, bucket)
+		return minio.ListObjectsV2Info{}, err
 	}
 
 	var (
@@ -647,13 +650,15 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		return minio.ListObjectVersionsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
-	if maxKeys == 0 {
-		return minio.ListObjectVersionsInfo{}, nil
-	}
-
 	project, err := projectFromContext(ctx, bucket, "")
 	if err != nil {
 		return minio.ListObjectVersionsInfo{}, err
+	}
+
+	if maxKeys == 0 {
+		// Stat the bucket anyway, so that bucket and permission errors are reported.
+		_, err := project.StatBucket(ctx, bucket)
+		return minio.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
 	}
 
 	// [1/2] We begin listing with an optimization for prefixes that aren't

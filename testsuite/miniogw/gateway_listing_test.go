@@ -177,6 +177,13 @@ func testListObjects(t *testing.T, listObjects listObjectsFunc, testListSingleOp
 		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "p", "", "", maxKeysLimit)
 		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
 
+		// The bucket is checked even when no keys are requested, including when no key can follow
+		// the marker.
+		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "", "", "", 0)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+		_, _, _, _, _, err = listObjects(ctx, layer, testBucket, "a/", "z", "", 0)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
 		// Create the bucket and files using the Uplink API
 		testBucketInfo, err := project.CreateBucket(ctx, testBucket)
 		require.NoError(t, err)
