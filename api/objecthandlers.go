@@ -734,7 +734,8 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		StorageClass string   `xml:",omitempty"`
 		ObjectSize   *int64   `xml:",omitempty"`
 	}
-	// ponytail: Checksum and ObjectParts are accepted but omitted; add them when checksums and parts are stored.
+	// Checksum and ObjectParts are accepted but omitted, because the object layer doesn't store
+	// checksums or parts.
 	for _, name := range names {
 		switch name {
 		case xhttp.ETag:
@@ -1258,8 +1259,8 @@ func etagMatchesList(etag, list string, weak bool) bool {
 
 // rejectIfMatch writes a NotImplemented error and returns true if r has an If-Match,
 // x-amz-if-match-size or x-amz-if-match-last-modified-time header.
-// ponytail: the object layer can't check these conditions atomically, so writes and deletes
-// refuse them rather than ignore them; support them once cmd.ObjectOptions has such fields.
+// The object layer can't check these conditions atomically, because cmd.ObjectOptions has no
+// fields for them, so writes and deletes refuse them rather than ignore them.
 func (api *API) rejectIfMatch(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get(xhttp.IfMatch) == "" &&
 		r.Header.Get("X-Amz-If-Match-Size") == "" &&
@@ -1727,8 +1728,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 
 	// X-Amz-Checksum-<algorithm> headers of this request carry the checksum of the whole
 	// object rather than of the request body, so only Content-MD5 is verified here.
-	// ponytail: full-object checksums are ignored because the object layer doesn't store
-	// checksums; verify them once it does.
+	// Full-object checksums are ignored, because the object layer doesn't store checksums.
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

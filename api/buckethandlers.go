@@ -861,7 +861,8 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]cmd.ObjectToDelete, 0, len(req.Objects))}
 	for _, object := range req.Objects {
-		// ponytail: conditional deletes are refused like If-Match on DeleteObject.
+		// Conditional deletes are refused like If-Match on DeleteObject, because the object layer
+		// can't check their conditions.
 		if object.ETag != "" || object.Size != "" || object.LastModifiedTime != "" {
 			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 			return

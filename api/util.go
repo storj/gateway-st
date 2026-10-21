@@ -222,7 +222,6 @@ var checksumHeaders = map[string]awsig.ChecksumAlgorithm{
 // unimplementedChecksumHeaders are X-Amz-Checksum-<algorithm> headers of algorithms that awsig
 // can't verify. They're rejected with NotImplemented rather than InvalidChecksumAlgorithm, which
 // S3 may answer instead, so that a client sending one sees why its request fails.
-// ponytail: accept them once awsig verifies them.
 var unimplementedChecksumHeaders = []string{
 	"X-Amz-Checksum-Md5",
 }
