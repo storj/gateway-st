@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/amwolff/awsig"
@@ -26,6 +27,29 @@ func isStreamingSigV4(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// requestObjectSize returns the size of the object or part in r's body. net/http reads a request
+// with neither Content-Length nor Transfer-Encoding as having an empty body, but S3 rejects it as
+// missing its length.
+func requestObjectSize(r *http.Request) (int64, error) {
+	if r.ContentLength == 0 && r.Header.Get(xhttp.ContentLength) == "" {
+		return 0, apierr.CodeMissingContentLength
+	}
+
+	size := r.ContentLength
+	if isStreamingSigV4(r) {
+		var err error
+		size, err = strconv.ParseInt(r.Header.Get(xhttp.AmzDecodedContentLength), 10, 64)
+		if err != nil {
+			// This shouldn't happen here as this case is handled previously by awsig's validation
+			return 0, err
+		}
+	}
+	if size == -1 {
+		return 0, apierr.CodeMissingContentLength
+	}
+	return size, nil
 }
 
 func (api *API) verifyWithBody(r *http.Request, requireChecksum bool) (awsig.Reader, error) {

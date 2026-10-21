@@ -336,19 +336,9 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	size := r.ContentLength
-
-	if isStreamingSigV4(r) {
-		size, err = strconv.ParseInt(r.Header.Get(xhttp.AmzDecodedContentLength), 10, 64)
-		if err != nil {
-			// This shouldn't happen here as this case is handled previously by awsig's validation
-			api.writeErrorResponse(w, r, err)
-			return
-		}
-	}
-
-	if size == -1 {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+	size, err := requestObjectSize(r)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
@@ -542,19 +532,9 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	size := r.ContentLength
-
-	if isStreamingSigV4(r) {
-		size, err = strconv.ParseInt(r.Header.Get(xhttp.AmzDecodedContentLength), 10, 64)
-		if err != nil {
-			// This shouldn't happen here as this case is handled previously by awsig's validation
-			api.writeErrorResponse(w, r, err)
-			return
-		}
-	}
-
-	if size == -1 {
-		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
+	size, err := requestObjectSize(r)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 

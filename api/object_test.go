@@ -237,6 +237,16 @@ func TestPutObjectVersionID(t *testing.T) {
 	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
 }
 
+func TestPutObjectWithoutContentLength(t *testing.T) {
+	// A request without Content-Length or Transfer-Encoding has an empty body to net/http.
+	resp := serve(t, putObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", nil, nil)
+	require.Equal(t, http.StatusLengthRequired, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>MissingContentLength</Code>")
+
+	resp = serve(t, putObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"0"}}, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+}
+
 func TestPutObjectStreamingWithoutContentLength(t *testing.T) {
 	data := []byte("hello")
 	body := []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data)))
