@@ -312,6 +312,11 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		// Like S3, the region of a bucket that the caller can't access is sent too, so that clients
+		// can find the endpoint to send their requests to.
+		if resp, ok := errToResponse(err); ok && resp.HTTPStatusCode == http.StatusForbidden {
+			w.Header().Set(xhttp.AmzBucketRegion, bucketRegion)
+		}
 		api.writeErrorResponseHeadersOnly(r, w, err)
 		return
 	}
