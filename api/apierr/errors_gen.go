@@ -33,6 +33,7 @@ const (
 	CodeInvalidCopyDest
 	CodeInvalidCopySource
 	CodeInvalidCopySourceRange
+	CodeInvalidDateHeader
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidListType
@@ -56,7 +57,6 @@ const (
 	CodeInvalidVersionID
 	CodeKeyMustBeSpecified
 	CodeMalformedCopySourceRange
-	CodeMalformedDate
 	CodeMalformedExpires
 	CodeMalformedPOSTDate
 	CodeMalformedPOSTRequest
@@ -244,6 +244,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidDateHeader: {
+		Code:           "AccessDenied",
+		Description:    "AWS authentication requires a valid Date or x-amz-date header",
+		HTTPStatusCode: http.StatusForbidden,
+	},
 	CodeInvalidEncodingMethod: {
 		Code:           "InvalidArgument",
 		Description:    "Invalid Encoding Method specified in Request",
@@ -357,11 +362,6 @@ var codeToResponse = map[Code]Response{
 	CodeMalformedCopySourceRange: {
 		Code:           "InvalidArgument",
 		Description:    "Range specified is not valid for source object",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
-	CodeMalformedDate: {
-		Code:           "MalformedDate",
-		Description:    "Invalid date format header, expected to be in ISO8601, RFC1123 or RFC1123Z time format.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMalformedExpires: {

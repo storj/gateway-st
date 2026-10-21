@@ -153,6 +153,11 @@
   description: The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy
   http_status: 400
 
+- name: InvalidDateHeader
+  code: AccessDenied
+  description: AWS authentication requires a valid Date or x-amz-date header
+  http_status: 403
+
 - name: InvalidEncodingMethod
   code: InvalidArgument
   description: Invalid Encoding Method specified in Request
@@ -261,11 +266,6 @@
 - name: KeyMustBeSpecified
   code: InvalidRequest
   description: A key must be specified
-  http_status: 400
-
-- name: MalformedDate
-  code: MalformedDate
-  description: Invalid date format header, expected to be in ISO8601, RFC1123 or RFC1123Z time format.
   http_status: 400
 
 - name: MalformedExpires

@@ -473,3 +473,18 @@ func TestEscapedBucketIsUnescaped(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
 	require.Equal(t, "my-bucket", gotBucket)
 }
+
+func TestMissingDateHeaderIsAccessDenied(t *testing.T) {
+	router := mux.NewRouter()
+	api.New(&fakeObjectLayer{}, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	signV4(req, nil, time.Now())
+	req.Header.Del("X-Amz-Date")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Code>AccessDenied</Code>")
+	require.Contains(t, rec.Body.String(), "AWS authentication requires a valid Date or x-amz-date header")
+}
