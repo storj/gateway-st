@@ -53,6 +53,7 @@ func TestAwsigErrToCode(t *testing.T) {
 		{awsig.ErrAuthorizationQueryParametersError, "AuthorizationQueryParametersError"},
 		{awsig.ErrInvalidChecksumRequest, "InvalidRequest"},
 		{awsig.ErrUnsignedHeader, "AccessDenied"},
+		{awsig.ErrInvalidArgument, "InvalidArgument"},
 	} {
 		resp, ok := errToResponse(tt.err)
 		require.True(t, ok, tt.err)

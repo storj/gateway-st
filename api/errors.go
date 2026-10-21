@@ -30,6 +30,7 @@ var awsigErrToCodes = []struct {
 	{awsig.ErrEntityTooLarge, apierr.CodeEntityTooLarge},
 	{awsig.ErrEntityTooSmall, apierr.CodeEntityTooSmall},
 	{awsig.ErrInvalidAccessKeyID, apierr.CodeInvalidAccessKeyID},
+	{awsig.ErrInvalidArgument, apierr.CodeInvalidArgument},
 	{awsig.ErrInvalidChecksumRequest, apierr.CodeInvalidRequest},
 	{awsig.ErrInvalidDateHeader, apierr.CodeInvalidDateHeader},
 	{awsig.ErrInvalidDigest, apierr.CodeInvalidContentMD5},

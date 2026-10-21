@@ -26,6 +26,7 @@ const (
 	CodeIncorrectContinuationToken
 	CodeInternal
 	CodeInvalidAccessKeyID
+	CodeInvalidArgument
 	CodeInvalidAttributeName
 	CodeInvalidChecksumAlgorithm
 	CodeInvalidChunkSize
@@ -210,6 +211,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidAccessKeyId",
 		Description:    "The access key ID that you provided does not exist in our records.",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeInvalidArgument: {
+		Code:           "InvalidArgument",
+		Description:    "Invalid Argument",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidAttributeName: {
 		Code:           "InvalidArgument",

@@ -12,6 +12,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -238,4 +239,24 @@ func TestPostObjectInvalidKey(t *testing.T) {
 		require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
 		require.Empty(t, objectAPI.data)
 	}
+}
+
+func TestPostObjectV2MissingSignature(t *testing.T) {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	require.NoError(t, mw.WriteField("key", "photo.jpg"))
+	require.NoError(t, mw.WriteField("AWSAccessKeyId", testAccessKeyID))
+	require.NoError(t, mw.WriteField("policy", base64.StdEncoding.EncodeToString([]byte(`{"conditions":[]}`))))
+	fw, err := mw.CreateFormFile("file", "photo.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write([]byte("data"))
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/bucket", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	newTestRouter(&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Code>InvalidArgument</Code>")
 }

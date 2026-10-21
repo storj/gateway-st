@@ -128,6 +128,11 @@
   description: The access key ID that you provided does not exist in our records.
   http_status: 403
 
+- name: InvalidArgument
+  code: InvalidArgument
+  description: Invalid Argument
+  http_status: 400
+
 - name: InvalidAttributeName
   code: InvalidArgument
   description: Invalid attribute name specified.
