@@ -179,7 +179,7 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 
 	legalHold, err := objectlock.ParseObjectLegalHold(bytes.NewReader(data))
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
@@ -224,7 +224,7 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 
 	retention, err := objectlock.ParseObjectRetention(bytes.NewReader(data))
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
@@ -279,7 +279,7 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	tags, err := parseTaggingXML(bytes.NewReader(data), true)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 

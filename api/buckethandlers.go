@@ -254,7 +254,7 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	tags, err := parseTaggingXML(bytes.NewReader(data), false)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
@@ -744,7 +744,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		tagsReader := strings.NewReader(getPostFormValue(postForm, "tagging"))
 		objectTags, err := parseTaggingXML(tagsReader, true)
 		if err != nil {
-			api.writeErrorResponse(w, r, err)
+			api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 			return
 		}
 		metadata[xhttp.AmzObjectTagging] = objectTags.String()

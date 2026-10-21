@@ -418,3 +418,20 @@ func TestUploadPartCopySourceVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestUnparsableXMLIsMalformed(t *testing.T) {
+	for _, target := range []string{"/bucket?tagging", "/bucket/key?tagging", "/bucket/key?legal-hold", "/bucket/key?retention"} {
+		for _, body := range []string{"", `<?xml version="1.0" encoding="ISO-8859-1"?><Tagging></Tagging>`} {
+			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, target+": "+resp.Body)
+			require.Contains(t, resp.Body, "<Code>MalformedXML</Code>", target)
+		}
+	}
+
+	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp := postObject(t, objectAPI, "/bucket",
+		[]any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "photo.jpg"}, map[string]string{"tagging": ""}},
+		[][2]string{{"key", "photo.jpg"}, {"tagging", ""}}, "data")
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>MalformedXML</Code>")
+}
