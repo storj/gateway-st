@@ -1674,6 +1674,11 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if err := checkMultipartChecksumHeaders(r.Header); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	metadata, err := extractMetadata(ctx, r)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

@@ -281,6 +281,49 @@ func checksumValueHeaders(h http.Header) (headers []string, algorithms []awsig.C
 	return headers, algorithms, nil
 }
 
+// checkMultipartChecksumHeaders checks the X-Amz-Checksum-Algorithm and X-Amz-Checksum-Type
+// headers of a request that creates a multipart upload. Only CRC checksums can be of the whole
+// object, and CRC64NVME checksums can only be.
+//
+// The requested checksums aren't returned by the later requests of the upload, because the object
+// layer doesn't store checksums.
+func checkMultipartChecksumHeaders(h http.Header) error {
+	invalid := func(description string) error {
+		return apierr.Response{Code: "InvalidRequest", Description: description, HTTPStatusCode: http.StatusBadRequest}
+	}
+
+	name, checksumType := h.Get("X-Amz-Checksum-Algorithm"), h.Get("X-Amz-Checksum-Type")
+	if name == "" {
+		if checksumType != "" {
+			return invalid("The x-amz-checksum-type header can only be used with the x-amz-checksum-algorithm header.")
+		}
+		return nil
+	}
+	algorithm, err := checksumHeaderAlgorithm(xAmzChecksumPrefix + name)
+	switch {
+	case errors.Is(err, apierr.CodeChecksumsUnsupported):
+		return err
+	case err != nil:
+		return invalid("Checksum algorithm provided is unsupported.")
+	}
+
+	isCRC := algorithm == awsig.AlgorithmCRC32 || algorithm == awsig.AlgorithmCRC32C || algorithm == awsig.AlgorithmCRC64NVME
+	switch checksumType {
+	case "":
+	case "COMPOSITE":
+		if algorithm == awsig.AlgorithmCRC64NVME {
+			return invalid("The COMPOSITE checksum type cannot be used with the CRC64NVME checksum algorithm.")
+		}
+	case "FULL_OBJECT":
+		if !isCRC {
+			return invalid("The FULL_OBJECT checksum type cannot be used with the " + strings.ToUpper(algorithm.String()) + " checksum algorithm.")
+		}
+	default:
+		return invalid("Value for x-amz-checksum-type header is invalid.")
+	}
+	return nil
+}
+
 // getChecksumRequests returns the checksum requests for verifying a request body: its
 // Content-MD5 header, and at most one X-Amz-Checksum-<algorithm> header or X-Amz-Trailer,
 // which X-Amz-Sdk-Checksum-Algorithm must match if present.

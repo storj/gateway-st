@@ -46,3 +46,38 @@ func TestCompleteMultipartUploadBodyVerification(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateMultipartUploadChecksumHeaders(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		newMultipartUpload: func(context.Context, string, string, cmd.ObjectOptions) (string, error) {
+			return "upload-id", nil
+		},
+	}
+
+	for _, tt := range []struct {
+		algorithm, checksumType string
+		status                  int
+	}{
+		{"", "", http.StatusOK},
+		{"CRC32", "", http.StatusOK},
+		{"crc32c", "FULL_OBJECT", http.StatusOK},
+		{"CRC64NVME", "FULL_OBJECT", http.StatusOK},
+		{"SHA256", "COMPOSITE", http.StatusOK},
+		{"FOO", "", http.StatusBadRequest},
+		{"", "COMPOSITE", http.StatusBadRequest},
+		{"SHA256", "FULL_OBJECT", http.StatusBadRequest},
+		{"CRC64NVME", "COMPOSITE", http.StatusBadRequest},
+		{"CRC32", "BOGUS", http.StatusBadRequest},
+		{"MD5", "", http.StatusNotImplemented},
+	} {
+		header := http.Header{}
+		if tt.algorithm != "" {
+			header.Set("X-Amz-Checksum-Algorithm", tt.algorithm)
+		}
+		if tt.checksumType != "" {
+			header.Set("X-Amz-Checksum-Type", tt.checksumType)
+		}
+		resp := serve(t, objectAPI, http.MethodPost, "/bucket/key?uploads", header, nil)
+		require.Equal(t, tt.status, resp.StatusCode, "%s %s: %s", tt.algorithm, tt.checksumType, resp.Body)
+	}
+}
