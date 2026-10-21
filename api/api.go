@@ -36,6 +36,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 	"storj.io/minio/cmd/logger"
@@ -58,14 +59,14 @@ type AuthData struct {
 // API is an S3-compatible HTTP API.
 type API struct {
 	log       Logger
-	objectAPI cmd.ObjectLayer
+	objectAPI objectlayer.ObjectLayer
 	verifier  verifier
 
 	config Config
 }
 
 // New constructs a new S3-compatible HTTP API.
-func New(objectAPI cmd.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config, opts ...Option) *API {
+func New(objectAPI objectlayer.ObjectLayer, credsProvider awsig.CredentialsProvider[AuthData], config Config, opts ...Option) *API {
 	v2v4 := awsig.NewV2V4(credsProvider, awsig.V4Config{
 		Service:                "s3",
 		SkipRegionVerification: true,

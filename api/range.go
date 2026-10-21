@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"storj.io/gateway/api/apierr"
-	"storj.io/minio/cmd"
+	"storj.io/gateway/api/objectlayer"
 )
 
 const byteRangePrefix = "bytes="
@@ -22,7 +22,7 @@ var errRangeFirstAfterLast = fmt.Errorf("%w: first byte position after last", ap
 // ParseRange parses an HTTP range string as an HTTPRangeSpec. It returns apierr.CodeMalformedCopySourceRange
 // if the range string is malformed and apierr.CodeInvalidCopySourceRange if it is well-formed but
 // semantically invalid.
-func ParseRange(rangeString string) (*cmd.HTTPRangeSpec, error) {
+func ParseRange(rangeString string) (*objectlayer.HTTPRangeSpec, error) {
 	byteRangeStr, ok := strings.CutPrefix(rangeString, byteRangePrefix)
 	if !ok {
 		return nil, apierr.CodeMalformedCopySourceRange
@@ -48,13 +48,13 @@ func ParseRange(rangeString string) (*cmd.HTTPRangeSpec, error) {
 		if beginOffset > endOffset {
 			return nil, errRangeFirstAfterLast
 		}
-		return &cmd.HTTPRangeSpec{
+		return &objectlayer.HTTPRangeSpec{
 			IsSuffixLength: false,
 			Start:          beginOffset,
 			End:            endOffset,
 		}, nil
 	case hasBeginOffset:
-		return &cmd.HTTPRangeSpec{
+		return &objectlayer.HTTPRangeSpec{
 			IsSuffixLength: false,
 			Start:          beginOffset,
 			End:            -1,
@@ -63,7 +63,7 @@ func ParseRange(rangeString string) (*cmd.HTTPRangeSpec, error) {
 		if endOffset == 0 {
 			return nil, apierr.CodeInvalidCopySourceRange
 		}
-		return &cmd.HTTPRangeSpec{
+		return &objectlayer.HTTPRangeSpec{
 			IsSuffixLength: true,
 			Start:          -endOffset,
 			End:            -1,
@@ -90,7 +90,7 @@ func parseRangeOffset(s string) (offset int64, present bool, err error) {
 // parseRangeForCopy parses an HTTP range string as an HTTPRangeSpec. It functions identically to
 // parseRange with the exception of returning apierr.CodeInvalidCopySourceRange for range strings
 // that are not of the form "bytes=first-last", where first and last are zero-based offsets.
-func parseRangeForCopy(rangeStr string) (rangeSpec *cmd.HTTPRangeSpec, err error) {
+func parseRangeForCopy(rangeStr string) (rangeSpec *objectlayer.HTTPRangeSpec, err error) {
 	rangeSpec, err = ParseRange(rangeStr)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func parseRangeForCopy(rangeStr string) (rangeSpec *cmd.HTTPRangeSpec, err error
 // parseRangeForGet parses the Range header of a GetObject or HeadObject request. Like S3, it
 // ignores malformed range strings and, per RFC 9110, ranges whose first byte position is after the
 // last one, treating the request as if no range was specified.
-func parseRangeForGet(rangeStr string) (*cmd.HTTPRangeSpec, error) {
+func parseRangeForGet(rangeStr string) (*objectlayer.HTTPRangeSpec, error) {
 	if rangeStr == "" {
 		return nil, nil
 	}
@@ -121,7 +121,7 @@ func parseRangeForGet(rangeStr string) (*cmd.HTTPRangeSpec, error) {
 
 // rangeOffsetLength returns the start offset and length of the portion of an object of the given
 // size that is selected by rangeSpec. A nil rangeSpec selects the entire object.
-func rangeOffsetLength(rangeSpec *cmd.HTTPRangeSpec, size int64) (start, length int64, err error) {
+func rangeOffsetLength(rangeSpec *objectlayer.HTTPRangeSpec, size int64) (start, length int64, err error) {
 	switch {
 	case rangeSpec == nil:
 		return 0, size, nil

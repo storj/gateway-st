@@ -23,6 +23,7 @@ package api
 import (
 	"encoding/xml"
 
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/pkg/tags"
 )
@@ -176,6 +177,6 @@ type deleteError struct {
 type deleteObjectsResponse struct {
 	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ DeleteResult"`
 
-	DeletedObjects []cmd.DeletedObject `xml:"Deleted,omitempty"`
-	Errors         []deleteError       `xml:"Error,omitempty"`
+	DeletedObjects []objectlayer.DeletedObject `xml:"Deleted,omitempty"`
+	Errors         []deleteError               `xml:"Error,omitempty"`
 }

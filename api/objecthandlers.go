@@ -41,6 +41,7 @@ import (
 	"storj.io/common/errs2"
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	"storj.io/minio/cmd/crypto"
@@ -94,7 +95,7 @@ func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -242,7 +243,7 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err = api.objectAPI.SetObjectRetention(ctx, bucketName, objectKey, versionID, cmd.ObjectOptions{
+	if err = api.objectAPI.SetObjectRetention(ctx, bucketName, objectKey, versionID, objectlayer.ObjectOptions{
 		Retention:                 retention,
 		BypassGovernanceRetention: governanceBypassSet,
 	}); err != nil {
@@ -290,7 +291,7 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	objInfo, err := api.objectAPI.PutObjectTags(ctx, bucketName, objectKey, tags.String(), cmd.ObjectOptions{
+	objInfo, err := api.objectAPI.PutObjectTags(ctx, bucketName, objectKey, tags.String(), objectlayer.ObjectOptions{
 		VersionID: versionID,
 	})
 	if err != nil {
@@ -365,8 +366,8 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	putObjReader := cmd.NewPutObjReader(hash.NewAwsigReader(body, size, size))
-	partInfo, err := api.objectAPI.PutObjectPart(ctx, bucketName, objectKey, uploadID, partNumber, putObjReader, cmd.ObjectOptions{})
+	putObjReader := objectlayer.NewPutObjReader(hash.NewAwsigReader(body, size, size))
+	partInfo, err := api.objectAPI.PutObjectPart(ctx, bucketName, objectKey, uploadID, partNumber, putObjReader, objectlayer.ObjectOptions{})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -428,7 +429,7 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var rangeSpec *cmd.HTTPRangeSpec
+	var rangeSpec *objectlayer.HTTPRangeSpec
 	if rangeHeader := r.Header.Get(xhttp.AmzCopySourceRange); rangeHeader != "" {
 		rangeSpec, err = parseRangeForCopy(rangeHeader)
 		if err != nil {
@@ -437,7 +438,7 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	srcOpts := cmd.ObjectOptions{VersionID: srcVersionID}
+	srcOpts := objectlayer.ObjectOptions{VersionID: srcVersionID}
 	srcInfo, err := api.objectAPI.GetObjectInfo(ctx, srcBucket, srcObject, srcOpts)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -481,7 +482,7 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		partNumber,
 		startOffset, length,
 		srcInfo,
-		srcOpts, cmd.ObjectOptions{},
+		srcOpts, objectlayer.ObjectOptions{},
 	)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -581,9 +582,9 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		metadata[xhttp.AmzObjectTagging] = objTags
 	}
 
-	putReader := cmd.NewPutObjReader(hash.NewAwsigReader(body, size, size))
+	putReader := objectlayer.NewPutObjReader(hash.NewAwsigReader(body, size, size))
 
-	opts := cmd.ObjectOptions{
+	opts := objectlayer.ObjectOptions{
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 		UserDefined: metadata,
 	}
@@ -649,7 +650,7 @@ func (api *API) GetObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	_, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -726,7 +727,7 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -838,7 +839,7 @@ func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	// The object's info is read instead of only its tags, because the response names the version
 	// that was read.
-	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -952,13 +953,13 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var preconditionFailed bool
-	opts.CheckPrecondFn = func(objInfo cmd.ObjectInfo) bool {
+	opts.CheckPrecondFn = func(objInfo objectlayer.ObjectInfo) bool {
 		preconditionFailed = api.checkPreconditions(w, r, objInfo, opts)
 		return preconditionFailed
 	}
 
 	// The lock type is ignored by our object layer.
-	var noLock cmd.LockType
+	var noLock objectlayer.LockType
 	reader, err := api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, rangeSpec, r.Header, noLock, opts)
 	ifRange := r.Header.Get("If-Range")
 	switch {
@@ -1141,20 +1142,20 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 // getObjectReadOptions returns the object options specified by the query parameters of a
 // GetObject or HeadObject request.
-func getObjectReadOptions(query url.Values) (opts cmd.ObjectOptions, err error) {
+func getObjectReadOptions(query url.Values) (opts objectlayer.ObjectOptions, err error) {
 	if partNumberStr := query.Get(xhttp.PartNumber); partNumberStr != "" {
 		opts.PartNumber, err = strconv.Atoi(partNumberStr)
 		if err != nil || opts.PartNumber < minPartNumber || opts.PartNumber > maxPartNumber {
 			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
 			errResp.ArgumentName = xhttp.PartNumber
 			errResp.ArgumentValue = partNumberStr
-			return cmd.ObjectOptions{}, errResp
+			return objectlayer.ObjectOptions{}, errResp
 		}
 	}
 
 	opts.VersionID, err = extractVersionID(query)
 	if err != nil {
-		return cmd.ObjectOptions{}, err
+		return objectlayer.ObjectOptions{}, err
 	}
 
 	return opts, nil
@@ -1162,7 +1163,7 @@ func getObjectReadOptions(query url.Values) (opts cmd.ObjectOptions, err error) 
 
 // checkPreconditions evaluates the conditional headers of a GetObject or HeadObject request
 // against an object. If the request should not proceed, it writes the response and returns true.
-func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objInfo cmd.ObjectInfo, opts cmd.ObjectOptions) bool {
+func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objInfo objectlayer.ObjectInfo, opts objectlayer.ObjectOptions) bool {
 	writeError := func(err error) {
 		if r.Method == http.MethodHead {
 			api.writeErrorResponseHeadersOnly(r, w, err)
@@ -1223,7 +1224,7 @@ func validModTime(modTime time.Time) bool {
 // http.StatusPreconditionFailed or http.StatusNotModified if the request should not proceed and
 // 0 otherwise. Unparsable dates, and all dates if the object has no valid modification time, are
 // ignored.
-func evaluatePreconditions(objInfo cmd.ObjectInfo, ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince string) int {
+func evaluatePreconditions(objInfo objectlayer.ObjectInfo, ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince string) int {
 	hasModTime := validModTime(objInfo.ModTime)
 
 	if ifMatch != "" {
@@ -1246,9 +1247,9 @@ func evaluatePreconditions(objInfo cmd.ObjectInfo, ifMatch, ifUnmodifiedSince, i
 }
 
 // setDeleteMarkerHeaders sets the headers that S3 sends with the error for a read of a version that
-// is a delete marker, which the object layer reports as cmd.MethodNotAllowed.
+// is a delete marker, which the object layer reports as objectlayer.MethodNotAllowed.
 func setDeleteMarkerHeaders(w http.ResponseWriter, err error, versionID string) {
-	if versionID != "" && errors.As(err, new(cmd.MethodNotAllowed)) {
+	if versionID != "" && errors.As(err, new(objectlayer.MethodNotAllowed)) {
 		w.Header().Set(xhttp.AmzDeleteMarker, "true")
 		w.Header()[xhttp.AmzVersionID] = []string{versionID}
 	}
@@ -1264,7 +1265,7 @@ func isInvalidRange(err error) bool {
 // ifRangeMatches returns whether a range request's If-Range value, which is empty if the
 // header is missing, matches an object, so that the range is served. Like net/http, an ETag must
 // match strongly and a date must equal the modification time to the second.
-func ifRangeMatches(objInfo cmd.ObjectInfo, ifRange string) bool {
+func ifRangeMatches(objInfo objectlayer.ObjectInfo, ifRange string) bool {
 	if ifRange == "" {
 		return true
 	}
@@ -1302,7 +1303,7 @@ func etagMatchesList(etag, list string, weak bool) bool {
 
 // rejectIfMatch writes a NotImplemented error and returns true if r has an If-Match,
 // x-amz-if-match-size or x-amz-if-match-last-modified-time header.
-// The object layer can't check these conditions atomically, because cmd.ObjectOptions has no
+// The object layer can't check these conditions atomically, because objectlayer.ObjectOptions has no
 // fields for them, so writes and deletes refuse them rather than ignore them.
 func (api *API) rejectIfMatch(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get(xhttp.IfMatch) == "" &&
@@ -1353,14 +1354,14 @@ func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	objInfo, err := api.objectAPI.DeleteObject(ctx, bucketName, objectKey, cmd.ObjectOptions{
+	objInfo, err := api.objectAPI.DeleteObject(ctx, bucketName, objectKey, objectlayer.ObjectOptions{
 		VersionID:                 versionID,
 		BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
 	})
 	if err != nil {
 		// Like S3, deleting an object that doesn't exist succeeds.
 		if !errors.Is(err, apierr.CodeNoSuchKey) && !errors.Is(err, apierr.CodeNoSuchVersion) &&
-			!errors.As(err, &cmd.ObjectNotFound{}) && !errors.As(err, &cmd.VersionNotFound{}) {
+			!errors.As(err, &objectlayer.ObjectNotFound{}) && !errors.As(err, &objectlayer.VersionNotFound{}) {
 			api.writeErrorResponse(w, r, err)
 			return
 		}
@@ -1400,7 +1401,7 @@ func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	objInfo, err := api.objectAPI.DeleteObjectTags(ctx, bucketName, objectKey, cmd.ObjectOptions{VersionID: versionID})
+	objInfo, err := api.objectAPI.DeleteObjectTags(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -1463,7 +1464,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	srcOpts := cmd.ObjectOptions{VersionID: srcVersionID}
+	srcOpts := objectlayer.ObjectOptions{VersionID: srcVersionID}
 	srcInfo, err := api.objectAPI.GetObjectInfo(ctx, srcBucket, srcObject, srcOpts)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -1528,7 +1529,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	crypto.RemoveSensitiveEntries(metadata)
 	srcInfo.UserDefined = metadata
 
-	dstOpts := cmd.ObjectOptions{
+	dstOpts := objectlayer.ObjectOptions{
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 	}
 
@@ -1637,7 +1638,7 @@ func isDirectiveValid(directive string) bool {
 
 // checkCopyPreconditions evaluates the X-Amz-Copy-Source-If-* headers of a copy request against
 // its source object. If the request should not proceed, it writes the response and returns true.
-func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, srcInfo cmd.ObjectInfo) bool {
+func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, srcInfo objectlayer.ObjectInfo) bool {
 	// Unlike GetObject, a copy request whose source matches X-Amz-Copy-Source-If-None-Match fails.
 	var condition string
 	switch evaluatePreconditions(srcInfo,
@@ -1722,7 +1723,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		metadata[xhttp.AmzObjectTagging] = objTags
 	}
 
-	opts := cmd.ObjectOptions{UserDefined: metadata}
+	opts := objectlayer.ObjectOptions{UserDefined: metadata}
 
 	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, bucketName, objectKey)
 	if err != nil {
@@ -1872,7 +1873,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	// response and crash the process.
 	defer stopKeepAlive()
 
-	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, completeUpload.Parts, cmd.ObjectOptions{
+	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, completeUpload.Parts, objectlayer.ObjectOptions{
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 	})
 	keepAliveSent := stopKeepAlive()
@@ -2016,7 +2017,7 @@ func (api *API) AbortMultipartUploadHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	uploadID := r.URL.Query().Get(xhttp.UploadID)
-	if err := api.objectAPI.AbortMultipartUpload(ctx, bucketName, objectKey, uploadID, cmd.ObjectOptions{}); err != nil {
+	if err := api.objectAPI.AbortMultipartUpload(ctx, bucketName, objectKey, uploadID, objectlayer.ObjectOptions{}); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}

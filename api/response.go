@@ -37,6 +37,7 @@ import (
 	miniogo "github.com/minio/minio-go/v7"
 
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
@@ -286,7 +287,7 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 
 	// miniogw.ConvertError makes every io.ErrUnexpectedEOF IncompleteBody, but only a truncated
 	// request body is the client's fault.
-	if e := (cmd.IncompleteBody{}); errors.As(err, &e) && e.Err != nil && !errors.As(e.Err, new(incompleteBodyError)) {
+	if e := (objectlayer.IncompleteBody{}); errors.As(err, &e) && e.Err != nil && !errors.As(e.Err, new(incompleteBodyError)) {
 		return apierr.Response{}, false
 	}
 
@@ -298,9 +299,9 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 			HTTPStatusCode: apiErr.HTTPStatusCode,
 		}
 		// Keep the object layer's explanation where the generic message would lose it.
-		if e := (cmd.NotImplemented{}); errors.As(err, &e) && e.Message != "" {
+		if e := (objectlayer.NotImplemented{}); errors.As(err, &e) && e.Message != "" {
 			resp.Description = e.Message
-		} else if e := (cmd.InvalidArgument{}); errors.As(err, &e) && e.Err != nil {
+		} else if e := (objectlayer.InvalidArgument{}); errors.As(err, &e) && e.Err != nil {
 			resp.Description = e.Err.Error()
 		}
 		return resp, true
@@ -324,50 +325,50 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 // configuration errors to MinIO API error codes.
 func minioErrToAPIErrorCode(err error) (cmd.APIErrorCode, bool) {
 	switch {
-	case errors.As(err, new(cmd.BucketNameInvalid)):
+	case errors.As(err, new(objectlayer.BucketNameInvalid)):
 		return cmd.ErrInvalidBucketName, true
-	case errors.As(err, new(cmd.BucketNotFound)):
+	case errors.As(err, new(objectlayer.BucketNotFound)):
 		return cmd.ErrNoSuchBucket, true
-	case errors.As(err, new(cmd.BucketNotEmpty)):
+	case errors.As(err, new(objectlayer.BucketNotEmpty)):
 		return cmd.ErrBucketNotEmpty, true
-	case errors.As(err, new(cmd.BucketAlreadyExists)):
+	case errors.As(err, new(objectlayer.BucketAlreadyExists)):
 		return cmd.ErrBucketAlreadyExists, true
-	case errors.As(err, new(cmd.BucketTaggingNotFound)):
+	case errors.As(err, new(objectlayer.BucketTaggingNotFound)):
 		return cmd.ErrBucketTaggingNotFound, true
-	case errors.As(err, new(cmd.BucketObjectLockConfigNotFound)):
+	case errors.As(err, new(objectlayer.BucketObjectLockConfigNotFound)):
 		return cmd.ErrObjectLockConfigurationNotFound, true
-	case errors.As(err, new(cmd.ObjectNotFound)):
+	case errors.As(err, new(objectlayer.ObjectNotFound)):
 		return cmd.ErrNoSuchKey, true
-	case errors.As(err, new(cmd.VersionNotFound)):
+	case errors.As(err, new(objectlayer.VersionNotFound)):
 		return cmd.ErrNoSuchVersion, true
-	case errors.As(err, new(cmd.ObjectNameInvalid)):
+	case errors.As(err, new(objectlayer.ObjectNameInvalid)):
 		// MinIO uses XMinioInvalidObjectName, which isn't an S3 code.
 		return cmd.ErrInvalidArgument, true
-	case errors.As(err, new(cmd.ObjectNameTooLong)):
+	case errors.As(err, new(objectlayer.ObjectNameTooLong)):
 		return cmd.ErrKeyTooLongError, true
-	case errors.As(err, new(cmd.ObjectTooLarge)):
+	case errors.As(err, new(objectlayer.ObjectTooLarge)):
 		return cmd.ErrEntityTooLarge, true
-	case errors.As(err, new(cmd.ObjectTooSmall)), errors.As(err, new(cmd.PartTooSmall)):
+	case errors.As(err, new(objectlayer.ObjectTooSmall)), errors.As(err, new(objectlayer.PartTooSmall)):
 		return cmd.ErrEntityTooSmall, true
-	case errors.As(err, new(cmd.PrefixAccessDenied)):
+	case errors.As(err, new(objectlayer.PrefixAccessDenied)):
 		return cmd.ErrAccessDenied, true
-	case errors.As(err, new(cmd.MethodNotAllowed)):
+	case errors.As(err, new(objectlayer.MethodNotAllowed)):
 		return cmd.ErrMethodNotAllowed, true
-	case errors.As(err, new(cmd.IncompleteBody)):
+	case errors.As(err, new(objectlayer.IncompleteBody)):
 		return cmd.ErrIncompleteBody, true
-	case errors.As(err, new(cmd.NotImplemented)):
+	case errors.As(err, new(objectlayer.NotImplemented)):
 		return cmd.ErrNotImplemented, true
-	case errors.As(err, new(cmd.OperationTimedOut)):
+	case errors.As(err, new(objectlayer.OperationTimedOut)):
 		return cmd.ErrOperationTimedOut, true
-	case errors.As(err, new(cmd.SlowDown)):
+	case errors.As(err, new(objectlayer.SlowDown)):
 		return cmd.ErrSlowDown, true
-	case errors.As(err, new(cmd.InvalidUploadID)):
+	case errors.As(err, new(objectlayer.InvalidUploadID)):
 		return cmd.ErrNoSuchUpload, true
-	case errors.As(err, new(cmd.InvalidPart)):
+	case errors.As(err, new(objectlayer.InvalidPart)):
 		return cmd.ErrInvalidPart, true
-	case errors.As(err, new(cmd.InvalidRange)):
+	case errors.As(err, new(objectlayer.InvalidRange)):
 		return cmd.ErrInvalidRange, true
-	case errors.As(err, new(cmd.InvalidArgument)):
+	case errors.As(err, new(objectlayer.InvalidArgument)):
 		return cmd.ErrInvalidArgument, true
 	case errors.Is(err, objectlock.ErrInvalidRetentionDate):
 		return cmd.ErrInvalidRetentionDate, true
@@ -417,7 +418,7 @@ func errorAs[T error](err error) bool {
 	return errors.As(err, &target)
 }
 
-func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo cmd.ListObjectsInfo) cmd.ListObjectsResponse {
+func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo objectlayer.ListObjectsInfo) cmd.ListObjectsResponse {
 	data := cmd.ListObjectsResponse{
 		Name:           bucketName,
 		Contents:       make([]cmd.Object, 0, len(listInfo.Objects)),
@@ -468,7 +469,7 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 	return data
 }
 
-func generateListObjectsV2Response(bucketName string, params listObjectsV2Params, listInfo cmd.ListObjectsV2Info) listObjectsV2Response {
+func generateListObjectsV2Response(bucketName string, params listObjectsV2Params, listInfo objectlayer.ListObjectsV2Info) listObjectsV2Response {
 	data := listObjectsV2Response{
 		Name:                  bucketName,
 		Contents:              make([]listObjectsV2Object, 0, len(listInfo.Objects)),
@@ -525,7 +526,7 @@ func generateListObjectsV2Response(bucketName string, params listObjectsV2Params
 	return data
 }
 
-func generateListVersionsResponse(bucketName string, params listObjectVersionsParams, listInfo cmd.ListObjectVersionsInfo) listVersionsResponse {
+func generateListVersionsResponse(bucketName string, params listObjectVersionsParams, listInfo objectlayer.ListObjectVersionsInfo) listVersionsResponse {
 	data := listVersionsResponse{
 		Name:                bucketName,
 		Versions:            make([]objectVersion, 0, len(listInfo.Objects)),
@@ -587,7 +588,7 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 	return data
 }
 
-func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultipartsInfo, encodingType string) cmd.ListMultipartUploadsResponse {
+func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.ListMultipartsInfo, encodingType string) cmd.ListMultipartUploadsResponse {
 	listMultipartUploadsResponse := cmd.ListMultipartUploadsResponse{
 		Bucket:             bucket,
 		Delimiter:          s3EncodeName(listInfo.Delimiter, encodingType),
@@ -631,7 +632,7 @@ func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultip
 
 // generateListPartsResponse returns the response to ListParts. Unlike the other listings, ListParts
 // has no encoding-type parameter, so the key is never encoded.
-func generateListPartsResponse(partsInfo cmd.ListPartsInfo) cmd.ListPartsResponse {
+func generateListPartsResponse(partsInfo objectlayer.ListPartsInfo) cmd.ListPartsResponse {
 	resp := cmd.ListPartsResponse{
 		Bucket:   partsInfo.Bucket,
 		Key:      partsInfo.Object,
@@ -667,7 +668,7 @@ func generateListPartsResponse(partsInfo cmd.ListPartsInfo) cmd.ListPartsRespons
 	return resp
 }
 
-func generateListBucketsResponse(bucketInfos []cmd.BucketInfo, prefix, continuationToken string) listBucketsResponse {
+func generateListBucketsResponse(bucketInfos []objectlayer.BucketInfo, prefix, continuationToken string) listBucketsResponse {
 	resp := listBucketsResponse{
 		Owner: cmd.Owner{
 			ID:          defaultOwnerID,
@@ -688,7 +689,7 @@ func generateListBucketsResponse(bucketInfos []cmd.BucketInfo, prefix, continuat
 	return resp
 }
 
-func generateCopyObjectPartResponse(partInfo cmd.PartInfo) cmd.CopyObjectPartResponse {
+func generateCopyObjectPartResponse(partInfo objectlayer.PartInfo) cmd.CopyObjectPartResponse {
 	return cmd.CopyObjectPartResponse{
 		ETag:         "\"" + partInfo.ETag + "\"",
 		LastModified: partInfo.LastModified.UTC().Format(iso8601Milli),
@@ -714,7 +715,7 @@ const objectLockMetadataPrefix = "x-amz-object-lock-"
 // setObjectHeaders sets the response headers describing an object, or the portion of it
 // selected by rangeSpec or partNumber, for GetObject and HeadObject responses. Content-Range is
 // set only for partial content, and partial reports whether it was set.
-func setObjectHeaders(w http.ResponseWriter, objInfo cmd.ObjectInfo, rangeSpec *cmd.HTTPRangeSpec, partNumber int) (partial bool, err error) {
+func setObjectHeaders(w http.ResponseWriter, objInfo objectlayer.ObjectInfo, rangeSpec *objectlayer.HTTPRangeSpec, partNumber int) (partial bool, err error) {
 	setCommonHeaders(w)
 
 	h := w.Header()
@@ -773,7 +774,7 @@ func setObjectHeaders(w http.ResponseWriter, objInfo cmd.ObjectInfo, rangeSpec *
 	// TODO: part 1 is the entire object, because the object layer doesn't report parts. It's
 	// only a partial response if the object isn't empty.
 	if partNumber > 0 && objInfo.Size > 0 {
-		rangeSpec = &cmd.HTTPRangeSpec{Start: 0, End: -1}
+		rangeSpec = &objectlayer.HTTPRangeSpec{Start: 0, End: -1}
 	}
 
 	start, length, err := rangeOffsetLength(rangeSpec, objInfo.Size)
@@ -827,7 +828,7 @@ func encodeHeaderValue(v string) string {
 }
 
 // objectUserTags returns the encoded tags of an object.
-func objectUserTags(objInfo cmd.ObjectInfo) string {
+func objectUserTags(objInfo objectlayer.ObjectInfo) string {
 	if objInfo.UserTags != "" {
 		return objInfo.UserTags
 	}

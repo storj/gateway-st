@@ -31,6 +31,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 )
@@ -411,10 +412,10 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 		bucketInfos = nil
 	}
 
-	bucketInfos = slices.DeleteFunc(bucketInfos, func(b cmd.BucketInfo) bool {
+	bucketInfos = slices.DeleteFunc(bucketInfos, func(b objectlayer.BucketInfo) bool {
 		return !strings.HasPrefix(b.Name, prefix) || b.Name <= startAfter
 	})
-	slices.SortFunc(bucketInfos, func(a, b cmd.BucketInfo) int {
+	slices.SortFunc(bucketInfos, func(a, b objectlayer.BucketInfo) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 
@@ -458,7 +459,7 @@ func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	listPartsInfo, err := api.objectAPI.ListObjectParts(ctx, bucketName, objectKey, params.uploadID,
-		params.partNumberMarker, params.maxParts, cmd.ObjectOptions{})
+		params.partNumberMarker, params.maxParts, objectlayer.ObjectOptions{})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

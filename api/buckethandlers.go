@@ -36,6 +36,7 @@ import (
 
 	"storj.io/common/memory"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	"storj.io/minio/cmd/crypto"
@@ -115,7 +116,7 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	opts := cmd.BucketOptions{
+	opts := objectlayer.BucketOptions{
 		LockEnabled: objectLockEnabled,
 	}
 
@@ -754,7 +755,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		metadata[xhttp.AmzObjectTagging] = objectTags.String()
 	}
 
-	opts := cmd.ObjectOptions{
+	opts := objectlayer.ObjectOptions{
 		UserDefined: metadata,
 	}
 
@@ -775,7 +776,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		sizeLimit = max(min(lengthRange.Max, sizeLimit), 0)
 	}
 	hashReader := hash.NewAwsigReader(NewLimitedAwsigReader(awsigReader, sizeLimit), -1, -1)
-	pReader := cmd.NewPutObjReader(hashReader)
+	pReader := objectlayer.NewPutObjReader(hashReader)
 
 	// Like keys in the URL, the key must be valid UTF-8.
 	objectKey := postForm.Get("key").Value
@@ -858,11 +859,11 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// cmd.ObjectToDelete has no condition fields, so decode into a type that keeps them.
+	// objectlayer.ObjectToDelete has no condition fields, so decode into a type that keeps them.
 	var req struct {
 		Quiet   bool
 		Objects []struct {
-			cmd.ObjectToDelete
+			objectlayer.ObjectToDelete
 			ETag             string
 			Size             string
 			LastModifiedTime string
@@ -878,7 +879,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]cmd.ObjectToDelete, 0, len(req.Objects))}
+	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]objectlayer.ObjectToDelete, 0, len(req.Objects))}
 	for _, object := range req.Objects {
 		// Conditional deletes are refused like If-Match on DeleteObject, because the object layer
 		// can't check their conditions.
@@ -927,11 +928,11 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	deleteReq.Objects = deleteReq.Objects[:filteredIndex]
 
-	var deletedObjects []cmd.DeletedObject
-	var apiDeleteErrs []cmd.DeleteObjectsError
+	var deletedObjects []objectlayer.DeletedObject
+	var apiDeleteErrs []objectlayer.DeleteObjectsError
 	if len(deleteReq.Objects) > 0 {
 		var err error
-		deletedObjects, apiDeleteErrs, err = api.objectAPI.DeleteObjects(ctx, bucketName, deleteReq.Objects, cmd.ObjectOptions{
+		deletedObjects, apiDeleteErrs, err = api.objectAPI.DeleteObjects(ctx, bucketName, deleteReq.Objects, objectlayer.ObjectOptions{
 			BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
 			Quiet:                     deleteReq.Quiet,
 		})
