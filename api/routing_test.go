@@ -114,7 +114,7 @@ func TestVirtualHostedRequestsDoNotFallThroughToPathStyle(t *testing.T) {
 	api.New(objectAPI, testCredentialsProvider{}, api.Config{Domains: []string{"example.com"}}).RegisterHandlers(router)
 
 	// The path would address another bucket if the request fell through to path-style routing.
-	for _, host := range []string{"mybucket.example.com", "mybucket.EXAMPLE.com"} {
+	for _, host := range []string{"mybucket.example.com", "mybucket.EXAMPLE.com", "mybucket.example.com."} {
 		body := []byte(`<Delete><Object><Key>victim</Key></Object></Delete>`)
 		sum := md5.Sum(body)
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+host+"/other-bucket?delete", bytes.NewReader(body))
@@ -185,11 +185,15 @@ func TestInvalidUTF8Key(t *testing.T) {
 }
 
 func TestOverlappingDomains(t *testing.T) {
-	var gotBucket string
+	var gotBucket, gotObject string
 	objectAPI := &routingObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{
 			listBuckets: func(context.Context) ([]cmd.BucketInfo, error) {
 				return []cmd.BucketInfo{{Name: "listed"}}, nil
+			},
+			deleteObject: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				gotObject = bucket + "/" + object
+				return cmd.ObjectInfo{}, nil
 			},
 		},
 		deleteBucket: func(_ context.Context, bucket string, _ bool) error {
@@ -240,6 +244,22 @@ func TestOverlappingDomains(t *testing.T) {
 	require.Equal(t, "b", gotBucket)
 
 	rec = do(http.MethodGet, "http://s3.example.com:7777/")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Name>listed</Name>")
+
+	// A fully qualified host name may end with a dot.
+	gotBucket = ""
+	rec = do(http.MethodDelete, "http://b.s3.example.com.:7777/")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, "b", gotBucket)
+
+	gotBucket = ""
+	rec = do(http.MethodDelete, "http://b.s3.example.com./victim")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Empty(t, gotBucket)
+	require.Equal(t, "b/victim", gotObject)
+
+	rec = do(http.MethodGet, "http://s3.example.com./")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "<Name>listed</Name>")
 }
