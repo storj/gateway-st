@@ -88,6 +88,11 @@
   description: Expecting a single x-amz-checksum- header. Multiple checksum Types are not allowed.
   http_status: 400
 
+- name: CopySourceTooLarge
+  code: InvalidRequest
+  description: "The specified copy source is larger than the maximum allowable size for a copy source: 5368709120"
+  http_status: 400
+
 - name: EmptyVersionID
   code: InvalidArgument
   description: Version id cannot be the empty string

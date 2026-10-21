@@ -458,7 +458,11 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		startOffset, length = rangeSpec.Start, rangeSpec.End-rangeSpec.Start+1
 	}
 	if length > maxPartSize {
-		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
+		if rangeSpec == nil {
+			api.writeErrorResponse(w, r, apierr.CodeCopySourceTooLarge)
+		} else {
+			api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
+		}
 		return
 	}
 	if rangeSpec == nil {

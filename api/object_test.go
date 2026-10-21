@@ -285,7 +285,7 @@ func TestUploadPartCopySource(t *testing.T) {
 		{name: "if-match mismatch", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-If-Match": {`"other"`}}, expStatus: http.StatusPreconditionFailed, expCode: "PreconditionFailed"},
 		{name: "range within source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-Range": {"bytes=0-9"}}, expStatus: http.StatusOK},
 		{name: "range past end of source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/small"}, "X-Amz-Copy-Source-Range": {"bytes=5-10"}}, expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
-		{name: "whole source too large", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}}, expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
+		{name: "whole source too large", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}}, expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 		{name: "range of large source", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}, "X-Amz-Copy-Source-Range": {"bytes=0-9"}}, expStatus: http.StatusOK},
 		{name: "range length overflows", header: http.Header{"X-Amz-Copy-Source": {"/bucket/large"}, "X-Amz-Copy-Source-Range": {"bytes=0-9223372036854775807"}}, expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "owner and payer headers", header: http.Header{

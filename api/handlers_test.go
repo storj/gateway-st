@@ -1293,7 +1293,7 @@ func TestUploadPartCopy(t *testing.T) {
 		{name: "end past source", size: 10, rangeStr: "bytes=0-10", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "end overflows length", size: 10, rangeStr: "bytes=0-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "huge start", size: 10, rangeStr: "bytes=9223372036854775806-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
-		{name: "source too large", size: 6 * gib, expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
+		{name: "source too large", size: 6 * gib, expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 		{name: "range too large", size: 6 * gib, rangeStr: fmt.Sprintf("bytes=0-%d", 5*gib), expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
