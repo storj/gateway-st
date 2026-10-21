@@ -469,3 +469,26 @@ func TestReadDeleteMarkerVersion(t *testing.T) {
 		require.Equal(t, versionID, resp.Header.Get("X-Amz-Version-Id"), method)
 	}
 }
+
+func TestUserMetadataTooLarge(t *testing.T) {
+	// The limit counts the keys without their prefix.
+	atLimit := http.Header{"X-Amz-Meta-A": {strings.Repeat("v", 2<<10-1)}, "Content-Length": {"0"}}
+	resp := serve(t, putObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", atLimit, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+
+	for _, header := range []http.Header{
+		{"X-Amz-Meta-A": {strings.Repeat("v", 2<<10)}},
+		{"X-Amz-Meta-A": {strings.Repeat("v", 2<<9)}, "X-Minio-Meta-B": {strings.Repeat("v", 2<<9)}},
+	} {
+		header.Set("Content-Length", "0")
+		resp := serve(t, putObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", header, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>MetadataTooLarge</Code>")
+	}
+
+	resp = postObject(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket",
+		[]any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "photo.jpg"}, []string{"starts-with", "$x-amz-meta-a", ""}},
+		[][2]string{{"key", "photo.jpg"}, {"x-amz-meta-a", strings.Repeat("v", 2<<10)}}, "data")
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>MetadataTooLarge</Code>")
+}

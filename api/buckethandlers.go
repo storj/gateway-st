@@ -732,6 +732,10 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metadata := ExtractMetadataFromPostForm(postForm)
+	if err := checkUserMetadataSize(metadata); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
 	if err := validateStorageClass(metadata[amzStorageClass]); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

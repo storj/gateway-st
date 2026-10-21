@@ -303,6 +303,11 @@
   description: X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds
   http_status: 400
 
+- name: MetadataTooLarge
+  code: MetadataTooLarge
+  description: Your metadata headers exceed the maximum allowed metadata size.
+  http_status: 400
+
 - name: MethodNotAllowed
   code: MethodNotAllowed
   description: The specified method is not allowed against this resource.

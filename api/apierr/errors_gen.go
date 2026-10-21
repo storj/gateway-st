@@ -65,6 +65,7 @@ const (
 	CodeMalformedXML
 	CodeMaxPostPreDataLengthExceeded
 	CodeMaximumExpires
+	CodeMetadataTooLarge
 	CodeMethodNotAllowed
 	CodeMissingChecksumForSdkAlgorithm
 	CodeMissingContentLength
@@ -402,6 +403,11 @@ var codeToResponse = map[Code]Response{
 	CodeMaximumExpires: {
 		Code:           "AuthorizationQueryParametersError",
 		Description:    "X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMetadataTooLarge: {
+		Code:           "MetadataTooLarge",
+		Description:    "Your metadata headers exceed the maximum allowed metadata size.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMethodNotAllowed: {

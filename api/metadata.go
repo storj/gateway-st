@@ -28,6 +28,7 @@ import (
 
 	"github.com/amwolff/awsig"
 
+	"storj.io/gateway/api/apierr"
 	xhttp "storj.io/minio/cmd/http"
 )
 
@@ -61,7 +62,28 @@ func extractMetadata(ctx context.Context, r *http.Request) (metadata map[string]
 	ExtractMetadataFromHeader(r.Header, metadata)
 	setMetadataDefaults(metadata)
 
-	return metadata, nil
+	return metadata, checkUserMetadataSize(metadata)
+}
+
+// maxUserMetadataSize is S3's limit on the size of an object's user-defined metadata.
+const maxUserMetadataSize = 2 << 10
+
+// checkUserMetadataSize returns apierr.CodeMetadataTooLarge if the user-defined metadata is larger
+// than S3 allows. Its size is the sum of the lengths of each key, without its prefix, and value.
+func checkUserMetadataSize(metadata map[string]string) error {
+	var size int
+	for key, value := range metadata {
+		for _, prefix := range userMetadataKeyPrefixes {
+			if strings.HasPrefix(key, prefix) {
+				size += len(key) - len(prefix) + len(value)
+				break
+			}
+		}
+	}
+	if size > maxUserMetadataSize {
+		return apierr.CodeMetadataTooLarge
+	}
+	return nil
 }
 
 // setMetadataDefaults sets the default Content-Type, removes sensitive entries and strips the
