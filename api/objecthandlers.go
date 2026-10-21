@@ -966,6 +966,7 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		if !preconditionFailed {
+			setDeleteMarkerHeaders(w, err, opts.VersionID)
 			api.writeErrorResponse(w, r, err)
 		}
 		return
@@ -1090,6 +1091,7 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, opts)
 	if err != nil {
+		setDeleteMarkerHeaders(w, err, opts.VersionID)
 		api.writeErrorResponseHeadersOnly(r, w, err)
 		return
 	}
@@ -1224,6 +1226,15 @@ func evaluatePreconditions(objInfo cmd.ObjectInfo, ifMatch, ifUnmodifiedSince, i
 	}
 
 	return 0
+}
+
+// setDeleteMarkerHeaders sets the headers that S3 sends with the error for a read of a version that
+// is a delete marker, which the object layer reports as cmd.MethodNotAllowed.
+func setDeleteMarkerHeaders(w http.ResponseWriter, err error, versionID string) {
+	if versionID != "" && errors.As(err, new(cmd.MethodNotAllowed)) {
+		w.Header().Set(xhttp.AmzDeleteMarker, "true")
+		w.Header()[xhttp.AmzVersionID] = []string{versionID}
+	}
 }
 
 // ifRangeMatches returns whether a range request's If-Range value, which is empty if the

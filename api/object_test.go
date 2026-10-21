@@ -450,3 +450,22 @@ func TestGetObjectTaggingVersionID(t *testing.T) {
 	require.Equal(t, versionID, resp.Header.Get("X-Amz-Version-Id"))
 	require.Contains(t, resp.Body, "<Tag><Key>a</Key><Value>1</Value></Tag>")
 }
+
+func TestReadDeleteMarkerVersion(t *testing.T) {
+	const versionID = "00000000000000000000000000000001"
+	objectAPI := &fakeObjectLayer{
+		getObjectInfo: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{}, cmd.MethodNotAllowed{Bucket: bucket, Object: object}
+		},
+		getObjectNInfo: func(_ context.Context, bucket, object string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, _ cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+			return nil, cmd.MethodNotAllowed{Bucket: bucket, Object: object}
+		},
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		resp := serve(t, objectAPI, method, "/bucket/key?versionId="+versionID, nil, nil)
+		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, method)
+		require.Equal(t, "true", resp.Header.Get("X-Amz-Delete-Marker"), method)
+		require.Equal(t, versionID, resp.Header.Get("X-Amz-Version-Id"), method)
+	}
+}
