@@ -168,7 +168,9 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	notVirtualHosted := func(r *http.Request, _ *mux.RouteMatch) bool {
 		return !isVirtualHostedHost(hostname(r), domains)
 	}
-	subrouters = append(subrouters, bucketSubrouter{Router: apiRouter.PathPrefix("/{bucket}").MatcherFunc(notVirtualHosted).Subrouter()})
+	pathStyleRouter := apiRouter.PathPrefix("/{bucket}").MatcherFunc(notVirtualHosted).Subrouter()
+	pathStyleRouter.Use(api.unescapeBucket)
+	subrouters = append(subrouters, bucketSubrouter{Router: pathStyleRouter})
 
 	for _, subrouter := range subrouters {
 		// Object-level operations
@@ -268,6 +270,21 @@ func (api *API) rejectMalformedQuery(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// unescapeBucket unescapes the bucket of path-style requests, which the router matches against the
+// escaped path.
+func (api *API) unescapeBucket(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		bucket, err := url.PathUnescape(vars["bucket"])
+		if err != nil {
+			api.writeErrorResponse(w, r, apierr.CodeInvalidURI)
+			return
+		}
+		vars["bucket"] = bucket
+		next.ServeHTTP(w, mux.SetURLVars(r, vars))
 	})
 }
 

@@ -451,3 +451,17 @@ func TestSubresourceRouting(t *testing.T) {
 		})
 	}
 }
+
+func TestEscapedBucketIsUnescaped(t *testing.T) {
+	var gotBucket string
+	objectAPI := &fakeObjectLayer{
+		deleteObject: func(_ context.Context, bucket, _ string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			gotBucket = bucket
+			return cmd.ObjectInfo{}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodDelete, "/my%2Dbucket/key", nil, nil)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
+	require.Equal(t, "my-bucket", gotBucket)
+}
