@@ -779,6 +779,14 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
 
+		// The destination is the source, so it exists and If-None-Match: * can't hold.
+		if err := verifyIfNoneMatch(destOpts.IfNoneMatch); err != nil {
+			return minio.ObjectInfo{}, err
+		}
+		if len(destOpts.IfNoneMatch) > 0 {
+			return minio.ObjectInfo{}, ErrFailedPrecondition
+		}
+
 		upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
 
 		err = versioned.UpdateObjectMetadata(ctx, project, srcBucket, srcObject, metaclient.ObjectUserData{

@@ -4234,6 +4234,15 @@ func TestConditionalWrites(t *testing.T) {
 
 			_, err = layer.CopyObject(ctx, bucket, srcObject, bucket, destObject, minio.ObjectInfo{}, minio.ObjectOptions{}, opts)
 			require.NoError(t, err)
+
+			// Copying an object onto itself only updates its metadata, but the object still exists.
+			srcInfo := minio.ObjectInfo{UserDefined: map[string]string{"key": "value"}}
+			_, err = layer.CopyObject(ctx, bucket, srcObject, bucket, srcObject, srcInfo, minio.ObjectOptions{}, opts)
+			require.ErrorIs(t, err, miniogw.ErrFailedPrecondition)
+
+			info, err := layer.GetObjectInfo(ctx, bucket, srcObject, minio.ObjectOptions{})
+			require.NoError(t, err)
+			require.NotContains(t, info.UserDefined, "key")
 		})
 
 		runTest("CompleteMultipartUpload", func(t *testing.T, bucket, object string) {
