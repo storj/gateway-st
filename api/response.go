@@ -625,10 +625,12 @@ func generateListMultipartUploadsResponse(bucket string, listInfo cmd.ListMultip
 	return listMultipartUploadsResponse
 }
 
-func generateListPartsResponse(partsInfo cmd.ListPartsInfo, encodingType string) cmd.ListPartsResponse {
+// generateListPartsResponse returns the response to ListParts. Unlike the other listings, ListParts
+// has no encoding-type parameter, so the key is never encoded.
+func generateListPartsResponse(partsInfo cmd.ListPartsInfo) cmd.ListPartsResponse {
 	resp := cmd.ListPartsResponse{
 		Bucket:   partsInfo.Bucket,
-		Key:      s3EncodeName(partsInfo.Object, encodingType),
+		Key:      partsInfo.Object,
 		UploadID: partsInfo.UploadID,
 		Initiator: cmd.Initiator{
 			ID:          defaultOwnerID,

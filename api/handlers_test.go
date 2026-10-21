@@ -1597,7 +1597,7 @@ func TestListParts(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Equal(t, call{"upload-id", 2, 1}, got)
 	require.Contains(t, resp.Body, "<ListPartsResult")
-	require.Contains(t, resp.Body, "<Bucket>bucket</Bucket><Key>a+key</Key><UploadId>upload-id</UploadId>")
+	require.Contains(t, resp.Body, "<Bucket>bucket</Bucket><Key>a key</Key><UploadId>upload-id</UploadId>")
 	require.Contains(t, resp.Body, "<PartNumberMarker>2</PartNumberMarker><NextPartNumberMarker>3</NextPartNumberMarker><MaxParts>1</MaxParts><IsTruncated>true</IsTruncated>")
 	require.Contains(t, resp.Body, "<Part><PartNumber>3</PartNumber><LastModified>2026-01-02T03:04:05.000Z</LastModified><ETag>&#34;etag&#34;</ETag><Size>5</Size></Part>")
 
@@ -1611,9 +1611,9 @@ func TestListParts(t *testing.T) {
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&part-number-marker=x", nil, nil)
 	require.Contains(t, resp.Body, "Argument partNumberMarker must be an integer.")
 
+	// ListParts has no encoding-type parameter, so it's ignored.
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&encoding-type=bogus", nil, nil)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "Invalid Encoding Method specified in Request")
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 }
 
 func TestListPartsEmptyETag(t *testing.T) {

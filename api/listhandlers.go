@@ -457,11 +457,6 @@ func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateEncodingType(params.encodingType); err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
 	listPartsInfo, err := api.objectAPI.ListObjectParts(ctx, bucketName, objectKey, params.uploadID,
 		params.partNumberMarker, params.maxParts, cmd.ObjectOptions{})
 	if err != nil {
@@ -469,7 +464,7 @@ func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := generateListPartsResponse(listPartsInfo, params.encodingType)
+	response := generateListPartsResponse(listPartsInfo)
 	encodedSuccessResponse, err := encodeResponse(response)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -483,7 +478,6 @@ type listPartsParams struct {
 	uploadID         string
 	partNumberMarker int
 	maxParts         int
-	encodingType     string
 }
 
 func getListPartsParams(values url.Values) (params listPartsParams, err error) {
@@ -503,7 +497,6 @@ func getListPartsParams(values url.Values) (params listPartsParams, err error) {
 	}
 
 	params.uploadID = values.Get(xhttp.UploadID)
-	params.encodingType = values.Get("encoding-type")
 
 	return params, nil
 }
