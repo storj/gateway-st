@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -100,6 +101,10 @@ func (v verifier) Verify(r *http.Request, virtualHostedBucket string) (awsig.Ver
 	vr, err := v.V2V4.Verify(r, virtualHostedBucket)
 	if err == nil && vr.PostForm() != nil {
 		return nil, apierr.CodeAccessDenied
+	}
+	// S3 uses AuthorizationHeaderMalformed for Signature Version 4 only.
+	if errors.Is(err, awsig.ErrAuthorizationHeaderMalformed) && strings.HasPrefix(r.Header.Get(xhttp.Authorization), "AWS ") {
+		return nil, apierr.CodeAuthorizationHeaderMalformedV2
 	}
 	return vr, err
 }

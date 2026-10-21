@@ -13,6 +13,11 @@
   description: The authorization header that you provided is not valid.
   http_status: 400
 
+- name: AuthorizationHeaderMalformedV2
+  code: InvalidArgument
+  description: AWS authorization header is invalid.  Expected AwsAccessKeyId:signature
+  http_status: 400
+
 - name: AuthorizationQueryParameters
   code: AuthorizationQueryParametersError
   description: The authorization query parameters that you provided are not valid.

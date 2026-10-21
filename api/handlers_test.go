@@ -414,6 +414,22 @@ func TestErrorResponse(t *testing.T) {
 	require.Equal(t, "/bucket/key", errResp.Resource)
 }
 
+func TestMalformedAuthorizationHeader(t *testing.T) {
+	router := newTestRouter(&fakeObjectLayer{})
+	for authorization, code := range map[string]string{
+		"AWS HAHAHA":              "InvalidArgument",
+		"AWS4-HMAC-SHA256 HAHAHA": "AuthorizationHeaderMalformed",
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/bucket", nil)
+		req.Header.Set("Authorization", authorization)
+		req.Header.Set("Date", time.Now().UTC().Format(http.TimeFormat))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code, authorization)
+		require.Contains(t, rec.Body.String(), "<Code>"+code+"</Code>", authorization)
+	}
+}
+
 func TestDeleteObjectsErrors(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
 		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {

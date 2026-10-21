@@ -9,6 +9,7 @@ const (
 	CodeAccessControlListNotSupported
 	CodeAccessDenied
 	CodeAuthorizationHeaderMalformed
+	CodeAuthorizationHeaderMalformedV2
 	CodeAuthorizationQueryParameters
 	CodeBadDigest
 	CodeBadRequest
@@ -123,6 +124,11 @@ var codeToResponse = map[Code]Response{
 	CodeAuthorizationHeaderMalformed: {
 		Code:           "AuthorizationHeaderMalformed",
 		Description:    "The authorization header that you provided is not valid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeAuthorizationHeaderMalformedV2: {
+		Code:           "InvalidArgument",
+		Description:    "AWS authorization header is invalid.  Expected AwsAccessKeyId:signature",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeAuthorizationQueryParameters: {
