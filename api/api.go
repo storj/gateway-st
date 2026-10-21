@@ -247,7 +247,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		bucketRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteBucketHandler)
 	}
 
-	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).HandlerFunc((api.ListBucketsHandler))
+	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListBucketsHandler)
 }
 
 // amzID2 is the header carrying the extended request ID.

@@ -247,6 +247,10 @@ func TestOverlappingDomains(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "<Name>listed</Name>")
 
+	// A bucket-level GET with a subresource that has no route isn't ListBuckets.
+	rec = do(http.MethodGet, "http://b.s3.example.com/?retention")
+	require.Equal(t, http.StatusMethodNotAllowed, rec.Code, rec.Body.String())
+
 	// A fully qualified host name may end with a dot.
 	gotBucket = ""
 	rec = do(http.MethodDelete, "http://b.s3.example.com.:7777/")
@@ -426,6 +430,10 @@ func TestSubresourceRouting(t *testing.T) {
 		{method: http.MethodDelete, target: "/bucket?metadataConfiguration", want: "501 NotImplemented"},
 		{method: http.MethodPost, target: "/bucket?uploads", want: "400 InvalidURI"},
 		{method: http.MethodPost, target: "/bucket?uploadId=x", want: "400 InvalidURI"},
+
+		// The root path: unrouted subresources must not reach ListBuckets.
+		{method: http.MethodGet, target: "/", want: "ListBucketsHandler"},
+		{method: http.MethodGet, target: "/?retention", want: "501 NotImplemented"},
 
 		// Bucket paths: multipart parameters need a key.
 		{method: http.MethodPut, target: "/bucket?partNumber=1&uploadId=x", want: keyRequired},
