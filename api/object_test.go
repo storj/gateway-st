@@ -153,13 +153,13 @@ func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code>")
 
-	// Comparing part numbers must not overflow.
+	// Part numbers out of range are rejected before they're compared.
 	resp = serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
 		`<Part><PartNumber>9223372036854775807</PartNumber><ETag>a</ETag></Part>`+
 		`<Part><PartNumber>-1</PartNumber><ETag>b</ETag></Part>`+
 		`</CompleteMultipartUpload>`))
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code>")
+	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
 }
 
 func TestCopyObjectStorageClass(t *testing.T) {

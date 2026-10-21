@@ -1396,6 +1396,14 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			expBody:   "<ArgumentName>PartNumber</ArgumentName><ArgumentValue>0</ArgumentValue>",
 		},
 		{
+			name:      "part number zero after a larger one",
+			uploadID:  "upload-id",
+			body:      `<CompleteMultipartUpload><Part><PartNumber>5</PartNumber><ETag>a</ETag></Part><Part><PartNumber>0</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+			expBody:   "<ArgumentName>PartNumber</ArgumentName><ArgumentValue>0</ArgumentValue>",
+		},
+		{
 			name:      "part number too large",
 			uploadID:  "upload-id",
 			body:      `<CompleteMultipartUpload><Part><PartNumber>10001</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,

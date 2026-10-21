@@ -1780,6 +1780,16 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	for _, part := range completeUpload.Parts {
+		if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
+			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
+			errResp.ArgumentName = "PartNumber"
+			errResp.ArgumentValue = strconv.Itoa(part.PartNumber)
+			api.writeErrorResponse(w, r, errResp)
+			return
+		}
+	}
+
 	// Part numbers must be strictly ascending, which also rules out duplicates.
 	for i := 1; i < len(completeUpload.Parts); i++ {
 		if completeUpload.Parts[i-1].PartNumber >= completeUpload.Parts[i].PartNumber {
@@ -1789,13 +1799,6 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	for i, part := range completeUpload.Parts {
-		if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
-			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
-			errResp.ArgumentName = "PartNumber"
-			errResp.ArgumentValue = strconv.Itoa(part.PartNumber)
-			api.writeErrorResponse(w, r, errResp)
-			return
-		}
 		completeUpload.Parts[i].ETag = strings.Trim(part.ETag, `"`)
 		if completeUpload.Parts[i].ETag == "" {
 			api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
