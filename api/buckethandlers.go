@@ -652,12 +652,21 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
+	postForm := vr.PostForm()
+
+	// Encryption may be requested by form fields as well as headers.
+	formHeader := http.Header{}
+	for formKey, elems := range postForm {
+		for _, elem := range elems {
+			formHeader.Add(formKey, elem.Value)
+		}
+	}
+	_, headerRequested := crypto.IsRequested(r.Header)
+	_, formRequested := crypto.IsRequested(formHeader)
+	if headerRequested || formRequested {
 		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
-
-	postForm := vr.PostForm()
 
 	// The file is verified against the Content-MD5 header and the x-amz-checksum-* form fields.
 	checksumHeader := http.Header{}
