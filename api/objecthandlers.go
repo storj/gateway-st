@@ -736,6 +736,11 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// TODO: S3 omits the version ID for objects in a bucket that never had versioning enabled
+	// (ceph's test_get_object_attributes and test_versioning_bucket_*_upload_return_version_id),
+	// but the satellite returns one for every object, and so do the responses of every operation
+	// here. Omitting it needs the bucket's versioning state, which costs a request to the object
+	// layer.
 	if objInfo.VersionID != "" {
 		w.Header().Set(xhttp.AmzVersionID, objInfo.VersionID)
 	}
@@ -1285,6 +1290,11 @@ func etagMatchesList(etag, list string, weak bool) bool {
 // x-amz-if-match-size or x-amz-if-match-last-modified-time header.
 // The object layer can't check these conditions atomically, because objectlayer.ObjectOptions has no
 // fields for them, so writes and deletes refuse them rather than ignore them.
+//
+// TODO: S3 supports If-Match on PutObject, CopyObject, CompleteMultipartUpload and DeleteObject
+// (ceph's test_put_object_ifmatch_* and test_atomic_conditional_write_1mb). Supporting it needs
+// an IfMatch option in objectlayer.ObjectOptions that miniogw, uplink and the satellite check
+// atomically, like IfNoneMatch.
 func (api *API) rejectIfMatch(w http.ResponseWriter, r *http.Request) bool {
 	if r.Header.Get(xhttp.IfMatch) == "" &&
 		r.Header.Get("X-Amz-If-Match-Size") == "" &&

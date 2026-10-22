@@ -144,6 +144,9 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	router.NotFoundHandler = requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api.writeErrorResponse(w, r, apierr.CodeOperationNotSupported)
 	}))
+	// TODO: OPTIONS requests (CORS preflight) get MethodNotAllowed. S3 answers them from the
+	// bucket's CORS configuration, with 400 when there's none (ceph's test_cors_presigned_*). In
+	// production, edge's CorsHandler answers them before this router.
 	router.MethodNotAllowedHandler = requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api.writeErrorResponse(w, r, apierr.CodeMethodNotAllowed)
 	}))

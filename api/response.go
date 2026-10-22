@@ -138,6 +138,10 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// TODO: close the connection when the request body failed verification, as with BadDigest.
+	// A body longer than its Content-Length leaves bytes that are read as the start of the next
+	// request on the connection, so a client's retry fails with MethodNotAllowed (ceph's
+	// test_object_create_bad_contentlength_mismatch_below_aws2).
 	api.writeResponse(w, r, resp.HTTPStatusCode, encodedResp, mimeXML)
 }
 
