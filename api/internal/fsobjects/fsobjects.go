@@ -2,8 +2,8 @@
 // See LICENSE for copying information.
 
 // Package fsobjects implements an object layer on a local directory. It's for validating the api
-// package without a satellite, so it follows miniogw's behavior where that differs from S3's, and
-// it doesn't support versioning, object lock or notifications.
+// package without a satellite, so it follows miniogw's and the satellite's behavior where that
+// differs from S3's. It doesn't support notifications.
 package fsobjects
 
 import (
@@ -42,28 +42,48 @@ const (
 	// maxKeyLength is the longest object key, in bytes.
 	maxKeyLength = 1024
 
-	tagsKey            = "s3:tags"
-	amzObjectTagging   = "X-Amz-Tagging"
-	amzTagDirective    = "X-Amz-Tagging-Directive"
-	amzStorageClass    = "X-Amz-Storage-Class"
-	storageClassNormal = "STANDARD"
+	tagsKey = "s3:tags"
+
+	amzObjectLockMode            = "X-Amz-Object-Lock-Mode"
+	amzObjectLockRetainUntilDate = "X-Amz-Object-Lock-Retain-Until-Date"
+	amzObjectLockLegalHold       = "X-Amz-Object-Lock-Legal-Hold"
+	amzObjectTagging             = "X-Amz-Tagging"
+	amzTagDirective              = "X-Amz-Tagging-Directive"
+	amzStorageClass              = "X-Amz-Storage-Class"
+	storageClassNormal           = "STANDARD"
 )
 
-// errObjectLockNotEnabled is returned for object lock requests, because buckets never have object
-// lock enabled.
-var errObjectLockNotEnabled = apierr.Response{
-	Code:           "InvalidRequest",
-	Description:    "Bucket is missing Object Lock Configuration",
-	HTTPStatusCode: http.StatusBadRequest,
-}
+// The object lock errors of miniogw.
+var (
+	errObjectLockNotEnabled = apierr.Response{
+		Code:           "InvalidRequest",
+		Description:    "Bucket is missing Object Lock Configuration",
+		HTTPStatusCode: http.StatusBadRequest,
+	}
+	errInvalidBucketStateObjectLock = apierr.Response{
+		Code:           "InvalidBucketState",
+		Description:    "Object lock requires bucket versioning to be enabled",
+		HTTPStatusCode: http.StatusConflict,
+	}
+	errRetentionNotFound = apierr.Response{
+		Code:           "NoSuchObjectLockConfiguration",
+		Description:    "Object is missing retention configuration",
+		HTTPStatusCode: http.StatusNotFound,
+	}
+	errObjectProtected = apierr.Response{
+		Code:           "AccessDenied",
+		Description:    "Access Denied because object protected by object lock",
+		HTTPStatusCode: http.StatusForbidden,
+	}
+)
 
 // Layer is an object layer that stores buckets as directories under a root directory.
 //
 // The layout is:
 //
 //	<root>/<bucket>/bucket.json                   bucket metadata
-//	<root>/<bucket>/objects/<hash>.json           object metadata, <hash> is the key's SHA-256
-//	<root>/<bucket>/objects/<hash>.<random>.data  object data, a new file for every write
+//	<root>/<bucket>/objects/<hash>.json           metadata of a key's versions, <hash> is its SHA-256
+//	<root>/<bucket>/objects/<hash>.<version>.data data of a version
 //	<root>/<bucket>/uploads/<id>/upload.json      multipart upload metadata
 //	<root>/<bucket>/uploads/<id>/<random>.data    part data
 //	<root>/<bucket>/tmp/                          data being written
@@ -88,25 +108,52 @@ type bucketMeta struct {
 	Created time.Time
 	// Tags is the XML encoding of the bucket's tags, or empty if it has none.
 	Tags []byte `json:",omitempty"`
+	// Versioning is empty if versioning was never enabled. Like in Storj, a bucket can't become
+	// unversioned again.
+	Versioning objectlayer.VersioningState `json:",omitempty"`
+	// ObjectLock is whether object lock is enabled, which keeps versioning enabled.
+	ObjectLock bool `json:",omitempty"`
+	// DefaultRetention is the retention of new versions that don't specify one.
+	DefaultRetention *objectlayer.DefaultRetention `json:",omitempty"`
 }
 
+// objectMeta is the metadata of a key's versions.
 type objectMeta struct {
 	Key string
-	// VersionID is new for every write. Like Storj, an object has a version ID even though buckets
-	// aren't versioned, and only its latest version is kept.
-	VersionID   string
-	Size        int64
-	ETag        string
-	ModTime     time.Time
-	UserDefined map[string]string
-	// Data is the name of the data file in the objects directory.
-	Data string
+	// Versions are ordered from the newest.
+	Versions []versionMeta
+}
+
+type versionMeta struct {
+	// VersionID is new for every write. Like in Storj, a version has a version ID even if it was
+	// written while versioning wasn't enabled.
+	VersionID string
+	// Versioned is whether the version was written while versioning was enabled. Like in Storj,
+	// other writes replace the key's unversioned version rather than adding one.
+	Versioned    bool `json:",omitempty"`
+	DeleteMarker bool `json:",omitempty"`
+	Size         int64
+	ETag         string
+	ModTime      time.Time
+	UserDefined  map[string]string
+	// Data is the name of the data file in the objects directory, empty for a delete marker.
+	Data      string            `json:",omitempty"`
+	Retention *versionRetention `json:",omitempty"`
+	// LegalHold is set for the versions in a bucket with object lock enabled.
+	LegalHold *bool `json:",omitempty"`
+}
+
+type versionRetention struct {
+	Mode        objectlayer.RetentionMode
+	RetainUntil time.Time
 }
 
 type uploadMeta struct {
 	Key         string
 	Initiated   time.Time
 	UserDefined map[string]string
+	Retention   *versionRetention `json:",omitempty"`
+	LegalHold   *bool             `json:",omitempty"`
 	Parts       map[int]partMeta
 }
 
@@ -243,19 +290,53 @@ func (l *Layer) readObjects(bucket string) ([]objectMeta, error) {
 	return objects, nil
 }
 
-// writeObject replaces the object's metadata and removes the data of the version it replaces. The
+// writeObject replaces the metadata of a key's versions, or removes it if there are none. The
 // caller must hold l.mu.
 func (l *Layer) writeObject(bucket string, meta objectMeta) error {
 	path := filepath.Join(l.objectsDir(bucket), objectHash(meta.Key)+".json")
-	var old objectMeta
-	oldErr := readJSON(path, &old)
-	if err := writeJSON(path, meta); err != nil {
-		return err
+	if len(meta.Versions) == 0 {
+		return os.Remove(path)
 	}
-	if oldErr == nil && old.Data != meta.Data {
-		_ = os.Remove(filepath.Join(l.objectsDir(bucket), old.Data))
+	return writeJSON(path, meta)
+}
+
+// removeVersions removes the versions for which remove returns true from meta, and their data.
+func (l *Layer) removeVersions(bucket string, meta *objectMeta, remove func(versionMeta) bool) {
+	meta.Versions = slices.DeleteFunc(meta.Versions, func(v versionMeta) bool {
+		if !remove(v) {
+			return false
+		}
+		if v.Data != "" {
+			_ = os.Remove(filepath.Join(l.objectsDir(bucket), v.Data))
+		}
+		return true
+	})
+}
+
+// readVersion returns the metadata of a key's versions and the index of the version versionID,
+// or of the latest version if versionID is empty. The caller must hold l.mu.
+//
+// Like in Storj, a key whose latest version is a delete marker isn't found, and addressing a
+// delete marker by its version ID isn't allowed.
+func (l *Layer) readVersion(bucket, key, versionID string) (objectMeta, int, error) {
+	meta, err := l.readObject(bucket, key)
+	if err != nil {
+		return objectMeta{}, 0, err
 	}
-	return nil
+	i := 0
+	if versionID != "" {
+		i = slices.IndexFunc(meta.Versions, func(v versionMeta) bool { return v.VersionID == versionID })
+		if i < 0 {
+			return objectMeta{}, 0, objectlayer.VersionNotFound{Bucket: bucket, Object: key, VersionID: versionID}
+		}
+	}
+	if meta.Versions[i].DeleteMarker {
+		if versionID == "" {
+			return objectMeta{}, 0, objectlayer.ObjectNotFound{Bucket: bucket, Object: key}
+		}
+		return objectMeta{}, 0, objectlayer.MethodNotAllowed{Bucket: bucket, Object: key}
+	}
+	return meta, i, nil
 }
 
 // readUpload returns the upload's metadata. The caller must hold l.mu.
@@ -295,53 +376,94 @@ func (l *Layer) writeTemp(bucket string, r io.Reader) (path string, size int64, 
 	return f.Name(), size, nil
 }
 
-// commitObject moves the data file at tmp into place as the data of the object described by meta.
-func (l *Layer) commitObject(bucket, tmp string, meta objectMeta, ifNoneMatch []string) (objectlayer.ObjectInfo, error) {
+// commitObject moves the data file at tmp into place as the data of a new version of key.
+func (l *Layer) commitObject(bucket, key, tmp string, version versionMeta, ifNoneMatch []string) (objectlayer.ObjectInfo, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if _, err := l.readBucket(bucket); err != nil {
+	info, err := l.addVersion(bucket, key, tmp, version, ifNoneMatch)
+	if err != nil {
 		_ = os.Remove(tmp)
+	}
+	return info, err
+}
+
+// addVersion adds version as the latest version of key, with the data file at tmp. The caller
+// must hold l.mu.
+func (l *Layer) addVersion(bucket, key, tmp string, version versionMeta, ifNoneMatch []string) (objectlayer.ObjectInfo, error) {
+	bucketMeta, err := l.readBucket(bucket)
+	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
-	if len(ifNoneMatch) > 0 {
-		if _, err := l.readObject(bucket, meta.Key); err == nil {
-			_ = os.Remove(tmp)
-			return objectlayer.ObjectInfo{}, apierr.CodePreconditionFailed
-		}
+	if err := applyObjectLock(bucketMeta, &version); err != nil {
+		return objectlayer.ObjectInfo{}, err
+	}
+	meta, err := l.readObject(bucket, key)
+	if errors.As(err, new(objectlayer.ObjectNotFound)) {
+		meta, err = objectMeta{Key: key}, nil
+	}
+	if err != nil {
+		return objectlayer.ObjectInfo{}, err
+	}
+	if len(ifNoneMatch) > 0 && len(meta.Versions) > 0 && !meta.Versions[0].DeleteMarker {
+		return objectlayer.ObjectInfo{}, apierr.CodePreconditionFailed
 	}
 
-	meta.VersionID = randomID()
-	meta.Data = objectHash(meta.Key) + "." + meta.VersionID + ".data"
-	meta.ModTime = time.Now().UTC()
-	if err := os.Rename(tmp, filepath.Join(l.objectsDir(bucket), meta.Data)); err != nil {
-		_ = os.Remove(tmp)
+	version.VersionID = randomID()
+	version.Versioned = bucketMeta.Versioning == objectlayer.VersioningEnabled
+	version.Data = objectHash(key) + "." + version.VersionID + ".data"
+	version.ModTime = time.Now().UTC()
+	if err := os.Rename(tmp, filepath.Join(l.objectsDir(bucket), version.Data)); err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
+	if !version.Versioned {
+		l.removeVersions(bucket, &meta, func(v versionMeta) bool { return !v.Versioned })
+	}
+	meta.Versions = slices.Insert(meta.Versions, 0, version)
 	if err := l.writeObject(bucket, meta); err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
-	return objectInfo(bucket, meta), nil
+	return objectInfo(bucket, key, version, true), nil
 }
 
-func objectInfo(bucket string, meta objectMeta) objectlayer.ObjectInfo {
+// objectInfo returns the information of a version of key. Like miniogw, the object lock settings
+// are in the metadata.
+func objectInfo(bucket, key string, version versionMeta, latest bool) objectlayer.ObjectInfo {
+	metadata := maps.Clone(version.UserDefined)
 	var contentType string
-	for k, v := range meta.UserDefined {
+	for k, v := range metadata {
 		if strings.EqualFold(k, "content-type") {
 			contentType = v
 			break
 		}
 	}
+	if version.Retention != nil || version.LegalHold != nil {
+		if metadata == nil {
+			metadata = make(map[string]string)
+		}
+	}
+	if r := version.Retention; r != nil {
+		metadata[strings.ToLower(amzObjectLockMode)] = string(r.Mode)
+		metadata[strings.ToLower(amzObjectLockRetainUntilDate)] = r.RetainUntil.Format(time.RFC3339)
+	}
+	if version.LegalHold != nil {
+		status := objectlayer.LegalHoldOff
+		if *version.LegalHold {
+			status = objectlayer.LegalHoldOn
+		}
+		metadata[strings.ToLower(amzObjectLockLegalHold)] = string(status)
+	}
 	return objectlayer.ObjectInfo{
-		Bucket:      bucket,
-		Name:        meta.Key,
-		Size:        meta.Size,
-		ETag:        meta.ETag,
-		ModTime:     meta.ModTime,
-		ContentType: contentType,
-		UserDefined: maps.Clone(meta.UserDefined),
-		VersionID:   meta.VersionID,
-		IsLatest:    true,
+		Bucket:       bucket,
+		Name:         key,
+		Size:         version.Size,
+		ETag:         version.ETag,
+		ModTime:      version.ModTime,
+		ContentType:  contentType,
+		UserDefined:  metadata,
+		VersionID:    version.VersionID,
+		IsLatest:     latest,
+		DeleteMarker: version.DeleteMarker,
 	}
 }
 
@@ -352,9 +474,6 @@ func checkPutOptions(bucket, key string, opts objectlayer.ObjectOptions) error {
 	}
 	if storageClass, ok := opts.UserDefined[amzStorageClass]; ok && storageClass != storageClassNormal {
 		return objectlayer.NotImplemented{Message: "storage class"}
-	}
-	if opts.Retention != nil || opts.LegalHold != nil {
-		return errObjectLockNotEnabled
 	}
 	return checkIfNoneMatch(opts.IfNoneMatch)
 }
@@ -385,9 +504,6 @@ func (l *Layer) MakeBucketWithLocation(ctx context.Context, bucket string, opts 
 	if err := validateBucket(bucket); err != nil {
 		return err
 	}
-	if opts.LockEnabled {
-		return objectlayer.NotImplemented{Message: "object lock"}
-	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -404,7 +520,11 @@ func (l *Layer) MakeBucketWithLocation(ctx context.Context, bucket string, opts 
 			return err
 		}
 	}
-	return writeJSON(filepath.Join(dir, "bucket.json"), bucketMeta{Created: time.Now().UTC()})
+	meta := bucketMeta{Created: time.Now().UTC()}
+	if opts.LockEnabled {
+		meta.Versioning, meta.ObjectLock = objectlayer.VersioningEnabled, true
+	}
+	return writeJSON(filepath.Join(dir, "bucket.json"), meta)
 }
 
 // GetBucketInfo returns a bucket's information.
@@ -503,6 +623,7 @@ func (l *Layer) listObjects(bucket, prefix, marker, delimiter string, maxKeys in
 	if err != nil {
 		return nil, nil, "", err
 	}
+	metas = slices.DeleteFunc(metas, func(meta objectMeta) bool { return meta.Versions[0].DeleteMarker })
 	keys := make([]string, len(metas))
 	for i, meta := range metas {
 		keys[i] = meta.Key
@@ -517,7 +638,8 @@ func (l *Layer) listObjects(bucket, prefix, marker, delimiter string, maxKeys in
 		if entry.prefix {
 			prefixes = append(prefixes, entry.key)
 		} else {
-			objects = append(objects, objectInfo(bucket, metas[entry.index]))
+			meta := metas[entry.index]
+			objects = append(objects, objectInfo(bucket, meta.Key, meta.Versions[0], true))
 		}
 	}
 	if more {
@@ -553,37 +675,98 @@ func (l *Layer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationT
 	}, err
 }
 
-// ListObjectVersions lists objects as their only versions. Each key has one version, so the
-// listing continues after the key marker whatever the version marker is.
+// ListObjectVersions lists the versions of objects, ordered by key and then from the newest.
+// Like S3, the versions of the key marker after the version marker are listed, or none of them
+// without it.
 func (l *Layer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (objectlayer.ListObjectVersionsInfo, error) {
-	objects, prefixes, next, err := l.listObjects(bucket, prefix, marker, delimiter, maxKeys)
-	var nextVersionID string
-	if len(objects) > 0 && objects[len(objects)-1].Name == next {
-		nextVersionID = objects[len(objects)-1].VersionID
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var result objectlayer.ListObjectVersionsInfo
+	metas, err := l.readObjects(bucket)
+	if err != nil || maxKeys == 0 {
+		return result, err
 	}
-	return objectlayer.ListObjectVersionsInfo{
-		IsTruncated:         next != "",
-		NextMarker:          next,
-		NextVersionIDMarker: nextVersionID,
-		Objects:             objects,
-		Prefixes:            prefixes,
-	}, err
+	limit := limitResults(maxKeys, maxKeysLimit)
+	count := 0
+	var lastKey, lastVersionID string
+	add := func(key, versionID string) bool {
+		if count == limit {
+			result.IsTruncated = true
+			return false
+		}
+		count++
+		lastKey, lastVersionID = key, versionID
+		return true
+	}
+list:
+	for _, meta := range metas {
+		key := meta.Key
+		if !strings.HasPrefix(key, prefix) || key < marker {
+			continue
+		}
+		if delimiter != "" {
+			if j := strings.Index(key[len(prefix):], delimiter); j >= 0 {
+				commonPrefix := key[:len(prefix)+j+len(delimiter)]
+				if commonPrefix <= marker || slices.Contains(result.Prefixes, commonPrefix) {
+					continue
+				}
+				if !add(commonPrefix, "") {
+					break
+				}
+				result.Prefixes = append(result.Prefixes, commonPrefix)
+				continue
+			}
+		}
+		start := 0
+		if key == marker {
+			i := slices.IndexFunc(meta.Versions, func(v versionMeta) bool { return v.VersionID == versionMarker })
+			if versionMarker == "" || i < 0 {
+				continue
+			}
+			start = i + 1
+		}
+		for i := start; i < len(meta.Versions); i++ {
+			if !add(key, meta.Versions[i].VersionID) {
+				break list
+			}
+			result.Objects = append(result.Objects, objectInfo(bucket, key, meta.Versions[i], i == 0))
+		}
+	}
+	if result.IsTruncated {
+		result.NextMarker, result.NextVersionIDMarker = lastKey, lastVersionID
+	}
+	return result, nil
 }
 
-// SetBucketVersioning isn't supported.
+// SetBucketVersioning enables or suspends versioning. Like in Storj, versioning can't be suspended
+// while object lock is enabled.
 func (l *Layer) SetBucketVersioning(ctx context.Context, bucket string, v *objectlayer.Versioning) error {
-	if err := l.checkBucket(bucket); err != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	meta, err := l.readBucket(bucket)
+	if err != nil {
 		return err
 	}
-	return objectlayer.NotImplemented{Message: "versioning"}
+	if v.Suspended() && meta.ObjectLock {
+		return errInvalidBucketStateObjectLock
+	}
+	meta.Versioning = v.Status
+	return writeJSON(filepath.Join(l.bucketDir(bucket), "bucket.json"), meta)
 }
 
-// GetBucketVersioning returns an empty configuration, because versioning is never enabled.
+// GetBucketVersioning returns a bucket's versioning configuration, which is empty if versioning
+// was never enabled.
 func (l *Layer) GetBucketVersioning(ctx context.Context, bucket string) (*objectlayer.Versioning, error) {
-	if err := l.checkBucket(bucket); err != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	meta, err := l.readBucket(bucket)
+	if err != nil {
 		return nil, err
 	}
-	return &objectlayer.Versioning{}, nil
+	return &objectlayer.Versioning{Status: meta.Versioning}, nil
 }
 
 // GetBucketTagging returns a bucket's tags.
@@ -623,22 +806,6 @@ func (l *Layer) SetBucketTagging(ctx context.Context, bucket string, tags *objec
 	return writeJSON(filepath.Join(l.bucketDir(bucket), "bucket.json"), meta)
 }
 
-// GetObjectLockConfig returns BucketObjectLockConfigNotFound, because object lock is never enabled.
-func (l *Layer) GetObjectLockConfig(ctx context.Context, bucket string) (*objectlayer.ObjectLockConfig, error) {
-	if err := l.checkBucket(bucket); err != nil {
-		return nil, err
-	}
-	return nil, objectlayer.BucketObjectLockConfigNotFound{Bucket: bucket}
-}
-
-// SetObjectLockConfig isn't supported.
-func (l *Layer) SetObjectLockConfig(ctx context.Context, bucket string, config *objectlayer.ObjectLockConfig) error {
-	if err := l.checkBucket(bucket); err != nil {
-		return err
-	}
-	return objectlayer.NotImplemented{Message: "object lock"}
-}
-
 // GetBucketNotificationConfig returns an empty configuration.
 func (l *Layer) GetBucketNotificationConfig(ctx context.Context, bucket string) (*objectlayer.EventConfig, error) {
 	if err := l.checkBucket(bucket); err != nil {
@@ -655,35 +822,33 @@ func (l *Layer) SetBucketNotificationConfig(ctx context.Context, bucket string, 
 	return objectlayer.NotImplemented{Message: "notifications"}
 }
 
-// openObject returns an object's metadata and its open data file.
-func (l *Layer) openObject(bucket, key, versionID string) (objectMeta, *os.File, error) {
+// openObject returns the information of the version versionID of key, or of its latest version if
+// versionID is empty, and its open data file.
+func (l *Layer) openObject(bucket, key, versionID string) (objectlayer.ObjectInfo, *os.File, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	meta, err := l.readObject(bucket, key)
+	meta, i, err := l.readVersion(bucket, key, versionID)
 	if err != nil {
-		return objectMeta{}, nil, err
+		return objectlayer.ObjectInfo{}, nil, err
 	}
-	if versionID != "" && versionID != meta.VersionID {
-		return objectMeta{}, nil, objectlayer.VersionNotFound{Bucket: bucket, Object: key, VersionID: versionID}
-	}
-	f, err := os.Open(filepath.Join(l.objectsDir(bucket), meta.Data))
-	return meta, f, err
+	f, err := os.Open(filepath.Join(l.objectsDir(bucket), meta.Versions[i].Data))
+	return objectInfo(bucket, key, meta.Versions[i], i == 0), f, err
 }
 
 // GetObjectNInfo returns a reader of an object's range.
 func (l *Layer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *objectlayer.HTTPRangeSpec, h http.Header, lockType objectlayer.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
-	meta, f, err := l.openObject(bucket, object, opts.VersionID)
+	info, f, err := l.openObject(bucket, object, opts.VersionID)
 	if err != nil {
 		return nil, err
 	}
-	offset, length, err := rs.GetOffsetLength(meta.Size)
+	offset, length, err := rs.GetOffsetLength(info.Size)
 	if err != nil {
 		_ = f.Close()
-		return nil, objectlayer.InvalidRange{OffsetBegin: rs.Start, OffsetEnd: rs.End, ResourceSize: meta.Size}
+		return nil, objectlayer.InvalidRange{OffsetBegin: rs.Start, OffsetEnd: rs.End, ResourceSize: info.Size}
 	}
 	r := io.NewSectionReader(f, offset, length)
-	return objectlayer.NewGetObjectReader(r, objectInfo(bucket, meta), opts, func() { _ = f.Close() })
+	return objectlayer.NewGetObjectReader(r, info, opts, func() { _ = f.Close() })
 }
 
 // GetObjectInfo returns an object's information.
@@ -691,14 +856,11 @@ func (l *Layer) GetObjectInfo(ctx context.Context, bucket, object string, opts o
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	meta, err := l.readObject(bucket, object)
+	meta, i, err := l.readVersion(bucket, object, opts.VersionID)
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
-	if opts.VersionID != "" && opts.VersionID != meta.VersionID {
-		return objectlayer.ObjectInfo{}, objectlayer.VersionNotFound{Bucket: bucket, Object: object, VersionID: opts.VersionID}
-	}
-	return objectInfo(bucket, meta), nil
+	return objectInfo(bucket, object, meta.Versions[i], i == 0), nil
 }
 
 // PutObject uploads an object.
@@ -734,11 +896,12 @@ func (l *Layer) PutObject(ctx context.Context, bucket, object string, data *obje
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	return l.commitObject(bucket, tmp, objectMeta{
-		Key:         object,
+	return l.commitObject(bucket, object, tmp, versionMeta{
 		Size:        size,
 		ETag:        etag,
 		UserDefined: moveTagging(opts.UserDefined),
+		Retention:   newRetention(opts.Retention),
+		LegalHold:   newLegalHold(opts.LegalHold),
 	}, opts.IfNoneMatch)
 }
 
@@ -785,21 +948,19 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 		l.mu.Lock()
 		defer l.mu.Unlock()
 
-		meta, err := l.readObject(srcBucket, srcObject)
+		meta, _, err := l.readVersion(srcBucket, srcObject, "")
 		if err != nil {
 			return objectlayer.ObjectInfo{}, err
 		}
-		meta.UserDefined = copyMetadata(srcInfo.UserDefined, meta.UserDefined)
+		latest := &meta.Versions[0]
+		latest.UserDefined = copyMetadata(srcInfo.UserDefined, latest.UserDefined)
 		if err := l.writeObject(srcBucket, meta); err != nil {
 			return objectlayer.ObjectInfo{}, err
 		}
-		srcInfo.UserDefined = meta.UserDefined
+		srcInfo.UserDefined = latest.UserDefined
 		return srcInfo, nil
 	}
 
-	if dstOpts.Retention != nil || dstOpts.LegalHold != nil {
-		return objectlayer.ObjectInfo{}, errObjectLockNotEnabled
-	}
 	if err := checkIfNoneMatch(dstOpts.IfNoneMatch); err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
@@ -807,7 +968,7 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	meta, f, err := l.openObject(srcBucket, srcObject, srcInfo.VersionID)
+	src, f, err := l.openObject(srcBucket, srcObject, srcInfo.VersionID)
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
@@ -817,93 +978,119 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	metadata := meta.UserDefined
+	metadata := withoutObjectLock(src.UserDefined)
 	if len(srcInfo.UserDefined) > 0 {
-		metadata = copyMetadata(srcInfo.UserDefined, meta.UserDefined)
+		metadata = copyMetadata(srcInfo.UserDefined, metadata)
 	}
-	return l.commitObject(dstBucket, tmp, objectMeta{
-		Key:         dstObject,
+	return l.commitObject(dstBucket, dstObject, tmp, versionMeta{
 		Size:        size,
-		ETag:        meta.ETag,
+		ETag:        src.ETag,
 		UserDefined: metadata,
+		Retention:   newRetention(dstOpts.Retention),
+		LegalHold:   newLegalHold(dstOpts.LegalHold),
 	}, dstOpts.IfNoneMatch)
 }
 
-// deleteObject deletes an object, or only its version versionID if that isn't empty, and returns
-// its information. It returns nothing if the object or the version doesn't exist.
-func (l *Layer) deleteObject(bucket, object, versionID string) (objectlayer.ObjectInfo, error) {
+// deleted describes what deleting an object did. Both are nil if there was nothing to delete.
+type deleted struct {
+	// removed is the version that was removed.
+	removed *versionMeta
+	// marker is the delete marker that was added.
+	marker *versionMeta
+}
+
+// deleteObject deletes the version versionID of an object, or the object itself if versionID is
+// empty. Like in Storj, deleting the object removes it in a bucket that was never versioned, and
+// adds a delete marker otherwise, which replaces its unversioned version if versioning is
+// suspended.
+func (l *Layer) deleteObject(bucket, object, versionID string, bypassGovernance bool) (deleted, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	bucketMeta, err := l.readBucket(bucket)
+	if err != nil {
+		return deleted{}, err
+	}
 	meta, err := l.readObject(bucket, object)
 	if errors.As(err, new(objectlayer.ObjectNotFound)) {
-		return objectlayer.ObjectInfo{}, nil
+		meta, err = objectMeta{Key: object}, nil
 	}
 	if err != nil {
-		return objectlayer.ObjectInfo{}, err
+		return deleted{}, err
 	}
-	if versionID != "" && versionID != meta.VersionID {
-		return objectlayer.ObjectInfo{}, nil
+
+	if versionID != "" || bucketMeta.Versioning == "" {
+		i := 0
+		if versionID != "" {
+			i = slices.IndexFunc(meta.Versions, func(v versionMeta) bool { return v.VersionID == versionID })
+		}
+		if i < 0 || i >= len(meta.Versions) {
+			return deleted{}, nil
+		}
+		removed := meta.Versions[i]
+		if isProtected(removed, bypassGovernance) {
+			return deleted{}, errObjectProtected
+		}
+		l.removeVersions(bucket, &meta, func(v versionMeta) bool { return v.VersionID == removed.VersionID })
+		return deleted{removed: &removed}, l.writeObject(bucket, meta)
 	}
-	if err := os.Remove(filepath.Join(l.objectsDir(bucket), objectHash(object)+".json")); err != nil {
-		return objectlayer.ObjectInfo{}, err
+
+	marker := versionMeta{
+		VersionID:    randomID(),
+		Versioned:    bucketMeta.Versioning == objectlayer.VersioningEnabled,
+		DeleteMarker: true,
+		ModTime:      time.Now().UTC(),
 	}
-	_ = os.Remove(filepath.Join(l.objectsDir(bucket), meta.Data))
-	return objectInfo(bucket, meta), nil
+	if !marker.Versioned {
+		l.removeVersions(bucket, &meta, func(v versionMeta) bool { return !v.Versioned })
+	}
+	meta.Versions = slices.Insert(meta.Versions, 0, marker)
+	return deleted{marker: &marker}, l.writeObject(bucket, meta)
 }
 
-// DeleteObject deletes an object. A missing object isn't an error.
+// DeleteObject deletes an object or one of its versions. A missing object or version isn't an
+// error.
 func (l *Layer) DeleteObject(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
-	return l.deleteObject(bucket, object, opts.VersionID)
+	result, err := l.deleteObject(bucket, object, opts.VersionID, opts.BypassGovernanceRetention)
+	switch {
+	case err != nil:
+		return objectlayer.ObjectInfo{}, err
+	case result.marker != nil:
+		return objectInfo(bucket, object, *result.marker, true), nil
+	case result.removed != nil:
+		return objectInfo(bucket, object, *result.removed, false), nil
+	}
+	return objectlayer.ObjectInfo{}, nil
 }
 
-// DeleteObjects deletes objects.
+// DeleteObjects deletes objects or their versions, reporting them like miniogw.
 func (l *Layer) DeleteObjects(ctx context.Context, bucket string, objects []objectlayer.ObjectToDelete, opts objectlayer.ObjectOptions) ([]objectlayer.DeletedObject, []objectlayer.DeleteObjectsError, error) {
 	if err := l.checkBucket(bucket); err != nil {
 		return nil, nil, err
 	}
-	var deleted []objectlayer.DeletedObject
+	var deletedObjects []objectlayer.DeletedObject
 	var deleteErrs []objectlayer.DeleteObjectsError
 	for _, object := range objects {
-		if _, err := l.deleteObject(bucket, object.ObjectName, object.VersionID); err != nil {
+		result, err := l.deleteObject(bucket, object.ObjectName, object.VersionID, opts.BypassGovernanceRetention)
+		if err != nil {
 			deleteErrs = append(deleteErrs, objectlayer.DeleteObjectsError{ObjectName: object.ObjectName, VersionID: object.VersionID, Error: err})
 			continue
 		}
-		deleted = append(deleted, objectlayer.DeletedObject{ObjectName: object.ObjectName, VersionID: object.VersionID})
+		deletedObject := objectlayer.DeletedObject{ObjectName: object.ObjectName, VersionID: object.VersionID}
+		if result.removed != nil {
+			deletedObject.VersionID = result.removed.VersionID
+			if result.removed.DeleteMarker {
+				deletedObject.DeleteMarker = true
+				deletedObject.DeleteMarkerVersionID = result.removed.VersionID
+			}
+		}
+		if result.marker != nil {
+			deletedObject.DeleteMarker = true
+			deletedObject.DeleteMarkerVersionID = result.marker.VersionID
+		}
+		deletedObjects = append(deletedObjects, deletedObject)
 	}
-	return deleted, deleteErrs, nil
-}
-
-// SetObjectRetention returns an error, because object lock is never enabled.
-func (l *Layer) SetObjectRetention(ctx context.Context, bucket, object, versionID string, opts objectlayer.ObjectOptions) error {
-	if err := l.checkBucket(bucket); err != nil {
-		return err
-	}
-	return errObjectLockNotEnabled
-}
-
-// GetObjectRetention returns an error, because object lock is never enabled.
-func (l *Layer) GetObjectRetention(ctx context.Context, bucket, object, versionID string) (*objectlayer.ObjectRetention, error) {
-	if err := l.checkBucket(bucket); err != nil {
-		return nil, err
-	}
-	return nil, errObjectLockNotEnabled
-}
-
-// SetObjectLegalHold returns an error, because object lock is never enabled.
-func (l *Layer) SetObjectLegalHold(ctx context.Context, bucket, object, versionID string, legalHold *objectlayer.ObjectLegalHold) error {
-	if err := l.checkBucket(bucket); err != nil {
-		return err
-	}
-	return errObjectLockNotEnabled
-}
-
-// GetObjectLegalHold returns an error, because object lock is never enabled.
-func (l *Layer) GetObjectLegalHold(ctx context.Context, bucket, object, versionID string) (*objectlayer.ObjectLegalHold, error) {
-	if err := l.checkBucket(bucket); err != nil {
-		return nil, err
-	}
-	return nil, errObjectLockNotEnabled
+	return deletedObjects, deleteErrs, nil
 }
 
 // setTags replaces an object's s3:tags metadata, or removes it if tags is empty.
@@ -915,22 +1102,23 @@ func (l *Layer) setTags(bucket, object, tags string, opts objectlayer.ObjectOpti
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	meta, err := l.readObject(bucket, object)
+	meta, _, err := l.readVersion(bucket, object, "")
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
-	if meta.UserDefined == nil {
-		meta.UserDefined = make(map[string]string)
+	latest := &meta.Versions[0]
+	if latest.UserDefined == nil {
+		latest.UserDefined = make(map[string]string)
 	}
 	if tags == "" {
-		delete(meta.UserDefined, tagsKey)
+		delete(latest.UserDefined, tagsKey)
 	} else {
-		meta.UserDefined[tagsKey] = tags
+		latest.UserDefined[tagsKey] = tags
 	}
 	if err := l.writeObject(bucket, meta); err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
-	return objectInfo(bucket, meta), nil
+	return objectInfo(bucket, object, *latest, true), nil
 }
 
 // PutObjectTags replaces an object's tags.
@@ -1046,8 +1234,13 @@ func (l *Layer) NewMultipartUpload(ctx context.Context, bucket, object string, o
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if _, err := l.readBucket(bucket); err != nil {
+	bucketMeta, err := l.readBucket(bucket)
+	if err != nil {
 		return "", err
+	}
+	retention, legalHold := newRetention(opts.Retention), newLegalHold(opts.LegalHold)
+	if (retention != nil || legalHold != nil) && !bucketMeta.ObjectLock {
+		return "", errObjectLockNotEnabled
 	}
 	uploadID := randomID()
 	dir := l.uploadDir(bucket, uploadID)
@@ -1058,6 +1251,8 @@ func (l *Layer) NewMultipartUpload(ctx context.Context, bucket, object string, o
 		Key:         object,
 		Initiated:   time.Now().UTC(),
 		UserDefined: moveTagging(opts.UserDefined),
+		Retention:   retention,
+		LegalHold:   legalHold,
 		Parts:       make(map[int]partMeta),
 	})
 }
@@ -1125,13 +1320,13 @@ func (l *Layer) PutObjectPart(ctx context.Context, bucket, object, uploadID stri
 
 // CopyObjectPart uploads a range of an object as a part. A negative length copies until the end.
 func (l *Layer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
-	meta, f, err := l.openObject(srcBucket, srcObject, srcOpts.VersionID)
+	info, f, err := l.openObject(srcBucket, srcObject, srcOpts.VersionID)
 	if err != nil {
 		return objectlayer.PartInfo{}, err
 	}
 	defer func() { _ = f.Close() }()
 	if length < 0 {
-		length = meta.Size - startOffset
+		length = info.Size - startOffset
 	}
 	h := newMD5Reader(io.NewSectionReader(f, startOffset, length))
 	return l.putPart(dstBucket, dstObject, uploadID, partID, h, h.hexSum)
@@ -1230,11 +1425,12 @@ func (l *Layer) CompleteMultipartUpload(ctx context.Context, bucket, object, upl
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	info, err := l.commitObject(bucket, tmp, objectMeta{
-		Key:         object,
+	info, err := l.commitObject(bucket, object, tmp, versionMeta{
 		Size:        size,
 		ETag:        objectlayer.MultipartETag(parts),
 		UserDefined: meta.UserDefined,
+		Retention:   meta.Retention,
+		LegalHold:   meta.LegalHold,
 	}, opts.IfNoneMatch)
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err

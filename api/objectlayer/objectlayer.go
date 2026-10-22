@@ -118,6 +118,21 @@ type (
 	ObjectRetention  = objectlock.ObjectRetention
 	ObjectLegalHold  = objectlock.ObjectLegalHold
 	EventConfig      = event.Config
+	VersioningState  = versioning.State
+	RetentionMode    = objectlock.RetMode
+	RetentionDate    = objectlock.RetentionDate
+	DefaultRetention = objectlock.DefaultRetention
+	LegalHoldStatus  = objectlock.LegalHoldStatus
+)
+
+// The versioning states of a bucket, and the retention modes and legal hold statuses of an object.
+const (
+	VersioningEnabled   = versioning.Enabled
+	VersioningSuspended = versioning.Suspended
+	RetentionGovernance = objectlock.RetGovernance
+	RetentionCompliance = objectlock.RetCompliance
+	LegalHoldOn         = objectlock.LegalHoldOn
+	LegalHoldOff        = objectlock.LegalHoldOff
 )
 
 //nolint:revive // aliases of minio types, which document them
