@@ -286,4 +286,4 @@ require (
 	storj.io/picobuf v0.0.4 // indirect
 )
 
-replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261008121712-91c1c3ed4192
+replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261022091552-de544e9f13d5

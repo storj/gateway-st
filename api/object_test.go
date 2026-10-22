@@ -6,9 +6,15 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/md5"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -501,4 +507,59 @@ func TestUserMetadataTooLarge(t *testing.T) {
 		[][2]string{{"key", "photo.jpg"}, {"x-amz-meta-a", strings.Repeat("v", 2<<10)}}, "data")
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>MetadataTooLarge</Code>")
+}
+
+func TestPresignedV2QueryHeaders(t *testing.T) {
+	data := []byte("data")
+	sum := md5.Sum(data)
+	otherSum := md5.Sum([]byte("other"))
+
+	// put sends a SigV2 presigned PUT to resource with headers in the query, signed like botocore's
+	// HmacV1QueryAuth signs them.
+	put := func(objectAPI cmd.ObjectLayer, resource string, headers map[string]string, body []byte) *httptest.ResponseRecorder {
+		expires := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+		query := url.Values{"AWSAccessKeyId": {testAccessKeyID}, "Expires": {expires}}
+		var amzHeaders []string
+		for k, v := range headers {
+			query.Set(k, v)
+			if strings.HasPrefix(k, "x-amz-") {
+				amzHeaders = append(amzHeaders, k+":"+v+"\n")
+			}
+		}
+		slices.Sort(amzHeaders)
+		mac := hmac.New(sha1.New, []byte(testSecretAccessKey))
+		mac.Write([]byte("PUT\n" + headers["content-md5"] + "\n" + headers["content-type"] + "\n" + expires + "\n" + strings.Join(amzHeaders, "") + resource))
+		query.Set("Signature", base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+		separator := "?"
+		if strings.Contains(resource, "?") {
+			separator = "&"
+		}
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, resource+separator+query.Encode(), bytes.NewReader(body))
+		req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+		rec := httptest.NewRecorder()
+		newTestRouter(objectAPI).ServeHTTP(rec, req)
+		return rec
+	}
+
+	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	rec := put(objectAPI, "/bucket/key", map[string]string{
+		"content-md5":    base64.StdEncoding.EncodeToString(sum[:]),
+		"content-type":   "text/plain",
+		"x-amz-meta-foo": "bar",
+	}, data)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "bar", objectAPI.metadata["X-Amz-Meta-Foo"])
+	require.Equal(t, "text/plain", objectAPI.metadata["Content-Type"])
+
+	rec = put(&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket/key", map[string]string{
+		"content-md5": base64.StdEncoding.EncodeToString(otherSum[:]),
+	}, data)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Code>BadDigest</Code>")
+
+	for _, resource := range []string{"/bucket/key?acl", "/bucket?acl"} {
+		rec = put(newBodyObjectLayer(), resource, map[string]string{"x-amz-acl": "public-read"}, nil)
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "<Code>AccessControlListNotSupported</Code>")
+	}
 }

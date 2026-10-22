@@ -118,7 +118,10 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	// Queries matchers split on it and url.ParseQuery rejects it. Middleware runs only after routing,
 	// so it's escaped by a matcher, which runs before the matchers of the routes below. That doesn't
 	// change the signature, which is computed from the decoded parameters.
-	apiRouter := router.MatcherFunc(escapeQuerySemicolons).PathPrefix(cmd.SlashSeparator).Subrouter()
+	//
+	// Headers that a SigV2 presigned URL carries in its query are restored before routing too,
+	// because some routes match on headers.
+	apiRouter := router.MatcherFunc(escapeQuerySemicolons).MatcherFunc(restoreQueryHeaders).PathPrefix(cmd.SlashSeparator).Subrouter()
 	// UseEncodedPath configures the router to match routes using the raw (percent-encoded) form of
 	// the request path instead of the unescaped one. This is required because object keys which
 	// are present in the URL may contain characters that, when decoded, break request routing.
@@ -263,6 +266,35 @@ const amzID2 = "x-amz-id-2"
 func escapeQuerySemicolons(r *http.Request, _ *mux.RouteMatch) bool {
 	if strings.Contains(r.URL.RawQuery, ";") {
 		r.URL.RawQuery = strings.ReplaceAll(r.URL.RawQuery, ";", "%3B")
+	}
+	return true
+}
+
+// restoreQueryHeaders is a matcher that always matches and, for a SigV2 presigned request, sets
+// the x-amz-*, Content-Type and Content-MD5 headers that botocore's HmacV1QueryAuth moves into the
+// query. awsig signs them as headers, so the handlers must also use them as headers, such as by
+// verifying Content-MD5 or rejecting x-amz-acl. A header that's already set isn't changed, and a
+// key with several values or an invalid value is left alone, because awsig rejects those
+// requests.
+func restoreQueryHeaders(r *http.Request, _ *mux.RouteMatch) bool {
+	if r.Header.Get(xhttp.Authorization) != "" {
+		return true
+	}
+	query := r.URL.Query()
+	if !query.Has("AWSAccessKeyId") || !query.Has("Signature") {
+		return true
+	}
+	for key, values := range query {
+		name := strings.ToLower(key)
+		if !strings.HasPrefix(name, "x-amz-") && name != "content-type" && name != "content-md5" {
+			continue
+		}
+		if len(values) != 1 || r.Header.Get(name) != "" || strings.ContainsFunc(values[0], func(c rune) bool {
+			return c < ' ' && c != '\t' || c == 0x7f
+		}) {
+			continue
+		}
+		r.Header.Set(name, strings.TrimSpace(values[0]))
 	}
 	return true
 }
