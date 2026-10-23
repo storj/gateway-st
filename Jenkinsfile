@@ -172,6 +172,11 @@ pipeline {
                                             sh 'make integration-ceph-tests'
                                         }
                                     }
+                                    tests['ceph-api-tests'] = {
+                                        stage('ceph-api-tests') {
+                                            sh 'make integration-ceph-api-tests'
+                                        }
+                                    }
                                     // todo(sean): re-enable rclone once module downloads from proxy.golang.org
                                     // are reliable on Jenkins; test_all fails building its test binary.
                                     ['awscli', 'awscli_multipart', 'duplicity', 'duplicati', /*'rclone'*/].each { test ->
@@ -218,6 +223,9 @@ pipeline {
                         always {
                             catchError {
                                 junit '.build/ceph.xml'
+                            }
+                            catchError {
+                                junit '.build/ceph-api.xml'
                             }
                             catchError {
                                 script {

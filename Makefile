@@ -277,6 +277,28 @@ integration-ceph-tests: ## Run ceph s3-tests suite (environment needs to be star
 	--rm python:3.11-bookworm \
 	testsuite/ceph-s3-tests/run.sh
 
+# Needs no environment: the api package serves the tests over the filesystem.
+.PHONY: integration-ceph-api-tests
+integration-ceph-api-tests: ## Run ceph s3-tests suite against the api package
+	mkdir -p /tmp/pipcache .build && \
+	docker run \
+	-u "$$(id -u):$$(id -g)" \
+	-e HOME=/tmp -e GOPATH=/tmp/go -e CGO_ENABLED=0 \
+	-v $$PWD:/build \
+	-w /build \
+	--rm golang:$(GO_VERSION) \
+	go build -o .build/fsgateway ./api/internal/fsgateway && \
+	docker run \
+	-u "$$(id -u):$$(id -g)" \
+	-e HOME=/tmp -e PIP_CACHE_DIR=/pipcache \
+	-v $$PWD:/build \
+	-w /build \
+	-v /tmp/pipcache:/pipcache \
+	--name integration-ceph-api-tests-${BUILD_NUMBER} \
+	--entrypoint /bin/bash \
+	--rm python:3.13-bookworm \
+	testsuite/ceph-api-test/run.sh
+
 .PHONY: integration-mint-tests
 integration-mint-tests: ## Run mint test suite (environment needs to be started first)
 	$$($(INTEGRATION_CREDENTIALS)) && \
