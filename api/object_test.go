@@ -483,6 +483,7 @@ func TestReadDeleteMarkerVersion(t *testing.T) {
 		require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, method)
 		require.Equal(t, "true", resp.Header.Get("X-Amz-Delete-Marker"), method)
 		require.Equal(t, versionID, resp.Header.Get("X-Amz-Version-Id"), method)
+		require.Equal(t, "DELETE", resp.Header.Get("Allow"), method)
 	}
 }
 

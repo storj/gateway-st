@@ -1237,6 +1237,7 @@ func setDeleteMarkerHeaders(w http.ResponseWriter, err error, versionID string) 
 	if versionID != "" && errors.As(err, new(objectlayer.MethodNotAllowed)) {
 		w.Header().Set(xhttp.AmzDeleteMarker, "true")
 		w.Header()[xhttp.AmzVersionID] = []string{versionID}
+		w.Header().Set("Allow", http.MethodDelete)
 	}
 }
 
