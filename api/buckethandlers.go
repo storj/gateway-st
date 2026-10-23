@@ -598,7 +598,7 @@ func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	responseBytes, err := encodeResponse(taggingResponse{XMLNS: s3XMLNS, Tags: tags})
+	responseBytes, err := encodeResponse(newTaggingResponse(tags))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

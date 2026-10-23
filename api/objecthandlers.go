@@ -839,7 +839,7 @@ func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
 
-	encodedResponse, err := encodeResponse(taggingResponse{XMLNS: s3XMLNS, Tags: objTags})
+	encodedResponse, err := encodeResponse(newTaggingResponse(objTags))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

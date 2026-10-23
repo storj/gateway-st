@@ -22,6 +22,8 @@ package api
 
 import (
 	"encoding/xml"
+	"slices"
+	"strings"
 
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
@@ -153,10 +155,26 @@ type listBucketsResponse struct {
 	Prefix            string `xml:"Prefix,omitempty"`
 }
 
-// taggingResponse is tags.Tags with a namespace.
+// taggingResponse is tags.Tags with a namespace and its tags sorted by key. tags.Tags encodes
+// them in map order.
 type taggingResponse struct {
-	XMLNS string `xml:"xmlns,attr"`
-	*tags.Tags
+	XMLName xml.Name `xml:"Tagging"`
+	XMLNS   string   `xml:"xmlns,attr"`
+	TagSet  struct {
+		Tags []tags.Tag `xml:"Tag"`
+	}
+}
+
+func newTaggingResponse(t *tags.Tags) taggingResponse {
+	resp := taggingResponse{XMLNS: s3XMLNS}
+	if t == nil || t.TagSet == nil {
+		return resp
+	}
+	for key, value := range t.ToMap() {
+		resp.TagSet.Tags = append(resp.TagSet.Tags, tags.Tag{Key: key, Value: value})
+	}
+	slices.SortFunc(resp.TagSet.Tags, func(a, b tags.Tag) int { return strings.Compare(a.Key, b.Key) })
+	return resp
 }
 
 // postResponse is cmd.PostResponse with a namespace.

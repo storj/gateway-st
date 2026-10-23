@@ -467,6 +467,23 @@ func TestGetObjectTaggingVersionID(t *testing.T) {
 	require.Contains(t, resp.Body, "<Tag><Key>a</Key><Value>1</Value></Tag>")
 }
 
+func TestGetObjectTaggingOrder(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{UserDefined: map[string]string{"s3:tags": "a=1&b=2&c=3&d=4&e=5&f=6&g=7&h=8&i=9&j=10"}}, nil
+		},
+	}
+
+	// Tags are sorted by key, rather than in the random order of a map.
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?tagging", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	var expected strings.Builder
+	for i, key := range strings.Split("abcdefghij", "") {
+		fmt.Fprintf(&expected, "<Tag><Key>%s</Key><Value>%d</Value></Tag>", key, i+1)
+	}
+	require.Contains(t, resp.Body, "<TagSet>"+expected.String()+"</TagSet>")
+}
+
 func TestReadDeleteMarkerVersion(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 	objectAPI := &fakeObjectLayer{
