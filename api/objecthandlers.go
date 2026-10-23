@@ -720,8 +720,9 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		StorageClass string   `xml:",omitempty"`
 		ObjectSize   *int64   `xml:",omitempty"`
 	}
-	// Checksum and ObjectParts are accepted but omitted, because the object layer doesn't store
-	// checksums or parts.
+	// TODO: Checksum and ObjectParts are accepted but omitted, because the object layer doesn't
+	// store checksums or parts (ceph's test_get_*multipart_object_attributes and
+	// test_get_checksum_object_attributes).
 	for _, name := range names {
 		switch name {
 		case xhttp.ETag:
@@ -871,6 +872,10 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// TODO: RetainUntilDate is encoded to the second, but the object layer keeps fractions of a
+	// second, so an object stays locked for up to a second after the date it's reported to be
+	// locked until. ceph's teardown waits until that date before deleting locked objects, so the
+	// test_object_lock_changing_mode_* tests fail to delete their buckets.
 	retention, err := api.objectAPI.GetObjectRetention(ctx, bucketName, objectKey, versionID)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -1158,8 +1163,9 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 	}
 
 	// TODO: part numbers aren't mapped to byte ranges because our object layer doesn't report
-	// the parts of an object, so only part 1, which returns the entire object, is accepted. Add the
-	// mapping if the object layer starts reporting parts.
+	// the parts of an object, so only part 1, which returns the entire object, is accepted, and
+	// x-amz-mp-parts-count isn't sent (ceph's test_multipart_get_part and
+	// test_multipart_single_get_part). Add the mapping if the object layer starts reporting parts.
 	if opts.PartNumber > 1 {
 		writeError(apierr.CodeInvalidPartNumber)
 		return true
@@ -1233,6 +1239,10 @@ func evaluatePreconditions(objInfo objectlayer.ObjectInfo, ifMatch, ifUnmodified
 
 // setDeleteMarkerHeaders sets the headers that S3 sends with the error for a read of a version that
 // is a delete marker, which the object layer reports as objectlayer.MethodNotAllowed.
+//
+// TODO: S3 also sends x-amz-delete-marker with the 404 for a read without a version ID when the
+// latest version is a delete marker (ceph's test_delete_marker_versioned and
+// test_delete_marker_suspended), but the object layer reports that as a missing object.
 func setDeleteMarkerHeaders(w http.ResponseWriter, err error, versionID string) {
 	if versionID != "" && errors.As(err, new(objectlayer.MethodNotAllowed)) {
 		w.Header().Set(xhttp.AmzDeleteMarker, "true")
@@ -1831,6 +1841,10 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Part numbers must be strictly ascending, which also rules out duplicates.
+	//
+	// TODO: find out whether S3 accepts a part number listed twice. ceph's
+	// test_multipart_resend_first_finishes_last lists part 1 twice, after uploading it twice
+	// concurrently, and expects the upload to complete.
 	for i := 1; i < len(completeUpload.Parts); i++ {
 		if completeUpload.Parts[i-1].PartNumber >= completeUpload.Parts[i].PartNumber {
 			api.writeErrorResponse(w, r, apierr.CodeInvalidPartOrder)
@@ -1864,6 +1878,9 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	// response and crash the process.
 	defer stopKeepAlive()
 
+	// TODO: S3 answers a repeated CompleteMultipartUpload of an upload it just completed with
+	// success, but the object layer no longer knows the upload and returns NoSuchUpload (ceph's
+	// test_multipart_upload and test_multipart_upload_small).
 	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, completeUpload.Parts, objectlayer.ObjectOptions{
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 	})

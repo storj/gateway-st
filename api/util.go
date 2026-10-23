@@ -429,6 +429,8 @@ func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader)
 	return set
 }
 
+// TODO: find out how S3 encodes a space. s3URLEncode encodes it as '+', like minio, but ceph's
+// test_bucket_list_encoding_basic and test_bucket_listv2_encoding_basic expect "%20".
 func s3EncodeName(name string, encodingType string) (result string) {
 	if strings.ToLower(encodingType) == urlEncodingType {
 		return s3URLEncode(name)

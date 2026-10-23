@@ -21,25 +21,18 @@ import (
 // gets InternalError.
 //
 // TODO: find out whether S3 rejects these malformed Signature Version 4 requests like awsig or like
-// ceph's boto2 tests in s3tests/functional/test_headers.py expect:
+// ceph's tests expect:
 //
-//   - a header listed in SignedHeaders is missing (test_object_create_bad_ua_none_aws4,
-//     test_bucket_create_bad_ua_none_aws4, test_object_create_missing_signed_header_aws4 and
-//     test_object_create_missing_signed_custom_header_aws4): awsig returns MissingSecurityHeader
-//     (400), the tests expect 403;
-//   - the credential's date doesn't match X-Amz-Date
-//     (test_object_create_bad_authorization_incorrect_aws4): awsig returns
-//     AuthorizationHeaderMalformed (400), the test expects 403;
-//   - a malformed Credential (test_bucket_create_bad_authorization_invalid_aws4): awsig rejects
-//     the date header first with AccessDenied (403), the test expects 400;
-//   - both Content-MD5 and X-Amz-Content-Sha256 mismatch
-//     (test_object_create_bad_contentlength_mismatch_below_aws4): awsig reports BadDigest for
-//     Content-MD5 first, the test expects XAmzContentSHA256Mismatch.
+//   - SignedHeaders doesn't list host (test_sigv4_host_bad), or a header that it lists is missing
+//     (test_sigv4_missing_header): awsig returns MissingSecurityHeader (400), the tests expect 403;
+//   - the credential's date doesn't match X-Amz-Date: awsig returns AuthorizationHeaderMalformed
+//     (400), ceph's former boto2 tests expected 403;
+//   - a malformed Credential: awsig rejects the date header first with AccessDenied (403), the
+//     boto2 tests expected 400;
+//   - both Content-MD5 and X-Amz-Content-Sha256 mismatch: awsig reports BadDigest for
+//     Content-MD5 first, the boto2 tests expected XAmzContentSHA256Mismatch.
 //
 // awsig's author verified its error codes against S3, and their fork of the tests omits these.
-// CI doesn't run them, because testsuite/ceph-s3-tests/run.sh doesn't set S3_USE_SIGV4, and they
-// need a host name to sign for rather than an IP address. The other 30 of them pass against the
-// filesystem object layer.
 var awsigErrToCodes = []struct {
 	err  error
 	code apierr.Code

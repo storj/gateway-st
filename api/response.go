@@ -423,6 +423,9 @@ func errorAs[T error](err error) bool {
 }
 
 func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo objectlayer.ListObjectsInfo) cmd.ListObjectsResponse {
+	// TODO: find out whether S3 encodes the prefix of a ListObjects response. botocore asks for
+	// url encoding but doesn't decode Prefix, and ceph's test_bucket_list_prefix_unreadable
+	// expects it unencoded.
 	data := cmd.ListObjectsResponse{
 		Name:           bucketName,
 		Contents:       make([]cmd.Object, 0, len(listInfo.Objects)),
