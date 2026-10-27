@@ -188,6 +188,9 @@ type response struct {
 	StatusCode int
 	Header     http.Header
 	Body       string
+	// Close reports whether the server closes the connection after the response. Only serveHTTP
+	// sets it.
+	Close bool
 }
 
 func newTestRouter(objectAPI cmd.ObjectLayer) *mux.Router {
@@ -251,6 +254,7 @@ func serveHTTP(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, h
 		StatusCode: resp.StatusCode,
 		Header:     resp.Header,
 		Body:       string(respBody),
+		Close:      resp.Close,
 	}
 }
 

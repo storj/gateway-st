@@ -162,6 +162,7 @@ func TestXMLBodyVerification(t *testing.T) {
 					resp := serveHTTP(t, objectAPI, h.method, h.target, tt.header, tt.body)
 					require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 					require.Contains(t, resp.Body, "<Code>"+tt.expCode+"</Code>")
+					require.True(t, resp.Close)
 					require.Empty(t, objectAPI.Calls())
 				})
 			}

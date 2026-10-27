@@ -125,6 +125,13 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 
+	// A body that failed verification may not be framed as its headers say: a body longer than its
+	// Content-Length leaves bytes that would be read as the start of the next request on the
+	// connection, so the connection is closed instead of reused.
+	if resp.Code == "BadDigest" || resp.Code == "XAmzContentSHA256Mismatch" {
+		w.Header().Set(xhttp.Connection, "close")
+	}
+
 	// Responses to HEAD requests must not have a body.
 	if r.Method == http.MethodHead {
 		api.writeResponse(w, r, resp.HTTPStatusCode, nil, mimeNone)
@@ -138,10 +145,6 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// TODO: close the connection when the request body failed verification, as with BadDigest.
-	// A body longer than its Content-Length leaves bytes that are read as the start of the next
-	// request on the connection, so a client's retry fails with MethodNotAllowed (ceph's
-	// test_object_create_bad_contentlength_mismatch_below_aws2).
 	api.writeResponse(w, r, resp.HTTPStatusCode, encodedResp, mimeXML)
 }
 

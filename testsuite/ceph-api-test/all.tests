@@ -26,7 +26,7 @@ s3tests/functional/test_headers.py::test_bucket_create_bad_contentlength_none
 #(test harness) s3tests/functional/test_headers.py::test_bucket_create_bad_authorization_empty
 #(test harness) s3tests/functional/test_headers.py::test_bucket_create_bad_authorization_none
 s3tests/functional/test_headers.py::test_object_create_bad_md5_invalid_garbage_aws2
-#(todo: close connection after BadDigest) s3tests/functional/test_headers.py::test_object_create_bad_contentlength_mismatch_below_aws2
+s3tests/functional/test_headers.py::test_object_create_bad_contentlength_mismatch_below_aws2
 #(test harness) s3tests/functional/test_headers.py::test_object_create_bad_authorization_incorrect_aws2
 #(test harness) s3tests/functional/test_headers.py::test_object_create_bad_authorization_invalid_aws2
 s3tests/functional/test_headers.py::test_object_create_bad_ua_empty_aws2
