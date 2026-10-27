@@ -28,9 +28,7 @@ import (
 //   - the credential's date doesn't match X-Amz-Date: awsig returns AuthorizationHeaderMalformed
 //     (400), ceph's former boto2 tests expected 403;
 //   - a malformed Credential: awsig rejects the date header first with AccessDenied (403), the
-//     boto2 tests expected 400;
-//   - both Content-MD5 and X-Amz-Content-Sha256 mismatch: awsig reports BadDigest for
-//     Content-MD5 first, the boto2 tests expected XAmzContentSHA256Mismatch.
+//     boto2 tests expected 400.
 //
 // awsig's author verified its error codes against S3, and their fork of the tests omits these.
 var awsigErrToCodes = []struct {
@@ -90,14 +88,14 @@ func getChecksumMismatchFromError(err error) (mismatch awsig.ChecksumMismatch, o
 		return awsig.ChecksumMismatch{}, false
 	}
 	// When S3 determines what information to include in an error for a request containing
-	// multiple integrity failures, Content-MD5 takes priority over X-Amz-Content-Sha256,
+	// multiple integrity failures, X-Amz-Content-Sha256 takes priority over Content-MD5,
 	// which takes priority over X-Amz-Checksum-<algorithm>.
 	slices.SortFunc(mismatchErr.Mismatches, func(a awsig.ChecksumMismatch, b awsig.ChecksumMismatch) int {
 		ord := func(mismatch awsig.ChecksumMismatch) int {
 			switch {
-			case mismatch.Algorithm == awsig.AlgorithmMD5:
-				return 0
 			case mismatch.Algorithm == awsig.AlgorithmSHA256 && mismatch.IsContentSHA256:
+				return 0
+			case mismatch.Algorithm == awsig.AlgorithmMD5:
 				return 1
 			default:
 				return 2

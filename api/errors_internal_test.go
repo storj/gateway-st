@@ -17,15 +17,24 @@ import (
 )
 
 func TestGetChecksumMismatchFromErrorPriority(t *testing.T) {
-	err := awsig.ChecksumMismatchError{Mismatches: []awsig.ChecksumMismatch{
-		{Algorithm: awsig.AlgorithmCRC32},
-		{Algorithm: awsig.AlgorithmSHA256, IsContentSHA256: true},
-		{Algorithm: awsig.AlgorithmMD5},
-	}}
+	sha256 := awsig.ChecksumMismatch{Algorithm: awsig.AlgorithmSHA256, IsContentSHA256: true}
+	md5 := awsig.ChecksumMismatch{Algorithm: awsig.AlgorithmMD5}
+	crc32 := awsig.ChecksumMismatch{Algorithm: awsig.AlgorithmCRC32}
 
-	mismatch, ok := getChecksumMismatchFromError(err)
-	require.True(t, ok)
-	require.Equal(t, awsig.AlgorithmMD5, mismatch.Algorithm)
+	// The mismatch that S3 reported for each combination.
+	for _, tt := range []struct {
+		mismatches []awsig.ChecksumMismatch
+		want       awsig.ChecksumMismatch
+	}{
+		{[]awsig.ChecksumMismatch{crc32, md5, sha256}, sha256},
+		{[]awsig.ChecksumMismatch{md5, sha256}, sha256},
+		{[]awsig.ChecksumMismatch{crc32, sha256}, sha256},
+		{[]awsig.ChecksumMismatch{crc32, md5}, md5},
+	} {
+		mismatch, ok := getChecksumMismatchFromError(awsig.ChecksumMismatchError{Mismatches: tt.mismatches})
+		require.True(t, ok)
+		require.Equal(t, tt.want, mismatch)
+	}
 }
 
 func TestObjectLayerErrorMessages(t *testing.T) {

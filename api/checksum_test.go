@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -305,4 +306,86 @@ func TestPutObjectSHA512AndXXHASHChecksums(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>BadDigest</Code>")
 	require.Nil(t, objectAPI.data)
+}
+
+// readingObjectLayer reads the data of PutObject and PutObjectPart, which is when its integrity is
+// verified.
+type readingObjectLayer struct {
+	*fakeObjectLayer
+	stored bool
+}
+
+func (l *readingObjectLayer) PutObject(_ context.Context, bucket, object string, data *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	if _, err := io.Copy(io.Discard, data); err != nil {
+		return cmd.ObjectInfo{}, err
+	}
+	l.stored = true
+	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
+}
+
+func (l *readingObjectLayer) PutObjectPart(_ context.Context, _, _, _ string, partID int, data *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+	if _, err := io.Copy(io.Discard, data); err != nil {
+		return cmd.PartInfo{}, err
+	}
+	l.stored = true
+	return cmd.PartInfo{PartNumber: partID, ETag: "etag"}, nil
+}
+
+func TestPutObjectIntegrityErrorPriority(t *testing.T) {
+	data, other := []byte("hello"), []byte("other")
+	const (
+		md5Error    = "<Code>BadDigest</Code><Message>The Content-MD5 you specified did not match what we received.</Message>"
+		sha256Error = "<Code>XAmzContentSHA256Mismatch</Code>"
+		crc32Error  = "<Code>BadDigest</Code><Message>The CRC32 you specified did not match the calculated checksum.</Message>"
+	)
+	// The errors S3 returned for each combination of mismatching Content-MD5, X-Amz-Content-Sha256
+	// and X-Amz-Checksum-Crc32.
+	for _, tt := range []struct {
+		name                   string
+		badMD5, badSHA, badCRC bool
+		want                   string
+	}{
+		{"MD5", true, false, false, md5Error},
+		{"SHA256", false, true, false, sha256Error},
+		{"CRC32", false, false, true, crc32Error},
+		{"MD5 and SHA256", true, true, false, sha256Error},
+		{"MD5 and CRC32", true, false, true, md5Error},
+		{"SHA256 and CRC32", false, true, true, sha256Error},
+		{"all", true, true, true, sha256Error},
+	} {
+		pick := func(bad bool) []byte {
+			if bad {
+				return other
+			}
+			return data
+		}
+		header := http.Header{
+			"Content-Length":       {strconv.Itoa(len(data))},
+			"Content-Md5":          {base64MD5(pick(tt.badMD5))},
+			"X-Amz-Content-Sha256": {hexSHA256(pick(tt.badSHA))},
+			"X-Amz-Checksum-Crc32": {crc32Base64(pick(tt.badCRC))},
+		}
+		for _, target := range []string{"/bucket/key", "/bucket/key?partNumber=1&uploadId=id"} {
+			t.Run(tt.name+" "+target, func(t *testing.T) {
+				objectAPI := &readingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+				resp := serve(t, objectAPI, http.MethodPut, target, header, data)
+				require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+				require.Contains(t, resp.Body, tt.want)
+				require.False(t, objectAPI.stored)
+			})
+		}
+	}
+
+	// All three match.
+	header := http.Header{
+		"Content-Length":       {strconv.Itoa(len(data))},
+		"Content-Md5":          {base64MD5(data)},
+		"X-Amz-Checksum-Crc32": {crc32Base64(data)},
+	}
+	for _, target := range []string{"/bucket/key", "/bucket/key?partNumber=1&uploadId=id"} {
+		objectAPI := &readingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+		resp := serve(t, objectAPI, http.MethodPut, target, header, data)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.True(t, objectAPI.stored)
+	}
 }
