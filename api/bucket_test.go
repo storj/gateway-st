@@ -130,9 +130,13 @@ func TestListObjectsV2(t *testing.T) {
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=dG9rZW4%3D", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Equal(t, "token", gotToken)
+	require.Contains(t, resp.Body, "<ContinuationToken>dG9rZW4=</ContinuationToken>")
 
-	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=%21", nil, nil)
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	for _, token := range []string{"%21", ""} {
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token="+token, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
+	}
 }
 
 func TestBucketConfigurationErrors(t *testing.T) {

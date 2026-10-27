@@ -185,9 +185,11 @@ type listObjectsV2Params struct {
 }
 
 func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err error) {
+	// S3 rejects an empty continuation-token like any other that it didn't issue.
 	var decodedToken []byte
-	if tokenStr := values.Get("continuation-token"); tokenStr != "" {
-		if decodedToken, err = base64.StdEncoding.DecodeString(tokenStr); err != nil {
+	if values.Has("continuation-token") {
+		decodedToken, err = base64.StdEncoding.DecodeString(values.Get("continuation-token"))
+		if err != nil || len(decodedToken) == 0 {
 			return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
 		}
 	}
