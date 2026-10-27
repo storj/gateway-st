@@ -58,9 +58,6 @@ type accessControlPolicy struct {
 }
 
 // listObjectsV2Response is cmd.ListObjectsV2Response with objects whose owner is optional.
-//
-// TODO: S3 echoes an empty continuation-token as an empty ContinuationToken, but omitempty drops
-// it (ceph's test_bucket_listv2_continuationtoken_empty).
 type listObjectsV2Response struct {
 	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
 
