@@ -20,17 +20,15 @@ import (
 // storj/awsig's credentials branch, which adds it. Otherwise a request carrying a session token
 // gets InternalError.
 //
-// TODO: find out whether S3 rejects these malformed Signature Version 4 requests like awsig or like
-// ceph's tests expect:
+// TODO: awsig rejects these malformed requests with different errors than S3 (checked against S3
+// in October 2026):
 //
 //   - SignedHeaders doesn't list host (test_sigv4_host_bad), or a header that it lists is missing
-//     (test_sigv4_missing_header): awsig returns MissingSecurityHeader (400), the tests expect 403;
-//   - the credential's date doesn't match X-Amz-Date: awsig returns AuthorizationHeaderMalformed
-//     (400), ceph's former boto2 tests expected 403;
-//   - a malformed Credential: awsig rejects the date header first with AccessDenied (403), the
-//     boto2 tests expected 400.
-//
-// awsig's author verified its error codes against S3, and their fork of the tests omits these.
+//     (test_sigv4_missing_header): awsig returns MissingSecurityHeader (400), ceph's tests expect
+//     403 (S3 returns AccessDenied and SignatureDoesNotMatch respectively);
+//   - the Authorization header has an unsupported scheme, such as "AWS4 HAHAHA" or "Bearer x":
+//     awsig checks the date first, returning AccessDenied (403) without a valid Date or X-Amz-Date
+//     and UnsupportedSignature (400) with one, while S3 returns InvalidArgument (400) either way.
 var awsigErrToCodes = []struct {
 	err  error
 	code apierr.Code
