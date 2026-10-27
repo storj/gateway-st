@@ -1837,11 +1837,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	// Part numbers must be strictly ascending, which also rules out duplicates.
-	//
-	// TODO: find out whether S3 accepts a part number listed twice. ceph's
-	// test_multipart_resend_first_finishes_last lists part 1 twice, after uploading it twice
-	// concurrently, and expects the upload to complete.
+	// Part numbers must be strictly ascending, which also rules out duplicates, like S3.
 	for i := 1; i < len(completeUpload.Parts); i++ {
 		if completeUpload.Parts[i-1].PartNumber >= completeUpload.Parts[i].PartNumber {
 			api.writeErrorResponse(w, r, apierr.CodeInvalidPartOrder)

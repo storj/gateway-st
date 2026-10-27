@@ -63,10 +63,6 @@ func unescapePath(p string) (string, error) {
 	if !utf8.ValidString(ep) {
 		// TODO: Storj allows keys that aren't valid UTF-8, such as ones uploaded with uplink, so
 		// such objects can be listed but not addressed through the gateway.
-		//
-		// TODO: find out which other keys S3 rejects. ceph's test_object_read_unreadable reads
-		// "\xae\x8a-", which botocore sends as valid UTF-8 with the control character U+008A, and
-		// expects 400 rather than NoSuchKey.
 		return "", apierr.CodeInvalidURI
 	}
 	return ep, nil

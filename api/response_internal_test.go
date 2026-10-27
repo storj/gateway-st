@@ -34,3 +34,15 @@ func TestObjectRetentionResponseRoundsUp(t *testing.T) {
 	require.Contains(t, encode(date.Add(123*time.Millisecond)), "<RetainUntilDate>2100-01-02T03:04:05.123Z</RetainUntilDate>")
 	require.Contains(t, encode(date.Add(123456*time.Microsecond)), "<RetainUntilDate>2100-01-02T03:04:05.124Z</RetainUntilDate>")
 }
+
+func TestS3EncodeName(t *testing.T) {
+	// The encodings S3 returned for these keys.
+	for key, want := range map[string]string{
+		"a b+c~d*e": "a+b%2Bc%7Ed*e",
+		"quux ab/":  "quux+ab/",
+		"\n":        "%0A",
+	} {
+		require.Equal(t, want, s3EncodeName(key, "url"), key)
+		require.Equal(t, key, s3EncodeName(key, ""), key)
+	}
+}

@@ -159,8 +159,8 @@ s3tests/functional/test_s3.py::test_bucket_listv2_many
 s3tests/functional/test_s3.py::test_basic_key_count
 s3tests/functional/test_s3.py::test_bucket_list_delimiter_basic
 s3tests/functional/test_s3.py::test_bucket_listv2_delimiter_basic
-#(todo: url encoding of spaces) s3tests/functional/test_s3.py::test_bucket_listv2_encoding_basic
-#(todo: url encoding of spaces) s3tests/functional/test_s3.py::test_bucket_list_encoding_basic
+#(matches S3) s3tests/functional/test_s3.py::test_bucket_listv2_encoding_basic
+#(matches S3) s3tests/functional/test_s3.py::test_bucket_list_encoding_basic
 s3tests/functional/test_s3.py::test_bucket_list_delimiter_prefix
 s3tests/functional/test_s3.py::test_bucket_listv2_delimiter_prefix
 s3tests/functional/test_s3.py::test_bucket_listv2_delimiter_prefix_ends_with_delimiter
@@ -197,7 +197,7 @@ s3tests/functional/test_s3.py::test_bucket_list_prefix_none
 s3tests/functional/test_s3.py::test_bucket_listv2_prefix_none
 s3tests/functional/test_s3.py::test_bucket_list_prefix_not_exist
 s3tests/functional/test_s3.py::test_bucket_listv2_prefix_not_exist
-#(todo: url encoding of prefix) s3tests/functional/test_s3.py::test_bucket_list_prefix_unreadable
+#(matches S3) s3tests/functional/test_s3.py::test_bucket_list_prefix_unreadable
 s3tests/functional/test_s3.py::test_bucket_listv2_prefix_unreadable
 s3tests/functional/test_s3.py::test_bucket_list_prefix_delimiter_basic
 s3tests/functional/test_s3.py::test_bucket_listv2_prefix_delimiter_basic
@@ -502,7 +502,7 @@ s3tests/functional/test_s3.py::test_atomic_dual_write_8mb
 #(conditional writes) s3tests/functional/test_s3.py::test_atomic_dual_conditional_write_1mb
 s3tests/functional/test_s3.py::test_atomic_write_bucket_gone
 s3tests/functional/test_s3.py::test_atomic_multipart_upload_write
-#(todo: InvalidPartOrder on resent part) s3tests/functional/test_s3.py::test_multipart_resend_first_finishes_last
+#(matches S3) s3tests/functional/test_s3.py::test_multipart_resend_first_finishes_last
 s3tests/functional/test_s3.py::test_ranged_request_response_code
 s3tests/functional/test_s3.py::test_ranged_big_request_response_code
 s3tests/functional/test_s3.py::test_ranged_request_skip_leading_bytes_response_code
@@ -719,7 +719,7 @@ s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_compliance
 #(conditional writes) s3tests/functional/test_s3.py::test_copy_object_ifmatch_failed
 s3tests/functional/test_s3.py::test_copy_object_ifnonematch_good
 s3tests/functional/test_s3.py::test_copy_object_ifnonematch_failed
-#(todo: invalid key error code) s3tests/functional/test_s3.py::test_object_read_unreadable
+#(matches S3) s3tests/functional/test_s3.py::test_object_read_unreadable
 s3tests/functional/test_s3.py::test_get_bucket_policy_status
 #(acl) s3tests/functional/test_s3.py::test_get_public_acl_bucket_policy_status
 #(acl) s3tests/functional/test_s3.py::test_get_authpublic_acl_bucket_policy_status
