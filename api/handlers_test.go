@@ -278,7 +278,10 @@ func signV4(req *http.Request, body []byte, now time.Time) {
 	names := slices.Sorted(maps.Keys(headers))
 	var canonicalHeaders strings.Builder
 	for _, name := range names {
-		canonicalHeaders.WriteString(name + ":" + headers[name] + "\n")
+		canonicalHeaders.WriteString(name)
+		canonicalHeaders.WriteString(":")
+		canonicalHeaders.WriteString(headers[name])
+		canonicalHeaders.WriteString("\n")
 	}
 	signedHeaders := strings.Join(names, ";")
 

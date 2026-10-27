@@ -58,7 +58,7 @@ func TestPutObjectChecksums(t *testing.T) {
 
 	t.Run("streaming trailer without X-Amz-Trailer", func(t *testing.T) {
 		objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
-		body := []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\n\r\n", len(data), data))
+		body := fmt.Appendf(nil, "%x\r\n%s\r\n0\r\n\r\n", len(data), data)
 		header := http.Header{
 			"X-Amz-Content-Sha256":         {"STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
 			"Content-Encoding":             {"aws-chunked"},
@@ -94,7 +94,7 @@ func TestPutObjectChecksums(t *testing.T) {
 
 	t.Run("trailer", func(t *testing.T) {
 		objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
-		body := []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data)))
+		body := fmt.Appendf(nil, "%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data))
 		header := http.Header{
 			"X-Amz-Content-Sha256":         {"STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
 			"Content-Encoding":             {"aws-chunked"},
@@ -130,7 +130,7 @@ func TestDeleteObjectsWithChecksum(t *testing.T) {
 
 func TestChecksumHeaderValidation(t *testing.T) {
 	data := []byte("hello")
-	trailerBody := []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data)))
+	trailerBody := fmt.Appendf(nil, "%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data))
 	trailer := http.Header{
 		"X-Amz-Content-Sha256":         {"STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
 		"Content-Encoding":             {"aws-chunked"},

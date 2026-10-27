@@ -543,7 +543,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := extractMetadata(ctx, r)
+	metadata, err := extractMetadata(r)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -569,7 +569,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		UserDefined: metadata,
 	}
 
-	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, bucketName, objectKey)
+	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -1489,7 +1489,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	var metadata map[string]string
 	if metadataDirective == replaceDirective {
-		metadata, err = extractMetadata(ctx, r)
+		metadata, err = extractMetadata(r)
 		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
@@ -1534,7 +1534,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 	}
 
-	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, dstBucket, dstObject)
+	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -1705,7 +1705,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	metadata, err := extractMetadata(ctx, r)
+	metadata, err := extractMetadata(r)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -1726,7 +1726,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 
 	opts := objectlayer.ObjectOptions{UserDefined: metadata}
 
-	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header, bucketName, objectKey)
+	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

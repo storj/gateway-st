@@ -438,7 +438,7 @@ func s3EncodeName(name string, encodingType string) (result string) {
 	return name
 }
 
-func parseObjectLockHeaders(h http.Header, bucket, object string) (retMode objectlock.RetMode, retDate objectlock.RetentionDate, legalHold objectlock.ObjectLegalHold, err error) {
+func parseObjectLockHeaders(h http.Header) (retMode objectlock.RetMode, retDate objectlock.RetentionDate, legalHold objectlock.ObjectLegalHold, err error) {
 	retentionRequested := objectlock.IsObjectLockRetentionRequested(h)
 	legalHoldRequested := objectlock.IsObjectLockLegalHoldRequested(h)
 

@@ -255,7 +255,7 @@ func TestPutObjectWithoutContentLength(t *testing.T) {
 
 func TestPutObjectStreamingWithoutContentLength(t *testing.T) {
 	data := []byte("hello")
-	body := []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data)))
+	body := fmt.Appendf(nil, "%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, crc32Base64(data))
 	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
 	// Transfer-Encoding: chunked requests have no Content-Length header.
 	resp := serve(t, objectAPI, http.MethodPut, "/bucket/key", http.Header{

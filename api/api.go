@@ -351,7 +351,10 @@ func caseInsensitivePattern(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		if lower, upper := unicode.ToLower(r), unicode.ToUpper(r); lower != upper {
-			b.WriteString("[" + string(lower) + string(upper) + "]")
+			b.WriteString("[")
+			b.WriteRune(lower)
+			b.WriteRune(upper)
+			b.WriteString("]")
 		} else {
 			b.WriteString(regexp.QuoteMeta(string(r)))
 		}

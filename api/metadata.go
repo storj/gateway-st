@@ -21,7 +21,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -55,7 +54,7 @@ var userMetadataKeyPrefixes = []string{
 	"X-Minio-Meta-",
 }
 
-func extractMetadata(ctx context.Context, r *http.Request) (metadata map[string]string, err error) {
+func extractMetadata(r *http.Request) (metadata map[string]string, err error) {
 	metadata = make(map[string]string)
 
 	ExtractMetadataFromQuery(r.URL, metadata)
