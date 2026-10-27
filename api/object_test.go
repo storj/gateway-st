@@ -26,6 +26,7 @@ import (
 
 	"storj.io/gateway/api"
 	"storj.io/minio/cmd"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 )
 
 func TestPreconditionPrecedence(t *testing.T) {
@@ -241,6 +242,40 @@ func TestPutObjectVersionID(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Equal(t, `"etag"`, resp.Header.Get("ETag"))
 	require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
+}
+
+type retentionObjectLayer struct {
+	*fakeObjectLayer
+	retention *objectlock.ObjectRetention
+}
+
+func (l *retentionObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	l.retention = opts.Retention
+	return cmd.ObjectInfo{Bucket: bucket, Name: object}, nil
+}
+
+func (l *retentionObjectLayer) SetObjectRetention(_ context.Context, _, _, _ string, opts cmd.ObjectOptions) error {
+	l.retention = opts.Retention
+	return nil
+}
+
+func TestRetainUntilDateTruncatedToMilliseconds(t *testing.T) {
+	want := time.Date(2100, 1, 2, 3, 4, 5, 123000000, time.UTC)
+
+	objectAPI := &retentionObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp := serve(t, objectAPI, http.MethodPut, "/bucket/key", http.Header{
+		"Content-Length":                      {"3"},
+		"X-Amz-Object-Lock-Mode":              {"GOVERNANCE"},
+		"X-Amz-Object-Lock-Retain-Until-Date": {"2100-01-02T03:04:05.123456Z"},
+	}, []byte("abc"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, want, objectAPI.retention.RetainUntilDate.Time)
+
+	objectAPI = &retentionObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	body := []byte(`<Retention><Mode>GOVERNANCE</Mode><RetainUntilDate>2100-01-02T03:04:05.123456Z</RetainUntilDate></Retention>`)
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket/key?retention", http.Header{"Content-Md5": {base64MD5(body)}}, body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, want, objectAPI.retention.RetainUntilDate.Time)
 }
 
 func TestPutObjectWithoutContentLength(t *testing.T) {

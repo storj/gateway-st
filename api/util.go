@@ -37,6 +37,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/amwolff/awsig"
 
@@ -446,6 +447,8 @@ func parseObjectLockHeaders(h http.Header) (retMode objectlock.RetMode, retDate 
 		if retMode, retDate, err = objectlock.ParseObjectLockRetentionHeaders(h); err != nil {
 			return objectlock.RetMode(""), objectlock.RetentionDate{}, objectlock.ObjectLegalHold{}, err
 		}
+		// S3 keeps the date in milliseconds.
+		retDate.Time = retDate.Truncate(time.Millisecond)
 	}
 
 	if legalHoldRequested {

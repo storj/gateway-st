@@ -229,6 +229,8 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
+	// S3 keeps the date in milliseconds.
+	retention.RetainUntilDate.Time = retention.RetainUntilDate.Truncate(time.Millisecond)
 
 	// if requesting governance bypass, object layer only removes the active
 	// retention if retention is nil.
@@ -872,10 +874,6 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// TODO: RetainUntilDate is encoded to the second, but the object layer keeps fractions of a
-	// second, so an object stays locked for up to a second after the date it's reported to be
-	// locked until. ceph's teardown waits until that date before deleting locked objects, so the
-	// test_object_lock_changing_mode_* tests fail to delete their buckets.
 	retention, err := api.objectAPI.GetObjectRetention(ctx, bucketName, objectKey, versionID)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -887,8 +885,7 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	retention.XMLNS = s3XMLNS
-	encodedResp, err := encodeResponse(retention)
+	encodedResp, err := encodeResponse(newObjectRetentionResponse(retention))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

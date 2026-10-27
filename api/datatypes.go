@@ -24,6 +24,7 @@ import (
 	"encoding/xml"
 	"slices"
 	"strings"
+	"time"
 
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
@@ -200,4 +201,27 @@ type deleteObjectsResponse struct {
 
 	DeletedObjects []objectlayer.DeletedObject `xml:"Deleted,omitempty"`
 	Errors         []deleteError               `xml:"Error,omitempty"`
+}
+
+// objectRetentionResponse is objectlayer.ObjectRetention with a RetainUntilDate in milliseconds.
+type objectRetentionResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ Retention"`
+
+	Mode            objectlayer.RetentionMode `xml:"Mode,omitempty"`
+	RetainUntilDate string                    `xml:"RetainUntilDate,omitempty"`
+}
+
+// newObjectRetentionResponse encodes r's RetainUntilDate in milliseconds, like S3. Dates are
+// truncated to the millisecond when they're set, but older objects may have a fraction of one, so
+// it's rounded up: a client can then delete the object once the reported date has passed, and
+// setting the reported date again doesn't shorten a compliance mode retention.
+func newObjectRetentionResponse(r *objectlayer.ObjectRetention) objectRetentionResponse {
+	resp := objectRetentionResponse{Mode: r.Mode}
+	if date := r.RetainUntilDate.Time; !date.IsZero() {
+		if rounded := date.Truncate(time.Millisecond); rounded.Before(date) {
+			date = rounded.Add(time.Millisecond)
+		}
+		resp.RetainUntilDate = date.UTC().Format(iso8601Milli)
+	}
+	return resp
 }

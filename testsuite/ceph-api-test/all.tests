@@ -712,9 +712,9 @@ s3tests/functional/test_s3.py::test_object_lock_delete_multipart_object_with_leg
 s3tests/functional/test_s3.py::test_object_lock_delete_object_with_legal_hold_off
 s3tests/functional/test_s3.py::test_object_lock_get_obj_metadata
 s3tests/functional/test_s3.py::test_object_lock_uploading_obj
-#(todo: retention date precision) s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_governance_with_bypass
-#(todo: retention date precision) s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_governance_without_bypass
-#(todo: retention date precision) s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_compliance
+s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_governance_with_bypass
+s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_governance_without_bypass
+s3tests/functional/test_s3.py::test_object_lock_changing_mode_from_compliance
 #(conditional writes) s3tests/functional/test_s3.py::test_copy_object_ifmatch_good
 #(conditional writes) s3tests/functional/test_s3.py::test_copy_object_ifmatch_failed
 s3tests/functional/test_s3.py::test_copy_object_ifnonematch_good
