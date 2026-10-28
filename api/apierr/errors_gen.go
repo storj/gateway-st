@@ -23,6 +23,7 @@ const (
 	CodeEntityTooLarge
 	CodeEntityTooSmall
 	CodeExpiredPresignedRequest
+	CodeIllegalCopyHeader
 	CodeIncorrectContinuationToken
 	CodeInternal
 	CodeInvalidAccessKeyID
@@ -196,6 +197,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "AccessDenied",
 		Description:    "Request has expired",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeIllegalCopyHeader: {
+		Code:           "InvalidArgument",
+		Description:    "Illegal copy header",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeIncorrectContinuationToken: {
 		Code:           "InvalidArgument",

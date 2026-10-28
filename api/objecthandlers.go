@@ -1452,6 +1452,13 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A range only applies to UploadPartCopy. S3 refuses it even when empty, rather than copying the
+	// whole object.
+	if len(r.Header.Values(xhttp.AmzCopySourceRange)) > 0 {
+		api.writeErrorResponse(w, r, apierr.CodeIllegalCopyHeader)
+		return
+	}
+
 	metadataDirective := r.Header.Get(xhttp.AmzMetadataDirective)
 	if !isDirectiveValid(metadataDirective) {
 		api.writeErrorResponse(w, r, apierr.CodeInvalidMetadataDirective)

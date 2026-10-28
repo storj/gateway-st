@@ -118,6 +118,11 @@
   description: Request has expired
   http_status: 403
 
+- name: IllegalCopyHeader
+  code: InvalidArgument
+  description: Illegal copy header
+  http_status: 400
+
 - name: Internal
   code: InternalError
   description: We encountered an internal error. Please try again.

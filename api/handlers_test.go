@@ -1287,6 +1287,25 @@ func TestCopyObject(t *testing.T) {
 			expStatus: http.StatusNotImplemented,
 			expCode:   "NotImplemented",
 		},
+		{
+			name:      "copy source range",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {"bytes=0-1"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			name:      "empty copy source range",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {""}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
+		{
+			// The range is refused before the source is looked up.
+			name:      "copy source range with nonexistent source",
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/missing"}, "X-Amz-Copy-Source-Range": {"bytes=0-1"}},
+			expStatus: http.StatusBadRequest,
+			expCode:   "InvalidArgument",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			objectAPI, _ := setup()
