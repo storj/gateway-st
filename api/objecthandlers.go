@@ -1484,11 +1484,16 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Unlike S3, which limits the source to 5 GiB, sources up to the maximum object size can be
+	// copied, because copying large objects in parts with UploadPartCopy isn't efficient yet (see
+	// https://storj.dev/dcs/api/s3/s3-compatibility#copy-object).
 	if srcInfo.Size > maxObjectSize {
 		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
 		return
 	}
 
+	// Unlike S3, replacing only the tags makes copying an object onto itself valid, which the object
+	// layer handles by updating the tags in place, so clients can change tags with CopyObject.
 	if srcBucket == dstBucket && srcObject == dstObject && srcVersionID == "" && storageClass == "" &&
 		metadataDirective != replaceDirective && tagDirective != replaceDirective {
 		api.writeErrorResponse(w, r, apierr.CodeInvalidCopyDest)

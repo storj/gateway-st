@@ -439,7 +439,7 @@ s3tests/functional/test_s3.py::test_object_copy_tagging_ignored_without_directiv
 s3tests/functional/test_s3.py::test_object_copy_replacing_metadata_and_copying_tagging
 s3tests/functional/test_s3.py::test_object_copy_replacing_tagging
 s3tests/functional/test_s3.py::test_object_copy_replacing_tagging_with_none
-#(test harness) s3tests/functional/test_s3.py::test_object_copy_to_itself_replacing_tagging
+#(tags-only self-copy allowed) s3tests/functional/test_s3.py::test_object_copy_to_itself_replacing_tagging
 s3tests/functional/test_s3.py::test_object_copy_bucket_not_found
 s3tests/functional/test_s3.py::test_object_copy_key_not_found
 s3tests/functional/test_s3.py::test_object_copy_versioned_bucket
