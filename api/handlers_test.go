@@ -1336,7 +1336,7 @@ func TestUploadPartCopy(t *testing.T) {
 		{name: "end overflows length", size: 10, rangeStr: "bytes=0-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "huge start", size: 10, rangeStr: "bytes=9223372036854775806-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
 		{name: "source too large", size: 6 * gib, expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
-		{name: "range too large", size: 6 * gib, rangeStr: fmt.Sprintf("bytes=0-%d", 5*gib), expStatus: http.StatusBadRequest, expCode: "EntityTooLarge"},
+		{name: "range too large", size: 6 * gib, rangeStr: fmt.Sprintf("bytes=0-%d", 5*gib), expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: tt.size, ETag: "etag"}, "")

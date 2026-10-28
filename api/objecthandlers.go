@@ -450,12 +450,9 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		startOffset, length = rangeSpec.Start, rangeSpec.End-rangeSpec.Start+1
 	}
+	// S3 reports a range over the limit like a source over it.
 	if length > maxPartSize {
-		if rangeSpec == nil {
-			api.writeErrorResponse(w, r, apierr.CodeCopySourceTooLarge)
-		} else {
-			api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
-		}
+		api.writeErrorResponse(w, r, apierr.CodeCopySourceTooLarge)
 		return
 	}
 	if rangeSpec == nil {
