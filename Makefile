@@ -13,7 +13,7 @@ help:
 
 .DEFAULT_GOAL := help
 
-GO_VERSION  ?= 1.27.2
+GO_VERSION  ?= 1.27.3
 BRANCH_NAME ?= $(shell git rev-parse --abbrev-ref HEAD | sed "s!/!-!g")
 
 ifeq (${BRANCH_NAME},main)
