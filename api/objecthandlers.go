@@ -518,7 +518,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if api.rejectIfMatch(w, r) {
+	if api.rejectUnsupportedConditions(w, r, true) {
 		return
 	}
 
@@ -1294,19 +1294,26 @@ func etagMatchesList(etag, list string, weak bool) bool {
 	return false
 }
 
-// rejectIfMatch writes a NotImplemented error and returns true if r has an If-Match,
-// x-amz-if-match-size or x-amz-if-match-last-modified-time header.
-// The object layer can't check these conditions atomically, because objectlayer.ObjectOptions has no
-// fields for them, so writes and deletes refuse them rather than ignore them.
+// rejectUnsupportedConditions writes a NotImplemented error and returns true if r has an If-Match,
+// x-amz-if-match-size or x-amz-if-match-last-modified-time header, which the object layer can't
+// check atomically because objectlayer.ObjectOptions has no fields for them, so writes and deletes
+// refuse them rather than ignore them.
+//
+// Like S3, it also refuses an If-Modified-Since or If-Unmodified-Since header, even an empty one,
+// and an If-None-Match header unless allowIfNoneMatch is set.
 //
 // TODO: S3 supports If-Match on PutObject, CopyObject, CompleteMultipartUpload and DeleteObject
 // (ceph's test_put_object_ifmatch_* and test_atomic_conditional_write_1mb). Supporting it needs
 // an IfMatch option in objectlayer.ObjectOptions that miniogw, uplink and the satellite check
 // atomically, like IfNoneMatch.
-func (api *API) rejectIfMatch(w http.ResponseWriter, r *http.Request) bool {
-	if r.Header.Get(xhttp.IfMatch) == "" &&
-		r.Header.Get("X-Amz-If-Match-Size") == "" &&
-		r.Header.Get("X-Amz-If-Match-Last-Modified-Time") == "" {
+func (api *API) rejectUnsupportedConditions(w http.ResponseWriter, r *http.Request, allowIfNoneMatch bool) bool {
+	unsupported := r.Header.Get(xhttp.IfMatch) != "" ||
+		r.Header.Get("X-Amz-If-Match-Size") != "" ||
+		r.Header.Get("X-Amz-If-Match-Last-Modified-Time") != "" ||
+		len(r.Header.Values(xhttp.IfModifiedSince)) > 0 ||
+		len(r.Header.Values(xhttp.IfUnmodifiedSince)) > 0 ||
+		!allowIfNoneMatch && len(r.Header.Values(xhttp.IfNoneMatch)) > 0
+	if !unsupported {
 		return false
 	}
 	api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
@@ -1342,7 +1349,7 @@ func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if api.rejectIfMatch(w, r) {
+	if api.rejectUnsupportedConditions(w, r, false) {
 		return
 	}
 
@@ -1441,7 +1448,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if api.rejectIfMatch(w, r) {
+	if api.rejectUnsupportedConditions(w, r, true) {
 		return
 	}
 
@@ -1782,7 +1789,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if api.rejectIfMatch(w, r) {
+	if api.rejectUnsupportedConditions(w, r, true) {
 		return
 	}
 

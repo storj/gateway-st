@@ -1797,7 +1797,7 @@ func TestGetObjectAttributes(t *testing.T) {
 	}
 }
 
-func TestIfMatchNotImplemented(t *testing.T) {
+func TestConditionsNotImplemented(t *testing.T) {
 	deleteBody := []byte(`<Delete><Object><Key>key</Key><ETag>"etag"</ETag></Object></Delete>`)
 	deleteSum := md5.Sum(deleteBody)
 	deleteSizeBody := []byte(`<Delete><Object><Key>key</Key><Size>5</Size></Object></Delete>`)
@@ -1817,6 +1817,16 @@ func TestIfMatchNotImplemented(t *testing.T) {
 		{"DeleteObject", http.MethodDelete, "/bucket/key", http.Header{"If-Match": {`"etag"`}}, nil},
 		{"DeleteObject size", http.MethodDelete, "/bucket/key", http.Header{"X-Amz-If-Match-Size": {"5"}}, nil},
 		{"DeleteObject last modified", http.MethodDelete, "/bucket/key", http.Header{"X-Amz-If-Match-Last-Modified-Time": {"Wed, 01 Jan 2025 00:00:00 GMT"}}, nil},
+		// S3 refuses If-Modified-Since and If-Unmodified-Since on every write and delete, and
+		// If-None-Match on deletes, whatever their values.
+		{"PutObject If-Modified-Since", http.MethodPut, "/bucket/key", http.Header{"If-Modified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, []byte("data")},
+		{"PutObject If-Unmodified-Since", http.MethodPut, "/bucket/key", http.Header{"If-Unmodified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, []byte("data")},
+		{"PutObject empty If-Modified-Since", http.MethodPut, "/bucket/key", http.Header{"If-Modified-Since": {""}}, []byte("data")},
+		{"CopyObject If-Unmodified-Since", http.MethodPut, "/bucket/key", http.Header{"If-Unmodified-Since": {"garbage"}, "X-Amz-Copy-Source": {"/bucket/src"}}, nil},
+		{"CompleteMultipartUpload If-Modified-Since", http.MethodPost, "/bucket/key?uploadId=upload-id", http.Header{"If-Modified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, completeBody},
+		{"DeleteObject If-None-Match", http.MethodDelete, "/bucket/key", http.Header{"If-None-Match": {"*"}}, nil},
+		{"DeleteObject If-Modified-Since", http.MethodDelete, "/bucket/key", http.Header{"If-Modified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, nil},
+		{"DeleteObject If-Unmodified-Since", http.MethodDelete, "/bucket/key", http.Header{"If-Unmodified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, nil},
 		{"DeleteObjects", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteSum[:])}}, deleteBody},
 		{"DeleteObjects size", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteSizeSum[:])}}, deleteSizeBody},
 		{"DeleteObjects last modified", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteTimeSum[:])}}, deleteTimeBody},
