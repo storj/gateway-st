@@ -25,6 +25,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"net/url"
 	"path"
@@ -860,10 +861,13 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// objectlayer.ObjectToDelete has no condition fields, so decode into a type that keeps them.
+	// VersionID shadows ObjectToDelete.VersionID, so that an empty VersionId element can be told
+	// apart from a missing one.
 	var req struct {
 		Quiet   bool
 		Objects []struct {
 			objectlayer.ObjectToDelete
+			VersionID        *string `xml:"VersionId"`
 			ETag             string
 			Size             string
 			LastModifiedTime string
@@ -879,7 +883,6 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]objectlayer.ObjectToDelete, 0, len(req.Objects))}
 	for _, object := range req.Objects {
 		// Conditional deletes are refused like If-Match on DeleteObject, because the object layer
 		// can't check their conditions.
@@ -887,23 +890,25 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 			return
 		}
-		deleteReq.Objects = append(deleteReq.Objects, object.ObjectToDelete)
 	}
 
 	type bucketObjectLocation struct {
-		key       string
-		versionID string
+		key          string
+		versionID    string
+		hasVersionID bool
 	}
 
-	seen := make(map[bucketObjectLocation]struct{}, len(deleteReq.Objects))
+	seen := make(map[bucketObjectLocation]struct{}, len(req.Objects))
 
-	var filteredIndex int
-
-	deleteErrs := make([]deleteError, 0, len(deleteReq.Objects))
-	for _, object := range deleteReq.Objects {
+	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]objectlayer.ObjectToDelete, 0, len(req.Objects))}
+	deleteErrs := make([]deleteError, 0, len(req.Objects))
+	for _, object := range req.Objects {
 		loc := bucketObjectLocation{
-			key:       object.ObjectName,
-			versionID: object.VersionID,
+			key:          object.ObjectName,
+			hasVersionID: object.VersionID != nil,
+		}
+		if object.VersionID != nil {
+			loc.versionID = *object.VersionID
 		}
 
 		if _, ok := seen[loc]; ok {
@@ -911,22 +916,28 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[loc] = struct{}{}
 
-		if err := validateVersionID(object.VersionID); object.VersionID != "" && err != nil {
-			// Like the single-object operations.
-			resp, _ := errToResponse(err)
-			deleteErrs = append(deleteErrs, deleteError{
-				Code:      resp.Code,
-				Message:   resp.Description,
-				Key:       object.ObjectName,
-				VersionID: object.VersionID,
-			})
-			continue
+		if loc.hasVersionID {
+			err := validateVersionID(loc.versionID)
+			if errors.Is(err, apierr.CodeInvalidVersionID) {
+				// Unlike the single-object operations, S3 reports an empty or malformed version ID
+				// as a version that doesn't exist.
+				err = apierr.CodeNoSuchVersion
+			}
+			if err != nil {
+				resp, _ := errToResponse(err)
+				deleteErrs = append(deleteErrs, deleteError{
+					Code:      resp.Code,
+					Message:   resp.Description,
+					Key:       object.ObjectName,
+					VersionID: loc.versionID,
+				})
+				continue
+			}
 		}
 
-		deleteReq.Objects[filteredIndex] = object
-		filteredIndex++
+		object.ObjectToDelete.VersionID = loc.versionID
+		deleteReq.Objects = append(deleteReq.Objects, object.ObjectToDelete)
 	}
-	deleteReq.Objects = deleteReq.Objects[:filteredIndex]
 
 	var deletedObjects []objectlayer.DeletedObject
 	var apiDeleteErrs []objectlayer.DeleteObjectsError

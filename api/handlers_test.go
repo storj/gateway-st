@@ -1936,22 +1936,31 @@ func TestDeleteObjectsVersionIDs(t *testing.T) {
 		`<Object><Key>null</Key><VersionId>null</VersionId></Object>` +
 		`<Object><Key>dashed</Key><VersionId>00000000-0000-0000-0000-000000000001</VersionId></Object>` +
 		`<Object><Key>garbage</Key><VersionId>garbage</VersionId></Object>` +
+		`<Object><Key>empty</Key><VersionId></VersionId></Object>` +
+		`<Object><Key>both</Key></Object>` +
+		`<Object><Key>both</Key><VersionId></VersionId></Object>` +
 		`</Delete>`)
 	sum := md5.Sum(body)
 	header := http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(sum[:])}}
 
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	// An empty VersionId isn't a missing one, so it doesn't delete the latest version.
 	require.Equal(t, []cmd.ObjectToDelete{
 		{ObjectName: "latest"},
 		{ObjectName: "valid", VersionID: "00000000000000000000000000000001"},
+		{ObjectName: "both"},
 	}, got)
 	require.Contains(t, resp.Body, "<Deleted><Key>latest</Key></Deleted>")
 	require.Contains(t, resp.Body, "<Deleted><Key>valid</Key><VersionId>00000000000000000000000000000001</VersionId></Deleted>")
+	require.Contains(t, resp.Body, "<Deleted><Key>both</Key></Deleted>")
 	require.Contains(t, resp.Body, "<Error><Code>NotImplemented</Code>")
 	require.Contains(t, resp.Body, "<Key>null</Key><VersionId>null</VersionId></Error>")
-	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>dashed</Key>")
-	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>garbage</Key>")
+	// S3 reports an empty or malformed version ID as a version that doesn't exist.
+	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>dashed</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>garbage</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>empty</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>both</Key>")
 }
 
 func TestDeleteObjectsOnlyFiltered(t *testing.T) {
@@ -1974,8 +1983,8 @@ func TestDeleteObjectsOnlyFiltered(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Empty(t, objectAPI.Calls())
-	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>dashed</Key>")
-	require.Contains(t, resp.Body, "<Error><Code>InvalidArgument</Code><Message>Invalid version id specified</Message><Key>garbage</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>dashed</Key>")
+	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>garbage</Key>")
 }
 
 func TestUnauthenticatedRequestValidation(t *testing.T) {
