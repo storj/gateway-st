@@ -117,7 +117,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 			Location: "Poland",
 		})
 		// cannot create bucket with custom placement if there is project default.
-		require.True(t, metaclient.ErrConflictingPlacement.Has(err))
+		require.ErrorIs(t, err, miniogw.ErrBucketConflictingPlacement)
 
 		err = layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{})
 		require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 		err = layer.MakeBucketWithLocation(ctx, testBucketB, minio.BucketOptions{
 			Location: "EU",
 		})
-		require.True(t, metaclient.ErrInvalidPlacement.Has(err))
+		require.ErrorIs(t, err, miniogw.ErrBucketInvalidPlacement)
 
 		// disable self-serve placement
 		planet.Satellites[0].API.Metainfo.Endpoint.TestSelfServePlacementEnabled(false)

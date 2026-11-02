@@ -185,6 +185,22 @@ var (
 		Message:    "There are duplicate tag keys in your request.",
 	}
 
+	// ErrBucketInvalidPlacement is returned when a bucket is created with a location constraint that isn't a placement
+	// available to the project.
+	ErrBucketInvalidPlacement = miniogo.ErrorResponse{
+		Code:       "InvalidLocationConstraint",
+		StatusCode: http.StatusBadRequest,
+		Message:    "The specified location constraint is not valid.",
+	}
+
+	// ErrBucketConflictingPlacement is returned when a bucket is created with a location constraint in a project that
+	// has a default placement.
+	ErrBucketConflictingPlacement = miniogo.ErrorResponse{
+		Code:       "InvalidLocationConstraint",
+		StatusCode: http.StatusBadRequest,
+		Message:    "A location constraint can't be specified because the project has a default placement.",
+	}
+
 	// ErrNoUplinkProject is a custom error that indicates there was no
 	// `*uplink.Project` in the context for the gateway to pick up. This error
 	// may signal that passing credentials down to the object layer is working
@@ -1697,6 +1713,10 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	case errors.Is(err, uplink.ErrBucketAlreadyExists):
 		return minio.BucketAlreadyExists{Bucket: bucketName}
+	case errors.Is(err, bucket.ErrInvalidPlacement):
+		return ErrBucketInvalidPlacement
+	case errors.Is(err, bucket.ErrConflictingPlacement):
+		return ErrBucketConflictingPlacement
 	case errors.Is(err, uplink.ErrBucketNotFound):
 		return minio.BucketNotFound{Bucket: bucketName}
 	case errors.Is(err, uplink.ErrBucketNotEmpty):
