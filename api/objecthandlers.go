@@ -968,22 +968,22 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// The lock type is ignored by our object layer.
 	var noLock objectlayer.LockType
 	reader, err := api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, rangeSpec, r.Header, noLock, opts)
-	ifRange := r.Header.Get("If-Range")
+	hasIfRange := len(r.Header.Values("If-Range")) > 0
 	switch {
-	case err == nil && rangeSpec != nil && !ifRangeMatches(reader.ObjInfo, ifRange):
+	case err == nil && rangeSpec != nil && !ifRangeMatches(reader.ObjInfo, r.Header):
 		// The object changed since the client got the validator, so the entire object is sent
 		// instead of the range. The object layer starts the ranged download before the object is
 		// known, so the object is downloaded again.
 		_ = reader.Close()
 		rangeSpec = nil
 		reader, err = api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, nil, r.Header, noLock, opts)
-	case err != nil && rangeSpec != nil && ifRange != "" && isInvalidRange(err):
+	case err != nil && rangeSpec != nil && hasIfRange && isInvalidRange(err):
 		// The range may be unsatisfiable only because the object changed since the client got the
 		// validator. If it didn't, the range is rejected. The object may have been replaced since
 		// the first download, so the whole object is never sent as the range.
 		rangeErr := err
 		reader, err = api.objectAPI.GetObjectNInfo(ctx, bucketName, objectKey, nil, r.Header, noLock, opts)
-		if err == nil && ifRangeMatches(reader.ObjInfo, ifRange) {
+		if err == nil && ifRangeMatches(reader.ObjInfo, r.Header) {
 			_ = reader.Close()
 			err = rangeErr
 		}
@@ -1125,7 +1125,7 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rangeSpec != nil && !ifRangeMatches(objInfo, r.Header.Get("If-Range")) {
+	if rangeSpec != nil && !ifRangeMatches(objInfo, r.Header) {
 		rangeSpec = nil
 	}
 
@@ -1198,15 +1198,14 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 		}
 	}
 
-	switch evaluatePreconditions(objInfo,
-		r.Header.Get(xhttp.IfMatch), r.Header.Get(xhttp.IfUnmodifiedSince),
-		r.Header.Get(xhttp.IfNoneMatch), r.Header.Get(xhttp.IfModifiedSince),
+	switch evaluatePreconditions(objInfo, r.Header,
+		xhttp.IfMatch, xhttp.IfUnmodifiedSince, xhttp.IfNoneMatch, xhttp.IfModifiedSince,
 	) {
 	case http.StatusPreconditionFailed:
 		writeHeaders()
 		// If-Unmodified-Since is ignored when If-Match is present.
 		condition := xhttp.IfUnmodifiedSince
-		if r.Header.Get(xhttp.IfMatch) != "" {
+		if len(r.Header.Values(xhttp.IfMatch)) > 0 {
 			condition = xhttp.IfMatch
 		}
 		writeError(withCondition(apierr.CodePreconditionFailed, condition))
@@ -1225,29 +1224,31 @@ func validModTime(modTime time.Time) bool {
 	return !modTime.IsZero() && !modTime.Equal(time.Unix(0, 0))
 }
 
-// evaluatePreconditions evaluates conditional headers against an object in the order defined by
-// RFC 7232, section 6: If-Unmodified-Since is ignored if If-Match is present, and
-// If-Modified-Since is ignored if If-None-Match is present. Like S3, If-Modified-Since is also
-// ignored if If-Match is present and satisfied. It returns
-// http.StatusPreconditionFailed or http.StatusNotModified if the request should not proceed and
-// 0 otherwise. Unparsable dates, and all dates if the object has no valid modification time, are
-// ignored.
-func evaluatePreconditions(objInfo objectlayer.ObjectInfo, ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince string) int {
+// evaluatePreconditions evaluates the conditional headers of h with the given names against an
+// object in the order defined by RFC 7232, section 6: If-Unmodified-Since is ignored if If-Match is
+// present, and If-Modified-Since is ignored if If-None-Match is present, even if it's empty. Like S3, If-Modified-Since
+// is also ignored if If-Match is present and satisfied, or if it's in the future, the values of
+// repeated header lines are combined, ETags are compared weakly, and an empty If-Match fails. It
+// returns http.StatusPreconditionFailed or http.StatusNotModified if the request should not proceed
+// and 0 otherwise. Unparsable dates, and all dates if the object has no valid modification time,
+// are ignored.
+func evaluatePreconditions(objInfo objectlayer.ObjectInfo, h http.Header, ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince string) int {
 	hasModTime := validModTime(objInfo.ModTime)
 
-	if ifMatch != "" {
-		if !etagMatchesList(objInfo.ETag, ifMatch, false) {
+	ifMatchValues := h.Values(ifMatch)
+	if len(ifMatchValues) > 0 {
+		if !etagMatchesList(objInfo.ETag, strings.Join(ifMatchValues, ",")) {
 			return http.StatusPreconditionFailed
 		}
-	} else if t, err := http.ParseTime(ifUnmodifiedSince); err == nil && hasModTime && modifiedSince(objInfo.ModTime, t) {
+	} else if t, err := http.ParseTime(h.Get(ifUnmodifiedSince)); err == nil && hasModTime && modifiedSince(objInfo.ModTime, t) {
 		return http.StatusPreconditionFailed
 	}
 
-	if ifNoneMatch != "" {
-		if etagMatchesList(objInfo.ETag, ifNoneMatch, true) {
+	if ifNoneMatchValues := h.Values(ifNoneMatch); len(ifNoneMatchValues) > 0 {
+		if etagMatchesList(objInfo.ETag, strings.Join(ifNoneMatchValues, ",")) {
 			return http.StatusNotModified
 		}
-	} else if t, err := http.ParseTime(ifModifiedSince); err == nil && hasModTime && ifMatch == "" && !modifiedSince(objInfo.ModTime, t) {
+	} else if t, err := http.ParseTime(h.Get(ifModifiedSince)); err == nil && hasModTime && len(ifMatchValues) == 0 && !t.After(time.Now()) && !modifiedSince(objInfo.ModTime, t) {
 		return http.StatusNotModified
 	}
 
@@ -1275,13 +1276,16 @@ func isInvalidRange(err error) bool {
 	return ok && resp.Code == "InvalidRange"
 }
 
-// ifRangeMatches returns whether a range request's If-Range value, which is empty if the
-// header is missing, matches an object, so that the range is served. Like net/http, an ETag must
-// match strongly and a date must equal the modification time to the second.
-func ifRangeMatches(objInfo objectlayer.ObjectInfo, ifRange string) bool {
-	if ifRange == "" {
+// ifRangeMatches returns whether the If-Range header of a range request matches an object, so that
+// the range is served. A missing header matches. Like S3, only the first of repeated lines is used,
+// and an empty value doesn't match. Like net/http, an ETag must match strongly and a date must
+// equal the modification time to the second.
+func ifRangeMatches(objInfo objectlayer.ObjectInfo, h http.Header) bool {
+	values := h.Values("If-Range")
+	if len(values) == 0 {
 		return true
 	}
+	ifRange := values[0]
 	if strings.HasPrefix(ifRange, `"`) {
 		return isETagEqual(objInfo.ETag, ifRange)
 	}
@@ -1293,20 +1297,15 @@ func ifRangeMatches(objInfo objectlayer.ObjectInfo, ifRange string) bool {
 }
 
 // etagMatchesList returns whether etag matches an If-Match or If-None-Match header value, which is
-// either "*" or a comma-separated list of ETags. Weak comparison ignores the W/ prefix of weak
-// ETags, while strong comparison never matches them.
-func etagMatchesList(etag, list string, weak bool) bool {
+// either "*" or a comma-separated list of ETags. Like S3, the comparison is weak: the W/ prefix of
+// weak ETags is ignored.
+func etagMatchesList(etag, list string) bool {
 	for candidate := range strings.SplitSeq(list, ",") {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "*" {
 			return true
 		}
-		if after, ok := strings.CutPrefix(candidate, "W/"); ok {
-			if !weak {
-				continue
-			}
-			candidate = after
-		}
+		candidate = strings.TrimPrefix(candidate, "W/")
 		if isETagEqual(etag, candidate) {
 			return true
 		}
@@ -1346,9 +1345,12 @@ func modifiedSince(modTime, t time.Time) bool {
 	return modTime.Truncate(time.Second).After(t)
 }
 
-// isETagEqual returns whether two ETags are equal, ignoring surrounding double quotes.
+// isETagEqual returns whether two ETags are equal, ignoring surrounding double quotes. An empty
+// ETag equals nothing, so that an object without one, such as one uploaded with uplink, matches
+// no empty If-Match, If-None-Match or If-Range value.
 func isETagEqual(a, b string) bool {
-	return strings.Trim(a, `"`) == strings.Trim(b, `"`)
+	a, b = strings.Trim(a, `"`), strings.Trim(b, `"`)
+	return a != "" && a == b
 }
 
 // DeleteObjectHandler is the HTTP handler for the DeleteObject operation, which deletes an object
@@ -1678,13 +1680,12 @@ func isDirectiveValid(directive string) bool {
 func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, srcInfo objectlayer.ObjectInfo) bool {
 	// Unlike GetObject, a copy request whose source matches X-Amz-Copy-Source-If-None-Match fails.
 	var condition string
-	switch evaluatePreconditions(srcInfo,
-		r.Header.Get(xhttp.AmzCopySourceIfMatch), r.Header.Get(xhttp.AmzCopySourceIfUnmodifiedSince),
-		r.Header.Get(xhttp.AmzCopySourceIfNoneMatch), r.Header.Get(xhttp.AmzCopySourceIfModifiedSince),
+	switch evaluatePreconditions(srcInfo, r.Header,
+		xhttp.AmzCopySourceIfMatch, xhttp.AmzCopySourceIfUnmodifiedSince, xhttp.AmzCopySourceIfNoneMatch, xhttp.AmzCopySourceIfModifiedSince,
 	) {
 	case http.StatusPreconditionFailed:
 		condition = xhttp.AmzCopySourceIfUnmodifiedSince
-		if r.Header.Get(xhttp.AmzCopySourceIfMatch) != "" {
+		if len(r.Header.Values(xhttp.AmzCopySourceIfMatch)) > 0 {
 			condition = xhttp.AmzCopySourceIfMatch
 		}
 	case http.StatusNotModified:

@@ -54,7 +54,8 @@ func TestPreconditionPrecedence(t *testing.T) {
 		{name: "if-match wildcard", ifMatch: "*", expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
 		{name: "if-none-match wildcard", ifNoneMatch: "*", expGetStatus: http.StatusNotModified, expCopyStatus: http.StatusPreconditionFailed},
 		{name: "if-match list", ifMatch: `"a", "etag"`, expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
-		{name: "if-match weak etag", ifMatch: `W/"etag"`, expGetStatus: http.StatusPreconditionFailed, expCopyStatus: http.StatusPreconditionFailed},
+		// S3 compares ETags weakly for If-Match too.
+		{name: "if-match weak etag", ifMatch: `W/"etag"`, expGetStatus: http.StatusOK, expCopyStatus: http.StatusOK},
 		{name: "if-none-match weak etag in list", ifNoneMatch: `"a", W/"etag"`, expGetStatus: http.StatusNotModified, expCopyStatus: http.StatusPreconditionFailed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -149,6 +150,121 @@ func TestPreconditionsWithoutModTime(t *testing.T) {
 		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst", copyHeader, nil)
 		require.Equal(t, tt.expCopyStatus, resp.StatusCode, "CopyObject %v: %s", tt.header, resp.Body)
 		require.Empty(t, resp.Header.Get("Last-Modified"), "CopyObject %v", tt.header)
+	}
+}
+
+// TestPreconditionsWithoutETag checks that an object without an ETag, such as one uploaded with
+// uplink, matches no ETag, not even an empty one.
+func TestPreconditionsWithoutETag(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject}, nil
+	}
+
+	for _, tt := range []struct {
+		header                   http.Header
+		expStatus, expCopyStatus int
+	}{
+		{http.Header{"If-Match": {""}}, http.StatusPreconditionFailed, http.StatusPreconditionFailed},
+		{http.Header{"If-Match": {`""`}}, http.StatusPreconditionFailed, http.StatusPreconditionFailed},
+		{http.Header{"If-Match": {`"a",`}}, http.StatusPreconditionFailed, http.StatusPreconditionFailed},
+		{http.Header{"If-Match": {"*"}}, http.StatusOK, http.StatusOK},
+		{http.Header{"If-None-Match": {""}}, http.StatusOK, http.StatusOK},
+		{http.Header{"If-None-Match": {`""`}}, http.StatusOK, http.StatusOK},
+		{http.Header{"If-None-Match": {`"a",`}}, http.StatusOK, http.StatusOK},
+		{http.Header{"If-None-Match": {"*"}}, http.StatusNotModified, http.StatusPreconditionFailed},
+	} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			resp := serve(t, objectAPI, method, "/bucket/key", tt.header, nil)
+			require.Equal(t, tt.expStatus, resp.StatusCode, "%s %v", method, tt.header)
+		}
+
+		copyHeader := http.Header{"X-Amz-Copy-Source": {"/bucket/key"}}
+		for k, v := range tt.header {
+			copyHeader["X-Amz-Copy-Source-"+k] = v
+		}
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst", copyHeader, nil)
+		require.Equal(t, tt.expCopyStatus, resp.StatusCode, "CopyObject %v: %s", tt.header, resp.Body)
+	}
+
+	// An If-Range that doesn't match serves the whole object.
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key", http.Header{"Range": {"bytes=0-1"}, "If-Range": {`""`}}, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// TestIfRangeLikeS3 checks the responses that S3 returned for If-Range values on GetObject and
+// HeadObject, for a satisfiable and an unsatisfiable range.
+func TestIfRangeLikeS3(t *testing.T) {
+	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}, "0123456789")
+
+	for _, tt := range []struct {
+		name                       string
+		ifRange                    []string
+		expStatus, expUnsatisfying int
+	}{
+		{"no If-Range", nil, http.StatusPartialContent, http.StatusRequestedRangeNotSatisfiable},
+		{"matching ETag", []string{`"etag"`}, http.StatusPartialContent, http.StatusRequestedRangeNotSatisfiable},
+		{"empty", []string{""}, http.StatusOK, http.StatusOK},
+		{"quoted empty", []string{`""`}, http.StatusOK, http.StatusOK},
+		// Only the first of repeated lines is used.
+		{"empty then matching ETag", []string{"", `"etag"`}, http.StatusOK, http.StatusOK},
+		{"matching ETag then empty", []string{`"etag"`, ""}, http.StatusPartialContent, http.StatusRequestedRangeNotSatisfiable},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, method := range []string{http.MethodGet, http.MethodHead} {
+				for rangeValue, expStatus := range map[string]int{"bytes=2-4": tt.expStatus, "bytes=10-": tt.expUnsatisfying} {
+					header := http.Header{"Range": {rangeValue}}
+					if tt.ifRange != nil {
+						header["If-Range"] = tt.ifRange
+					}
+					resp := serve(t, objectAPI, method, "/bucket/key", header, nil)
+					require.Equal(t, expStatus, resp.StatusCode, "%s %s: %s", method, rangeValue, resp.Body)
+				}
+			}
+		})
+	}
+}
+
+// TestPreconditionsLikeS3 checks the responses that S3 returned for the same conditional headers on
+// GetObject, HeadObject and the source of CopyObject.
+func TestPreconditionsLikeS3(t *testing.T) {
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "src", ModTime: modTime, Size: 10, ETag: "etag"}
+	objectAPI := singleObjectLayer(objInfo, "0123456789")
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime}, nil
+	}
+	future := time.Now().Add(48 * time.Hour).UTC().Format(http.TimeFormat)
+
+	for _, tt := range []struct {
+		name                  string
+		header                http.Header
+		expGet, expCopyStatus int
+	}{
+		{"future If-Modified-Since is ignored", http.Header{"If-Modified-Since": {future}}, http.StatusOK, http.StatusOK},
+		{"future If-Unmodified-Since", http.Header{"If-Unmodified-Since": {future}}, http.StatusOK, http.StatusOK},
+		{"two If-Match lines, bad then good", http.Header{"If-Match": {`"other"`, `"etag"`}}, http.StatusOK, http.StatusOK},
+		{"two If-None-Match lines, other then matching", http.Header{"If-None-Match": {`"other"`, `"etag"`}}, http.StatusNotModified, http.StatusPreconditionFailed},
+		{"empty If-Match fails", http.Header{"If-Match": {""}}, http.StatusPreconditionFailed, http.StatusPreconditionFailed},
+		{"empty If-None-Match is ignored", http.Header{"If-None-Match": {""}}, http.StatusOK, http.StatusOK},
+		// Even an empty If-None-Match makes S3 ignore If-Modified-Since.
+		{"empty If-None-Match ignores If-Modified-Since", http.Header{"If-None-Match": {""}, "If-Modified-Since": {modTime.Format(http.TimeFormat)}}, http.StatusOK, http.StatusOK},
+		{"two empty If-None-Match lines ignore If-Modified-Since", http.Header{"If-None-Match": {"", ""}, "If-Modified-Since": {modTime.Format(http.TimeFormat)}}, http.StatusOK, http.StatusOK},
+		{"If-Modified-Since alone", http.Header{"If-Modified-Since": {modTime.Format(http.TimeFormat)}}, http.StatusNotModified, http.StatusPreconditionFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, method := range []string{http.MethodGet, http.MethodHead} {
+				resp := serve(t, objectAPI, method, "/bucket/src", tt.header, nil)
+				require.Equal(t, tt.expGet, resp.StatusCode, "%s: %s", method, resp.Body)
+			}
+
+			copyHeader := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}
+			for name, values := range tt.header {
+				copyHeader["X-Amz-Copy-Source-"+name] = values
+			}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst", copyHeader, nil)
+			require.Equal(t, tt.expCopyStatus, resp.StatusCode, "CopyObject: %s", resp.Body)
+		})
 	}
 }
 
