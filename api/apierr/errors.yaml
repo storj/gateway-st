@@ -600,7 +600,7 @@
 
 - name: NotImplemented
   code: NotImplemented
-  description: A header that you provided implies functionality that is not implemented.
+  description: A header you provided implies functionality that is not implemented
   http_status: 501
 
 - name: OperationNotSupported

@@ -1774,7 +1774,7 @@ func TestIfMatchOnWritesLikeS3(t *testing.T) {
 	completeBody := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
 	const (
 		empty     = "<Code>InvalidArgument</Code><Message>The value provided for the If-Match query parameter cannot be empty for this API.</Message>"
-		notImpl   = "<Code>NotImplemented</Code>"
+		notImpl   = "<Code>NotImplemented</Code><Message>A header you provided implies functionality that is not implemented</Message>"
 		duplicate = "<Code>InvalidRequest</Code><Message>Duplicate header name found: If-Match</Message>"
 	)
 	etag := `"5eb63bbbe01eeed093cb22bb8f5acdc3"`

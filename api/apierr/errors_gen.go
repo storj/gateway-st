@@ -708,7 +708,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeNotImplemented: {
 		Code:           "NotImplemented",
-		Description:    "A header that you provided implies functionality that is not implemented.",
+		Description:    "A header you provided implies functionality that is not implemented",
 		HTTPStatusCode: http.StatusNotImplemented,
 	},
 	CodeObjectLockConfigurationPresent: {
