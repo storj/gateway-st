@@ -711,6 +711,12 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The subresources are routed elsewhere, and S3 refuses any other query parameter.
+	if r.URL.RawQuery != "" {
+		api.writeErrorResponse(w, r, apierr.CodePostObjectQuery)
+		return
+	}
+
 	vr, err := api.verifier.V2V4.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

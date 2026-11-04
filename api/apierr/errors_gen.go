@@ -119,6 +119,7 @@ const (
 	CodePartNumberWithoutUploadID
 	CodePostFormInvalidFileCount
 	CodePostFormMultipleKeyFields
+	CodePostObjectQuery
 	CodePostPolicyConditionMissingOperationID
 	CodePostPolicyContentLengthConditionInvalidString
 	CodePostPolicyContentLengthConditionInvalidValueType
@@ -712,6 +713,11 @@ var codeToResponse = map[Code]Response{
 	CodePostFormMultipleKeyFields: {
 		Code:           "InvalidArgument",
 		Description:    "POST only supports one key parameter per request.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodePostObjectQuery: {
+		Code:           "InvalidArgument",
+		Description:    "Query String Parameters not allowed on POST requests.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodePostPolicyConditionMissingOperationID: {

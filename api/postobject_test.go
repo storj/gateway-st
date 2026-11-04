@@ -260,3 +260,15 @@ func TestPostObjectV2MissingSignature(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "<Code>InvalidArgument</Code>")
 }
+
+func TestPostObjectQueryLikeS3(t *testing.T) {
+	for _, target := range []string{"/bucket?foo", "/bucket?foo=bar", "/bucket?versionId=x", "/bucket?x-id=PutObject"} {
+		objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+		resp := postObject(t, objectAPI, target,
+			[]any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "k"}},
+			[][2]string{{"key", "k"}}, "data")
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>Query String Parameters not allowed on POST requests.</Message>", target)
+		require.Nil(t, objectAPI.data, target)
+	}
+}

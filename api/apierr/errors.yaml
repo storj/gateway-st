@@ -478,6 +478,11 @@
   description: Marker unsupported with REST.GET.BUCKET in list-type=2
   http_status: 400
 
+- name: PostObjectQuery
+  code: InvalidArgument
+  description: Query String Parameters not allowed on POST requests.
+  http_status: 400
+
 - name: MFAAuthenticationRequired
   code: AccessDenied
   description: Mfa Authentication must be used for this request
