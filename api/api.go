@@ -348,6 +348,11 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		w.Header().Set(amzID2, base64.StdEncoding.EncodeToString(hostID[:]))
 		// Handlers log with the request, so the request ID must be in its context.
 		r = r.WithContext(logger.SetReqInfo(r.Context(), &logger.ReqInfo{RequestID: requestID}))
+		if r.Body != nil && r.Body != http.NoBody {
+			body := &trackedBody{ReadCloser: r.Body, contentLength: r.ContentLength}
+			r.Body = body
+			w = &closeUnreadWriter{ResponseWriter: w, body: body}
+		}
 		next.ServeHTTP(w, r)
 	})
 }

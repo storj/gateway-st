@@ -26,6 +26,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -60,6 +61,63 @@ const (
 	mimeNone mimeType = ""
 	mimeXML  mimeType = "application/xml"
 )
+
+// trackedBody is a request body that records whether the handler read all of it.
+type trackedBody struct {
+	io.ReadCloser
+	contentLength int64
+	n             int64
+	eof           bool
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n += int64(n)
+	if errors.Is(err, io.EOF) {
+		b.eof = true
+	}
+	return n, err
+}
+
+// unread returns whether the request has a body that wasn't read entirely. Without a known content
+// length, only reaching the end counts.
+func (b *trackedBody) unread() bool {
+	return !b.eof && (b.contentLength < 0 || b.n < b.contentLength)
+}
+
+// closeUnreadWriter closes the connection after a request whose body the handler didn't read
+// entirely. Like S3, it does so instead of reading and discarding the rest of the body, which also
+// keeps its remaining bytes from being read as the start of the next request.
+type closeUnreadWriter struct {
+	http.ResponseWriter
+	body        *trackedBody
+	wroteHeader bool
+}
+
+func (w *closeUnreadWriter) WriteHeader(statusCode int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		if w.body.unread() {
+			w.Header().Set(xhttp.Connection, "close")
+		}
+	}
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *closeUnreadWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+// Flush implements http.Flusher, which the keep-alive of CompleteMultipartUpload needs.
+func (w *closeUnreadWriter) Flush() {
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (w *closeUnreadWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (api *API) writeResponse(w http.ResponseWriter, r *http.Request, statusCode int, response []byte, mType mimeType) {
 	setCommonHeaders(w)
@@ -127,8 +185,9 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 
 	// A body that failed verification may not be framed as its headers say: a body longer than its
 	// Content-Length leaves bytes that would be read as the start of the next request on the
-	// connection, so the connection is closed instead of reused.
-	if resp.Code == "BadDigest" || resp.Code == "XAmzContentSHA256Mismatch" {
+	// connection, so the connection is closed instead of reused. S3 also closes it after an
+	// invalid Content-MD5 and storage class.
+	if slices.Contains([]string{"BadDigest", "XAmzContentSHA256Mismatch", "InvalidDigest", "InvalidStorageClass"}, resp.Code) {
 		w.Header().Set(xhttp.Connection, "close")
 	}
 

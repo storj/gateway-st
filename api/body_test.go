@@ -258,3 +258,38 @@ func TestXMLBodyTruncatedChunk(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>IncompleteBody</Code>")
 	require.Empty(t, objectAPI.Calls())
 }
+
+// TestConnectionCloseLikeS3 checks when S3 closed the connection after the response: when the body of
+// the request wasn't read, even after a success, and after an invalid storage class, which it
+// doesn't read the body for either.
+func TestConnectionCloseLikeS3(t *testing.T) {
+	data := []byte("hello")
+	objectInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", Size: 10, ModTime: time.Now()}
+
+	for _, tt := range []struct {
+		name, method, target string
+		header               http.Header
+		body                 []byte
+		layer                cmd.ObjectLayer
+		status               int
+		closed               bool
+	}{
+		{"put with a read body", http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"5"}}, data,
+			&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, http.StatusOK, false},
+		{"put refused before the body is read", http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"5"}, "X-Amz-Tagging": {"a=b=c"}}, data,
+			&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, http.StatusBadRequest, true},
+		{"invalid storage class without a body", http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"0"}, "X-Amz-Storage-Class": {"BOGUS"}}, nil,
+			&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, http.StatusBadRequest, true},
+		{"invalid Content-MD5", http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"5"}, "Content-Md5": {"garbage"}}, data,
+			&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, http.StatusBadRequest, true},
+		{"get with a body", http.MethodGet, "/bucket/key", nil, data, singleObjectLayer(objectInfo, "0123456789"), http.StatusOK, true},
+		{"head with a body", http.MethodHead, "/bucket/key", nil, data, singleObjectLayer(objectInfo, "0123456789"), http.StatusOK, true},
+		{"get without a body", http.MethodGet, "/bucket/key", nil, nil, singleObjectLayer(objectInfo, "0123456789"), http.StatusOK, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := serveHTTP(t, tt.layer, tt.method, tt.target, tt.header, tt.body)
+			require.Equal(t, tt.status, resp.StatusCode, resp.Body)
+			require.Equal(t, tt.closed, resp.Close)
+		})
+	}
+}
