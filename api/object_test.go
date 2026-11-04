@@ -530,6 +530,57 @@ func TestPutObjectRetentionLikeS3(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 }
 
+// legalHoldObjectLayer records the legal hold set on an object.
+type legalHoldObjectLayer struct {
+	*fakeObjectLayer
+	got *objectlock.ObjectLegalHold
+}
+
+func (l *legalHoldObjectLayer) SetObjectLegalHold(_ context.Context, _, _, _ string, hold *objectlock.ObjectLegalHold) error {
+	l.got = hold
+	return nil
+}
+
+// TestPutObjectLegalHoldLikeS3 checks the responses that S3 returned for the same requests.
+func TestPutObjectLegalHoldLikeS3(t *testing.T) {
+	objectAPI := &legalHoldObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	put := func(body string) response {
+		return serve(t, objectAPI, http.MethodPut, "/bucket/key?legal-hold", http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
+	}
+
+	for _, body := range []string{
+		"<LegalHold><Status>OFF</Status><Status>OFF</Status></LegalHold>",
+		"<LegalHold><Status>OFF</Status><Foo/></LegalHold>",
+		"<LegalHold><Status>on</Status></LegalHold>",
+		"<LegalHold></LegalHold>",
+		// Text in the root, but not whitespace.
+		"<LegalHold>hi<Status>ON</Status></LegalHold>",
+		"<LegalHold><Status>ON</Status>hi</LegalHold>",
+		"<LegalHold><![CDATA[hi]]><Status>ON</Status></LegalHold>",
+		"<LegalHold>&amp;<Status>ON</Status></LegalHold>",
+		"<LegalHold>\u00a0<Status>ON</Status></LegalHold>",
+	} {
+		objectAPI.got = nil
+		resp := put(body)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, body)
+		require.Contains(t, resp.Body, "<Code>MalformedXML</Code>", body)
+		require.Nil(t, objectAPI.got, body)
+	}
+
+	// Any root element and declared encoding is accepted.
+	for _, body := range []string{
+		"<Hold><Status>ON</Status></Hold>",
+		"<LegalHold>\n\t <!-- c --><Status>ON</Status>\r\n<![CDATA[ ]]></LegalHold>",
+		`<?xml version="1.0" encoding="bogus"?><LegalHold><Status>ON</Status></LegalHold>`,
+	} {
+		objectAPI.got = nil
+		resp := put(body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, body+": "+resp.Body)
+		require.NotNil(t, objectAPI.got, body)
+		require.Equal(t, objectlock.LegalHoldOn, objectAPI.got.Status, body)
+	}
+}
+
 func TestUnparsableXMLIsMalformed(t *testing.T) {
 	for _, target := range []string{"/bucket?tagging", "/bucket/key?tagging"} {
 		resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5(nil)}}, nil)

@@ -354,6 +354,34 @@ func parseRetainUntilDate(value string) (time.Time, error) {
 	return time.Time{}, apierr.CodeMalformedXML
 }
 
+// parseLegalHoldXML parses a LegalHold XML document. Like S3, any root element is accepted, but
+// unknown and repeated elements are refused as MalformedXML.
+func parseLegalHoldXML(data []byte) (*objectlock.ObjectLegalHold, error) {
+	var doc struct {
+		Text    string `xml:",chardata"`
+		Status  []string
+		Unknown unknownElements `xml:",any"`
+	}
+	if err := xmlDecoder(bytes.NewReader(data), &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Status) > 1 || len(doc.Unknown) > 0 || hasText(doc.Text) {
+		return nil, apierr.CodeMalformedXML
+	}
+
+	// The legal hold is passed to minio's parser in a canonical document for its validation.
+	var canonical struct {
+		XMLName xml.Name `xml:"LegalHold"`
+		Status  []string `xml:"Status"`
+	}
+	canonical.Status = doc.Status
+	data, err := xml.Marshal(canonical)
+	if err != nil {
+		return nil, err
+	}
+	return objectlock.ParseObjectLegalHold(bytes.NewReader(data))
+}
+
 // validateTags checks the tag rules that minio-go doesn't: the reserved aws: prefix and allowed characters.
 func validateTags(tagMap map[string]string, isObject bool) error {
 	for key, value := range tagMap {

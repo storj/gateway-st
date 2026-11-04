@@ -179,7 +179,7 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	legalHold, err := objectlock.ParseObjectLegalHold(bytes.NewReader(data))
+	legalHold, err := parseLegalHoldXML(data)
 	if err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
