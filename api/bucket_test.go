@@ -78,6 +78,108 @@ func TestCreateBucketInvalidObjectLockHeader(t *testing.T) {
 	require.False(t, called)
 }
 
+// TestCreateBucketConfigurationLikeS3 checks the responses that S3 returned for the same requests.
+func TestCreateBucketConfigurationLikeS3(t *testing.T) {
+	var called bool
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		makeBucketWithLocation: func(context.Context, string, cmd.BucketOptions) error {
+			called = true
+			return nil
+		},
+	}
+	config := func(inner string) []byte {
+		return []byte("<CreateBucketConfiguration>" + inner + "</CreateBucketConfiguration>")
+	}
+
+	for _, body := range [][]byte{
+		config("<Foo/>"),
+		config("<LocationConstraint>us-west-2</LocationConstraint><LocationConstraint>us-west-2</LocationConstraint>"),
+		config("<Location><Name>use1-az4</Name><Type>AvailabilityZone</Type></Location>"),
+		config("<Bucket><DataRedundancy>SingleAvailabilityZone</DataRedundancy><Type>Directory</Type></Bucket>"),
+		[]byte("<BucketConfig><Foo/></BucketConfig>"),
+		config("<Tags><Foo/></Tags>"),
+		config("<Tags><Tag><Key>a</Key><Value>1</Value><Foo/></Tag></Tags>"),
+		config("<Tags><Tag><Key>a</Key></Tag></Tags>"),
+		config("<Tags><Tag><Value>1</Value></Tag></Tags>"),
+		config("<Tags><Tag/></Tags>"),
+		config("<Tags><Tag><Key>a</Key><Key>b</Key><Value>1</Value></Tag></Tags>"),
+		config("<Tags><Tag><Key>a</Key><Value>1</Value><Value>2</Value></Tag></Tags>"),
+		config("<Tags><Tag><Key>aws:x</Key><Value>1</Value></Tag></Tags><Tags/>"),
+		// Text in the elements that only hold elements, but not whitespace.
+		[]byte("<CreateBucketConfiguration>hi<Tags/></CreateBucketConfiguration>"),
+		config("<![CDATA[hi]]>"),
+		config("&amp;"),
+		config("\u00a0"),
+		config("<Tags>hi<Tag><Key>a</Key><Value>1</Value></Tag></Tags>"),
+		config("<Tags><Tag>hi<Key>a</Key><Value>1</Value></Tag></Tags>"),
+	} {
+		called = false
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket", nil, body)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, string(body))
+		require.Contains(t, resp.Body, "<Code>MalformedXML</Code>", string(body))
+		require.False(t, called, string(body))
+	}
+
+	for _, body := range [][]byte{
+		[]byte("<BucketConfig></BucketConfig>"),
+		config(""),
+		config("<Tags><Tag><Key>a</Key><Value>1</Value></Tag></Tags>"),
+		config("<Tags/>"),
+		config("<Tags><Tag><Key>a</Key><Value></Value></Tag></Tags>"),
+		config("<Tags><Tag><Key>" + strings.Repeat("k", 128) + "</Key><Value>" + strings.Repeat("v", 256) + "</Value></Tag></Tags>"),
+		config("\n\t <!-- c --><Tags> <Tag>\r\n<Key>a</Key><Value>1</Value> </Tag><![CDATA[ ]]></Tags>\n"),
+	} {
+		called = false
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket", nil, body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, string(body)+": "+resp.Body)
+		require.True(t, called, string(body))
+	}
+
+	// S3 reports the tags of CreateBucket with its own messages for the aws: prefix, and checks every
+	// key and value before the prefixes and the number of tags.
+	tag := func(key, value string) string {
+		return "<Tag><Key>" + key + "</Key><Value>" + value + "</Value></Tag>"
+	}
+	const (
+		invalidKey   = "<Code>InvalidTag</Code><Message>The TagKey you have provided is invalid</Message>"
+		invalidValue = "<Code>InvalidTag</Code><Message>The TagValue you have provided is invalid</Message>"
+		awsPrefix    = "<Code>InvalidTag</Code><Message>User-defined tag keys can&#39;t start with &#34;aws:&#34;. This prefix is reserved for system tags. Remove &#34;aws:&#34; from your tag keys and try again.</Message>"
+		awsAnyCase   = "<Code>InvalidTag</Code><Message>Invalid Tag. Tags cannot start with &#34;aws:&#34;(case insensitive) unless they are System Tags that start with &#34;aws:&#34;(case sensitive)</Message>"
+		tooMany      = "<Code>BadRequest</Code><Message>Bucket tag count cannot be greater than 50</Message>"
+	)
+	var fiftyOne strings.Builder
+	for i := range 50 {
+		fiftyOne.WriteString(tag(fmt.Sprint("k", i), "v"))
+	}
+	for _, tt := range []struct{ name, tags, want string }{
+		{"aws prefix", tag("aws:x", "1"), awsPrefix},
+		{"aws prefix only", tag("aws:", "1"), awsPrefix},
+		{"upper case prefix", tag("AWS:x", "1"), awsAnyCase},
+		{"mixed case prefix", tag("Aws:x", "1"), awsAnyCase},
+		{"empty key", tag("", "1"), invalidKey},
+		{"invalid key", tag("a?", "1"), invalidKey},
+		{"invalid value", tag("a", "*"), invalidValue},
+		{"key of 129 characters", tag(strings.Repeat("k", 129), "1"), invalidKey},
+		{"value of 257 characters", tag("a", strings.Repeat("v", 257)), invalidValue},
+		{"invalid value before prefix", tag("aws:x", "*"), invalidValue},
+		{"prefix, then invalid key", tag("aws:x", "1") + tag("a?", "1"), invalidKey},
+		{"prefix, then invalid value", tag("aws:x", "1") + tag("a", "*"), invalidValue},
+		{"upper case prefix, then invalid key", tag("AWS:x", "1") + tag("a?", "1"), awsAnyCase},
+		{"empty key, then prefix", tag("", "1") + tag("aws:x", "1"), invalidKey},
+		{"51 tags", fiftyOne.String() + tag("k50", "v"), tooMany},
+		{"51 tags, the last invalid", fiftyOne.String() + tag("a?", "v"), invalidKey},
+		{"51 tags, the first with a prefix", tag("aws:x", "v") + fiftyOne.String(), awsPrefix},
+		{"51 tags, the first with an upper case prefix", tag("AWS:x", "v") + fiftyOne.String(), awsAnyCase},
+	} {
+		called = false
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket", nil, config("<Tags>"+tt.tags+"</Tags>"))
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, tt.name+": "+resp.Body)
+		require.Contains(t, resp.Body, tt.want, tt.name)
+		require.False(t, called, tt.name)
+	}
+}
+
 func (f *bucketObjectLayer) SetBucketTagging(ctx context.Context, bucket string, t *tags.Tags) error {
 	return f.setBucketTagging(ctx, bucket, t)
 }

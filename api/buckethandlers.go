@@ -24,7 +24,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"net/http"
 	"net/url"
@@ -108,13 +107,27 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 	// We read the body because, although we don't use the location provided in the body,
 	// we must return an error if the body contains malformed XML.
 	if len(data) != 0 {
-		type createBucketLocationConfiguration struct {
-			XMLName  xml.Name `xml:"CreateBucketConfiguration"`
-			Location string   `xml:"LocationConstraint"`
+		// Like S3, any root element is accepted, but unknown and repeated elements are refused.
+		// The location and tags aren't used.
+		var config struct {
+			Text               string `xml:",chardata"`
+			LocationConstraint []string
+			Tags               []createBucketTags
+			Unknown            unknownElements `xml:",any"`
 		}
-		if err = xmlDecoder(bytes.NewReader(data), &createBucketLocationConfiguration{}); err != nil {
+		if err = xmlDecoder(bytes.NewReader(data), &config); err != nil {
 			api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 			return
+		}
+		if len(config.LocationConstraint) > 1 || len(config.Tags) > 1 || len(config.Unknown) > 0 || hasText(config.Text) {
+			api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+			return
+		}
+		for _, bucketTags := range config.Tags {
+			if err := bucketTags.validate(); err != nil {
+				api.writeErrorResponse(w, r, err)
+				return
+			}
 		}
 	}
 

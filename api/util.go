@@ -39,6 +39,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/amwolff/awsig"
 
@@ -139,9 +140,61 @@ var (
 	errAWSObjectTagKey   = tagError{"InvalidTag", "Your TagKey cannot be prefixed with aws:"}
 	errAWSBucketTagKey   = tagError{"InvalidTag", "System tags cannot be added/updated by requester"}
 
+	errCreateBucketAWSTagKey        = tagError{"InvalidTag", `User-defined tag keys can't start with "aws:". This prefix is reserved for system tags. Remove "aws:" from your tag keys and try again.`}
+	errCreateBucketAWSTagKeyAnyCase = tagError{"InvalidTag", `Invalid Tag. Tags cannot start with "aws:"(case insensitive) unless they are System Tags that start with "aws:"(case sensitive)`}
+	errTooManyBucketTags            = tagError{"BadRequest", "Bucket tag count cannot be greater than 50"}
+
 	// tagCharsRegexp matches the characters that S3 allows in tag keys and values.
 	tagCharsRegexp = regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-@]*$`)
 )
+
+// createBucketTags is the Tags element of a CreateBucket configuration.
+type createBucketTags struct {
+	Text string `xml:",chardata"`
+	Tags []struct {
+		Text    string `xml:",chardata"`
+		Key     []string
+		Value   []string
+		Unknown unknownElements `xml:",any"`
+	} `xml:"Tag"`
+	Unknown unknownElements `xml:",any"`
+}
+
+// validate refuses the tags like S3 does for CreateBucket, which differs from PutBucketTagging in
+// its messages for tags with an aws: prefix. The tags themselves aren't used. Like S3, it reports a
+// malformed document, then an invalid key or value or a prefix that isn't exactly "aws:" in any tag
+// in order, then a prefix of "aws:", and the number of tags last.
+func (t createBucketTags) validate() error {
+	if len(t.Unknown) > 0 || hasText(t.Text) {
+		return apierr.CodeMalformedXML
+	}
+	for _, tag := range t.Tags {
+		if len(tag.Key) != 1 || len(tag.Value) != 1 || len(tag.Unknown) > 0 || hasText(tag.Text) {
+			return apierr.CodeMalformedXML
+		}
+	}
+	hasAWSPrefix := func(key string) bool { return strings.HasPrefix(key, "aws:") }
+	for _, tag := range t.Tags {
+		key, value := tag.Key[0], tag.Value[0]
+		switch {
+		case key == "" || utf8.RuneCountInString(key) > 128 || !tagCharsRegexp.MatchString(key):
+			return errInvalidTagKey
+		case utf8.RuneCountInString(value) > 256 || !tagCharsRegexp.MatchString(value):
+			return errInvalidTagValue
+		case strings.HasPrefix(strings.ToLower(key), "aws:") && !hasAWSPrefix(key):
+			return errCreateBucketAWSTagKeyAnyCase
+		}
+	}
+	for _, tag := range t.Tags {
+		if hasAWSPrefix(tag.Key[0]) {
+			return errCreateBucketAWSTagKey
+		}
+	}
+	if len(t.Tags) > 50 {
+		return errTooManyBucketTags
+	}
+	return nil
+}
 
 // validateTaggingHeader validates the value of the x-amz-tagging header.
 func validateTaggingHeader(header string) error {
