@@ -18,7 +18,9 @@ const (
 	CodeContentLengthWithTransferEncoding
 	CodeContentMD5Mismatch
 	CodeContentSHA256Mismatch
+	CodeCopySourceDeleteMarker
 	CodeCopySourceTooLarge
+	CodeDirectiveRepeated
 	CodeEmptyVersionID
 	CodeEntityTooLarge
 	CodeEntityTooSmall
@@ -186,9 +188,19 @@ var codeToResponse = map[Code]Response{
 		Description:    "The provided 'x-amz-content-sha256' header does not match what was computed.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeCopySourceDeleteMarker: {
+		Code:           "InvalidRequest",
+		Description:    "The source of a copy request may not specifically refer to a delete marker by version id.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeCopySourceTooLarge: {
 		Code:           "InvalidRequest",
 		Description:    "The specified copy source is larger than the maximum allowable size for a copy source: 5368709120",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeDirectiveRepeated: {
+		Code:           "InvalidArgument",
+		Description:    "only one value should be specified",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeEmptyVersionID: {
@@ -388,7 +400,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeInvalidTagDirective: {
 		Code:           "InvalidArgument",
-		Description:    "Unknown tag directive.",
+		Description:    "Unknown tagging directive.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidTaggingHeader: {

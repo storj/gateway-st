@@ -456,7 +456,7 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	srcOpts := objectlayer.ObjectOptions{VersionID: srcVersionID}
 	srcInfo, err := api.objectAPI.GetObjectInfo(ctx, srcBucket, srcObject, srcOpts)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponse(w, r, copySourceError(err, srcBucket, srcObject, srcVersionID))
 		return
 	}
 
@@ -1483,13 +1483,13 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metadataDirective := r.Header.Get(xhttp.AmzMetadataDirective)
-	if !isDirectiveValid(metadataDirective) {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidMetadataDirective)
+	if err := validateDirective(r.Header, xhttp.AmzMetadataDirective, apierr.CodeInvalidMetadataDirective); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 	tagDirective := r.Header.Get(xhttp.AmzTagDirective)
-	if !isDirectiveValid(tagDirective) {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidTagDirective)
+	if err := validateDirective(r.Header, xhttp.AmzTagDirective, apierr.CodeInvalidTagDirective); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
@@ -1502,7 +1502,7 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	srcOpts := objectlayer.ObjectOptions{VersionID: srcVersionID}
 	srcInfo, err := api.objectAPI.GetObjectInfo(ctx, srcBucket, srcObject, srcOpts)
 	if err != nil {
-		api.writeErrorResponse(w, r, err)
+		api.writeErrorResponse(w, r, copySourceError(err, srcBucket, srcObject, srcVersionID))
 		return
 	}
 
@@ -1671,9 +1671,26 @@ func validateStorageClass(storageClass string) error {
 	}
 }
 
-// isDirectiveValid returns whether the value of a metadata or tag directive header is valid.
-func isDirectiveValid(directive string) bool {
-	return directive == "" || directive == copyDirective || directive == replaceDirective
+// validateDirective validates a metadata or tag directive header, which may be missing but not empty
+// or repeated, like S3. It returns invalid for an unknown value.
+func validateDirective(h http.Header, name string, invalid apierr.Code) error {
+	values := h.Values(name)
+	switch {
+	case len(values) > 1:
+		return apierr.CodeDirectiveRepeated
+	case len(values) == 1 && values[0] != copyDirective && values[0] != replaceDirective:
+		return invalid
+	}
+	return nil
+}
+
+// copySourceError returns the error that S3 reports for err from looking up the source of a copy
+// with the given version ID.
+func copySourceError(err error, bucket, object, versionID string) error {
+	if versionID != "" && errors.As(err, new(objectlayer.MethodNotAllowed)) {
+		return apierr.CodeCopySourceDeleteMarker
+	}
+	return versionNotFound(err, bucket, object, versionID)
 }
 
 // checkCopyPreconditions evaluates the X-Amz-Copy-Source-If-* headers of a copy request against

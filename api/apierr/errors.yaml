@@ -213,6 +213,11 @@
   description: Argument max-uploads must be an integer between 0 and 2147483647
   http_status: 400
 
+- name: DirectiveRepeated
+  code: InvalidArgument
+  description: only one value should be specified
+  http_status: 400
+
 - name: InvalidMetadataDirective
   code: InvalidArgument
   description: Unknown metadata directive.
@@ -290,7 +295,7 @@
 
 - name: InvalidTagDirective
   code: InvalidArgument
-  description: Unknown tag directive.
+  description: Unknown tagging directive.
   http_status: 400
 
 - name: InvalidVersionID
@@ -386,6 +391,11 @@
 - name: MissingPOSTPolicy
   code: InvalidArgument
   description: Bucket POST must contain a field named 'policy'.
+  http_status: 400
+
+- name: CopySourceDeleteMarker
+  code: InvalidRequest
+  description: The source of a copy request may not specifically refer to a delete marker by version id.
   http_status: 400
 
 - name: MFAAuthenticationRequired

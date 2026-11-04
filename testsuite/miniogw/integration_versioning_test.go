@@ -644,8 +644,13 @@ func TestVersioning(t *testing.T) {
 				VersionID: nonExistingVersionID,
 			})
 
-			var objNotFound miniocmd.ObjectNotFound
-			require.ErrorAs(t, miniocmd.ErrorRespToObjectError(err, bucket, "objectA-copy"), &objNotFound)
+			if gw.kind == apiGateway {
+				// Like S3, the api package answers a missing source version with NoSuchVersion.
+				require.Equal(t, "NoSuchVersion", minio.ToErrorResponse(err).Code)
+			} else {
+				var objNotFound miniocmd.ObjectNotFound
+				require.ErrorAs(t, miniocmd.ErrorRespToObjectError(err, bucket, "objectA-copy"), &objNotFound)
+			}
 
 			// copy objectA with VersionID into objectA
 			copyInfo, err = rawClient.API.CopyObject(ctx, minio.CopyDestOptions{

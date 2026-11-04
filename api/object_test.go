@@ -326,6 +326,62 @@ func TestGetAndHeadObjectLikeS3(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>NoSuchKey</Code>")
 }
 
+// TestCopyObjectLikeS3 checks the responses that S3 returned for the same requests.
+func TestCopyObjectLikeS3(t *testing.T) {
+	const (
+		onlyOne  = "<Code>InvalidArgument</Code><Message>only one value should be specified</Message>"
+		metadata = "<Code>InvalidArgument</Code><Message>Unknown metadata directive.</Message>"
+		tagging  = "<Code>InvalidArgument</Code><Message>Unknown tagging directive.</Message>"
+	)
+	for _, tt := range []struct {
+		name   string
+		header http.Header
+		want   string
+	}{
+		{"empty metadata directive", http.Header{"X-Amz-Metadata-Directive": {""}}, metadata},
+		{"empty tagging directive", http.Header{"X-Amz-Tagging-Directive": {""}}, tagging},
+		{"lower case tagging directive", http.Header{"X-Amz-Tagging-Directive": {"copy"}}, tagging},
+		{"repeated metadata directive", http.Header{"X-Amz-Metadata-Directive": {"COPY", "COPY"}}, onlyOne},
+		{"repeated metadata directive, then unknown", http.Header{"X-Amz-Metadata-Directive": {"COPY", "bogus"}}, onlyOne},
+		{"repeated metadata directive, unknown first", http.Header{"X-Amz-Metadata-Directive": {"bogus", "COPY"}}, onlyOne},
+		{"three metadata directives", http.Header{"X-Amz-Metadata-Directive": {"COPY", "COPY", "COPY"}}, onlyOne},
+		{"repeated tagging directive", http.Header{"X-Amz-Tagging-Directive": {"COPY", "COPY"}}, onlyOne},
+		// The metadata directive is checked first, repeated or not.
+		{"repeated metadata directive, unknown tagging directive", http.Header{"X-Amz-Metadata-Directive": {"COPY", "COPY"}, "X-Amz-Tagging-Directive": {"bogus"}}, onlyOne},
+		{"unknown metadata directive, repeated tagging directive", http.Header{"X-Amz-Metadata-Directive": {"bogus"}, "X-Amz-Tagging-Directive": {"COPY", "COPY"}}, metadata},
+		{"both repeated", http.Header{"X-Amz-Metadata-Directive": {"COPY", "COPY"}, "X-Amz-Tagging-Directive": {"COPY", "COPY"}}, onlyOne},
+		{"repeated metadata directive, bad storage class", http.Header{"X-Amz-Metadata-Directive": {"COPY", "COPY"}, "X-Amz-Storage-Class": {"BOGUS"}}, onlyOne},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			header := tt.header.Clone()
+			header.Set("X-Amz-Copy-Source", "/bucket/src")
+			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket/dst", header, nil)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, tt.want)
+		})
+	}
+
+	const version = "00000000000000000000000000000001"
+	for _, tt := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{cmd.ObjectNotFound{Bucket: "bucket", Object: "src"}, http.StatusNotFound, "NoSuchVersion"},
+		{cmd.MethodNotAllowed{Bucket: "bucket", Object: "src"}, http.StatusBadRequest, "InvalidRequest"},
+	} {
+		objectAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{}, tt.err
+		}}
+		header := http.Header{"X-Amz-Copy-Source": {"/bucket/src?versionId=" + version}}
+		for _, target := range []string{"/bucket/dst", "/bucket/dst?partNumber=1&uploadId=id"} {
+			resp := serve(t, objectAPI, http.MethodPut, target, header, nil)
+			require.Equal(t, tt.status, resp.StatusCode, "%s: %s", target, resp.Body)
+			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>", target)
+		}
+	}
+}
+
 func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
 	resp := serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
 		`<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part>`+
