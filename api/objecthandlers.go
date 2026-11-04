@@ -710,24 +710,62 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	attrs := strings.TrimSpace(r.Header.Get(xhttp.AmzObjectAttributes))
-	if attrs == "" {
-		api.writeErrorResponse(w, r, apierr.CodeMissingObjectAttributes)
+	// S3 refuses these rather than ignoring them. The range error mentions partNumber like S3's.
+	if r.URL.Query().Has(xhttp.PartNumber) {
+		api.writeErrorResponse(w, r, apierr.CodeAttributesWithPartNumber)
 		return
 	}
 
-	names := strings.Split(attrs, ",")
-	for i, name := range names {
-		names[i] = strings.TrimSpace(name)
-		switch names[i] {
-		case xhttp.ETag, xhttp.StorageClass, xhttp.ObjectSize, xhttp.ObjectParts, xhttp.Checksum:
-		default:
-			errResp, _ := apierr.CodeInvalidAttributeName.ToResponse()
-			errResp.ArgumentName = strings.ToLower(xhttp.AmzObjectAttributes)
-			errResp.ArgumentValue = names[i]
-			api.writeErrorResponse(w, r, errResp)
-			return
+	// Like S3, every header line is split on commas, trailing commas are ignored, and a line of
+	// commas has no names. The names are refused before anything else is checked.
+	var names []string
+	var objectParts bool
+	for _, line := range r.Header.Values(xhttp.AmzObjectAttributes) {
+		trimmed := strings.TrimRight(line, ",")
+		if trimmed == "" && line != "" {
+			continue
 		}
+		for name := range strings.SplitSeq(trimmed, ",") {
+			name = strings.Trim(name, " ")
+			switch name {
+			case xhttp.ETag, xhttp.StorageClass, xhttp.ObjectSize, xhttp.Checksum:
+			case xhttp.ObjectParts:
+				objectParts = true
+			default:
+				errResp, _ := apierr.CodeInvalidAttributeName.ToResponse()
+				errResp.ArgumentName = strings.ToLower(xhttp.AmzObjectAttributes)
+				errResp.ArgumentValue = name
+				api.writeErrorResponse(w, r, errResp)
+				return
+			}
+			names = append(names, name)
+		}
+	}
+
+	// The paging headers only matter, and are only validated, if the parts are requested. An
+	// empty value is accepted.
+	if objectParts {
+		if maxParts := r.Header.Get("X-Amz-Max-Parts"); maxParts != "" {
+			if _, err := strconv.ParseInt(maxParts, 10, 32); err != nil {
+				api.writeErrorResponse(w, r, apierr.CodeInvalidMaxPartsHeader)
+				return
+			}
+		}
+		if marker := r.Header.Get("X-Amz-Part-Number-Marker"); marker != "" {
+			if _, err := strconv.ParseInt(marker, 10, 32); err != nil {
+				api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberMarkerHeader)
+				return
+			}
+		}
+	}
+
+	if len(r.Header.Values(xhttp.Range)) > 0 {
+		api.writeErrorResponse(w, r, apierr.CodeAttributesWithRange)
+		return
+	}
+	if len(names) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingObjectAttributes)
+		return
 	}
 
 	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID})

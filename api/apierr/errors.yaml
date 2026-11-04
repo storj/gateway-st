@@ -143,6 +143,21 @@
   description: Invalid Argument
   http_status: 400
 
+- name: AttributesWithPartNumber
+  code: InvalidArgument
+  description: "Conflicting query string parameters: attributes, partNumber"
+  http_status: 400
+
+- name: AttributesWithRange
+  code: InvalidArgument
+  description: This operation does not accept partNumber
+  http_status: 400
+
+- name: InvalidMaxPartsHeader
+  code: InvalidArgument
+  description: Provided x-amz-max-parts not an integer or within integer range
+  http_status: 400
+
 - name: InvalidAttributeName
   code: InvalidArgument
   description: Invalid attribute name specified.
@@ -236,6 +251,11 @@
 - name: InvalidPartNumberMarker
   code: InvalidArgument
   description: Argument partNumberMarker must be an integer.
+  http_status: 400
+
+- name: InvalidPartNumberMarkerHeader
+  code: InvalidArgument
+  description: Provided x-amz-part-number-marker not an integer or within integer range
   http_status: 400
 
 - name: InvalidPartNumber

@@ -8,6 +8,8 @@ const (
 	CodeNone Code = iota
 	CodeAccessControlListNotSupported
 	CodeAccessDenied
+	CodeAttributesWithPartNumber
+	CodeAttributesWithRange
 	CodeAuthorizationHeaderMalformed
 	CodeAuthorizationHeaderMalformedV2
 	CodeAuthorizationQueryParameters
@@ -48,12 +50,14 @@ const (
 	CodeInvalidMaxBuckets
 	CodeInvalidMaxKeys
 	CodeInvalidMaxParts
+	CodeInvalidMaxPartsHeader
 	CodeInvalidMaxUploads
 	CodeInvalidMetadataDirective
 	CodeInvalidPartChecksum
 	CodeInvalidPartNumber
 	CodeInvalidPartNumberArgument
 	CodeInvalidPartNumberMarker
+	CodeInvalidPartNumberMarkerHeader
 	CodeInvalidPartNumberTooSmall
 	CodeInvalidPartOrder
 	CodeInvalidRange
@@ -144,6 +148,16 @@ var codeToResponse = map[Code]Response{
 		Code:           "AccessDenied",
 		Description:    "Access Denied",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeAttributesWithPartNumber: {
+		Code:           "InvalidArgument",
+		Description:    "Conflicting query string parameters: attributes, partNumber",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeAttributesWithRange: {
+		Code:           "InvalidArgument",
+		Description:    "This operation does not accept partNumber",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeAuthorizationHeaderMalformed: {
 		Code:           "AuthorizationHeaderMalformed",
@@ -345,6 +359,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Argument max-parts must be an integer between 0 and 2147483647",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidMaxPartsHeader: {
+		Code:           "InvalidArgument",
+		Description:    "Provided x-amz-max-parts not an integer or within integer range",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidMaxUploads: {
 		Code:           "InvalidArgument",
 		Description:    "Argument max-uploads must be an integer between 0 and 2147483647",
@@ -373,6 +392,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidPartNumberMarker: {
 		Code:           "InvalidArgument",
 		Description:    "Argument partNumberMarker must be an integer.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidPartNumberMarkerHeader: {
+		Code:           "InvalidArgument",
+		Description:    "Provided x-amz-part-number-marker not an integer or within integer range",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidPartNumberTooSmall: {

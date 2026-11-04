@@ -1770,6 +1770,34 @@ func TestServeHTTP(t *testing.T) {
 func TestGetObjectAttributes(t *testing.T) {
 	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
 
+	t.Run("trailing comma", func(t *testing.T) {
+		resp := serve(t, singleObjectLayer(objInfo, ""), http.MethodGet, "/bucket/key?attributes", http.Header{
+			"X-Amz-Object-Attributes": {"ETag,"},
+		}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	})
+
+	t.Run("refused like S3", func(t *testing.T) {
+		for _, tt := range []struct {
+			target  string
+			header  http.Header
+			message string
+		}{
+			{"/bucket/key?attributes&partNumber=1", nil, "Conflicting query string parameters: attributes, partNumber"},
+			{"/bucket/key?attributes", http.Header{"Range": {"bytes=0-1"}}, "This operation does not accept partNumber"},
+			{"/bucket/key?attributes", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"abc"}}, "Provided x-amz-max-parts not an integer or within integer range"},
+			{"/bucket/key?attributes", http.Header{"X-Amz-Object-Attributes": {"ETag,ObjectParts"}, "X-Amz-Part-Number-Marker": {"abc"}}, "Provided x-amz-part-number-marker not an integer or within integer range"},
+		} {
+			header := http.Header{"X-Amz-Object-Attributes": {"ETag"}}
+			maps.Copy(header, tt.header)
+			objectAPI := singleObjectLayer(objInfo, "")
+			resp := serve(t, objectAPI, http.MethodGet, tt.target, header, nil)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+tt.message+"</Message>")
+			require.Empty(t, objectAPI.Calls())
+		}
+	})
+
 	t.Run("all attributes", func(t *testing.T) {
 		resp := serve(t, singleObjectLayer(objInfo, ""), http.MethodGet, "/bucket/key?attributes", http.Header{
 			"X-Amz-Object-Attributes": {"ETag,Checksum,ObjectParts,StorageClass,ObjectSize"},
@@ -1791,7 +1819,10 @@ func TestGetObjectAttributes(t *testing.T) {
 		header string
 		want   errorBody
 	}{
-		{name: "empty", header: " ", want: errorBody{Code: "InvalidRequest"}},
+		// S3's answers: an empty value is an invalid name, but a lone comma is a missing header.
+		{name: "empty", header: " ", want: errorBody{Code: "InvalidArgument", ArgumentName: "x-amz-object-attributes"}},
+		{name: "comma", header: ",", want: errorBody{Code: "InvalidRequest"}},
+		{name: "empty name", header: "ETag,,ObjectSize", want: errorBody{Code: "InvalidArgument", ArgumentName: "x-amz-object-attributes"}},
 		{name: "invalid", header: "ETag, Bogus", want: errorBody{Code: "InvalidArgument", ArgumentName: "x-amz-object-attributes", ArgumentValue: "Bogus"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1811,6 +1842,69 @@ func TestGetObjectAttributes(t *testing.T) {
 			if tt.want.ArgumentName == "" {
 				require.NotContains(t, resp.Body, "Argument")
 			}
+		})
+	}
+}
+
+// TestGetObjectAttributesHeadersLikeS3 checks the answers that S3 gave for the same attribute,
+// Range and paging headers.
+func TestGetObjectAttributesHeadersLikeS3(t *testing.T) {
+	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
+	const (
+		invalidName = "Invalid attribute name specified."
+		missing     = "The x-amz-object-attributes header specifying the attributes to be retrieved is either missing or empty"
+		withRange   = "This operation does not accept partNumber"
+		maxParts    = "Provided x-amz-max-parts not an integer or within integer range"
+		marker      = "Provided x-amz-part-number-marker not an integer or within integer range"
+	)
+
+	for _, tt := range []struct {
+		name    string
+		header  http.Header
+		message string // empty if S3 answered 200
+	}{
+		{"trailing commas", http.Header{"X-Amz-Object-Attributes": {"ETag,,"}}, ""},
+		{"more trailing commas", http.Header{"X-Amz-Object-Attributes": {"ETag,,,"}}, ""},
+		{"only commas", http.Header{"X-Amz-Object-Attributes": {",,"}}, missing},
+		{"leading comma", http.Header{"X-Amz-Object-Attributes": {",ETag"}}, invalidName},
+		{"empty name between", http.Header{"X-Amz-Object-Attributes": {"ETag,,ObjectSize"}}, invalidName},
+		{"blank name after comma", http.Header{"X-Amz-Object-Attributes": {"ETag, ,"}}, invalidName},
+		{"two lines, second invalid", http.Header{"X-Amz-Object-Attributes": {"ETag", "Bogus"}}, invalidName},
+		{"two lines, first invalid", http.Header{"X-Amz-Object-Attributes": {"Bogus", "ETag"}}, invalidName},
+		{"two lines with commas", http.Header{"X-Amz-Object-Attributes": {"ETag,", ",,"}}, ""},
+		{"line of commas and a name", http.Header{"X-Amz-Object-Attributes": {",", "ETag"}}, ""},
+		{"two lines of commas", http.Header{"X-Amz-Object-Attributes": {",", ","}}, missing},
+		{"empty line", http.Header{"X-Amz-Object-Attributes": {"", "ETag"}}, invalidName},
+		{"names are checked before Range", http.Header{"X-Amz-Object-Attributes": {"Bogus"}, "Range": {"bytes=0-1"}}, invalidName},
+		{"Range is checked before a missing header", http.Header{"Range": {"bytes=0-1"}}, withRange},
+		{"Range with two lines of commas", http.Header{"X-Amz-Object-Attributes": {",", ","}, "Range": {"bytes=0-1"}}, withRange},
+		{"max-parts is ignored without ObjectParts", http.Header{"X-Amz-Object-Attributes": {"ETag"}, "X-Amz-Max-Parts": {"abc"}}, ""},
+		{"max-parts is ignored without a requested name", http.Header{"X-Amz-Max-Parts": {"abc"}}, missing},
+		{"max-parts with ObjectParts", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"abc"}}, maxParts},
+		{"max-parts beyond int32", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"2147483648"}}, maxParts},
+		{"max-parts hex", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"0x10"}}, maxParts},
+		{"empty max-parts", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {""}}, ""},
+		{"negative max-parts", http.Header{"X-Amz-Object-Attributes": {"ObjectParts,"}, "X-Amz-Max-Parts": {"-1"}}, ""},
+		{"max-parts first line", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"abc", "1"}}, maxParts},
+		{"max-parts second line is ignored", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"1", "abc"}}, ""},
+		{"marker is ignored without ObjectParts", http.Header{"X-Amz-Object-Attributes": {"ETag"}, "X-Amz-Part-Number-Marker": {"abc"}}, ""},
+		{"marker with ObjectParts", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Part-Number-Marker": {"abc"}}, marker},
+		{"marker beyond int32", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Part-Number-Marker": {"2147483648"}}, marker},
+		{"empty marker", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Part-Number-Marker": {""}}, ""},
+		{"negative marker", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Part-Number-Marker": {"-1"}}, ""},
+		{"max-parts before marker", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"abc"}, "X-Amz-Part-Number-Marker": {"abc"}}, maxParts},
+		{"names before max-parts", http.Header{"X-Amz-Object-Attributes": {"ObjectParts,Bogus"}, "X-Amz-Max-Parts": {"abc"}}, invalidName},
+		{"max-parts before Range", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Max-Parts": {"abc"}, "Range": {"bytes=0-1"}}, maxParts},
+		{"marker before Range", http.Header{"X-Amz-Object-Attributes": {"ObjectParts"}, "X-Amz-Part-Number-Marker": {"abc"}, "Range": {"bytes=0-1"}}, marker},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := serve(t, singleObjectLayer(objInfo, ""), http.MethodGet, "/bucket/key?attributes", tt.header, nil)
+			if tt.message == "" {
+				require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+				return
+			}
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, "<Message>"+tt.message+"</Message>")
 		})
 	}
 }
