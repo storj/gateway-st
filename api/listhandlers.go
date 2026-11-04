@@ -187,8 +187,17 @@ func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateListObjectsParams(params.maxKeys, params.encodingType, apierr.CodeMaxKeysNegative); err != nil {
+	// S3 checks the encoding-type, then the continuation-token, then a negative max-keys.
+	if err := validateEncodingType(params.encodingType); err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if params.invalidToken {
+		api.writeErrorResponse(w, r, apierr.CodeIncorrectContinuationToken)
+		return
+	}
+	if params.maxKeys < 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMaxKeysNegative)
 		return
 	}
 
@@ -213,6 +222,7 @@ func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 type listObjectsV2Params struct {
 	prefix       string
 	token        string
+	invalidToken bool
 	delimiter    string
 	maxKeys      int
 	fetchOwner   bool
@@ -230,13 +240,13 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 		return listObjectsV2Params{}, apierr.CodeListObjectsV2Marker
 	}
 
-	// S3 rejects an empty continuation-token like any other that it didn't issue.
+	// S3 rejects an empty continuation-token like any other that it didn't issue, but only after
+	// the encoding-type is checked, which the handler does.
 	var decodedToken []byte
+	var invalidToken bool
 	if values.Has("continuation-token") {
 		decodedToken, err = base64.StdEncoding.DecodeString(values.Get("continuation-token"))
-		if err != nil || len(decodedToken) == 0 {
-			return listObjectsV2Params{}, apierr.CodeIncorrectContinuationToken
-		}
+		invalidToken = err != nil || len(decodedToken) == 0
 	}
 
 	encodingType, err := getEncodingType(values)
@@ -247,6 +257,7 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 	return listObjectsV2Params{
 		prefix:       values.Get("prefix"),
 		token:        string(decodedToken),
+		invalidToken: invalidToken,
 		delimiter:    values.Get("delimiter"),
 		maxKeys:      maxKeys,
 		fetchOwner:   values.Get("fetch-owner") == "true",

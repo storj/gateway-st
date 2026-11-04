@@ -745,6 +745,14 @@ func TestListParameterOrderLikeS3(t *testing.T) {
 		"/bucket?uploads&encoding-type=&max-uploads=abc":     maxUploadsValue,
 		"/bucket?uploads&max-uploads=2147483648":             maxUploadsValue,
 		"/bucket?uploads&max-uploads=1.5":                    maxUploadsValue,
+		// The V2 continuation-token is checked after the encoding-type and before a negative max-keys.
+		"/bucket?list-type=2&continuation-token=&encoding-type=foo":             encoding,
+		"/bucket?list-type=2&continuation-token=%21&encoding-type=foo":          encoding,
+		"/bucket?list-type=2&continuation-token=&encoding-type=foo&max-keys=-1": encoding,
+		"/bucket?list-type=2&continuation-token=&max-keys=-1":                   "The continuation token provided is incorrect",
+		"/bucket?list-type=2&continuation-token=%21&max-keys=-1":                "The continuation token provided is incorrect",
+		"/bucket?list-type=2&continuation-token=&max-keys=abc":                  maxKeysValue,
+		"/bucket?list-type=2&continuation-token=&start-after=a&max-keys=-1":     "The continuation token provided is incorrect",
 		// The version-id-marker is checked before the encoding-type and a negative max-keys, and
 		// an empty key-marker counts.
 		"/bucket?versions&encoding-type=&version-id-marker=!!":                            noKeyMarker,
