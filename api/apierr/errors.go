@@ -43,6 +43,10 @@ type Response struct {
 	// ActualObjectSize and RangeRequested optionally describe an unsatisfiable range.
 	ActualObjectSize string
 	RangeRequested   string
+
+	// Size and MaxSizeAllowed optionally describe a key that is too long.
+	Size           string
+	MaxSizeAllowed string
 }
 
 // Error implements the error interface.

@@ -125,6 +125,16 @@ type (
 	LegalHoldStatus  = objectlock.LegalHoldStatus
 )
 
+// MaxObjectKeyLength is the longest object key in bytes that the object layers write, like S3:
+// miniogw refuses longer keys on PutObject, the destination of CopyObject, CreateMultipartUpload and
+// UploadPartCopy, and fsobjects on its writes.
+//
+// Unlike S3, it isn't enforced on reads and deletes, such as GetObject, HeadObject, DeleteObject and
+// DeleteObjects. The satellite limits the encrypted key instead, which is longer than the key by an
+// amount that depends on its path components, so objects with longer keys written through uplink
+// may exist and must stay readable and deletable.
+const MaxObjectKeyLength = 1024
+
 // The versioning states of a bucket, and the retention modes and legal hold statuses of an object.
 const (
 	VersioningEnabled   = versioning.Enabled

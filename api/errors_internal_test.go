@@ -8,13 +8,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/amwolff/awsig"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
+	objectlock "storj.io/minio/pkg/bucket/object/lock"
 )
 
 func TestGetChecksumMismatchFromErrorPriority(t *testing.T) {
@@ -122,4 +125,23 @@ func TestValidateTaggingHeaderNormalizes(t *testing.T) {
 		require.NoError(t, err, header)
 		require.Equal(t, want, got, header)
 	}
+}
+
+func TestErrorResponsesLikeS3(t *testing.T) {
+	// The key's length and the limit are reported for a key that is too long.
+	resp, ok := errToResponse(objectlayer.ObjectNameTooLong{Bucket: "bucket", Object: strings.Repeat("k", 1025)})
+	require.True(t, ok)
+	require.Equal(t, "KeyTooLongError", resp.Code)
+	require.Equal(t, "1025", resp.Size)
+	require.Equal(t, "1024", resp.MaxSizeAllowed)
+
+	for _, err := range []error{apierr.CodeMalformedXML, objectlock.ErrMalformedXML} {
+		resp, ok = errToResponse(err)
+		require.True(t, ok)
+		require.Equal(t, "The XML you provided was not well-formed or did not validate against our published schema", resp.Description)
+	}
+
+	resp, ok = errToResponse(apierr.CodeMissingContentMD5)
+	require.True(t, ok)
+	require.Equal(t, "Missing required header for this request: Content-MD5 OR x-amz-checksum-*", resp.Description)
 }

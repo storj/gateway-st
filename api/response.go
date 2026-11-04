@@ -164,6 +164,8 @@ type errorResponse struct {
 	Condition        string `xml:",omitempty"`
 	ActualObjectSize string `xml:",omitempty"`
 	RangeRequested   string `xml:",omitempty"`
+	Size             string `xml:",omitempty"`
+	MaxSizeAllowed   string `xml:",omitempty"`
 }
 
 func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Response) errorResponse {
@@ -186,6 +188,8 @@ func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Respon
 		Condition:        resp.Condition,
 		ActualObjectSize: resp.ActualObjectSize,
 		RangeRequested:   resp.RangeRequested,
+		Size:             resp.Size,
+		MaxSizeAllowed:   resp.MaxSizeAllowed,
 	}
 }
 
@@ -298,6 +302,11 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		return apierr.Response{}, false
 	}
 
+	// MinIO's MalformedXML message differs from S3's.
+	if errors.Is(err, objectlock.ErrMalformedXML) || errors.Is(err, objectlock.ErrMalformedBucketObjectConfig) {
+		return apierr.CodeMalformedXML.ToResponse()
+	}
+
 	// MinIO's NoSuchUpload message differs from S3's.
 	if errors.As(err, new(objectlayer.InvalidUploadID)) {
 		return apierr.CodeNoSuchUpload.ToResponse()
@@ -315,6 +324,9 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 			resp.Description = e.Message
 		} else if e := (objectlayer.InvalidArgument{}); errors.As(err, &e) && e.Err != nil {
 			resp.Description = e.Err.Error()
+		} else if e := (objectlayer.ObjectNameTooLong{}); errors.As(err, &e) {
+			resp.Size = strconv.Itoa(len(e.Object))
+			resp.MaxSizeAllowed = strconv.Itoa(objectlayer.MaxObjectKeyLength)
 		}
 		return resp, true
 	}
@@ -390,8 +402,6 @@ func minioErrToAPIErrorCode(err error) (cmd.APIErrorCode, bool) {
 		return cmd.ErrUnknownWORMModeDirective, true
 	case errors.Is(err, objectlock.ErrObjectLockInvalidHeaders):
 		return cmd.ErrObjectLockInvalidHeaders, true
-	case errors.Is(err, objectlock.ErrMalformedXML), errors.Is(err, objectlock.ErrMalformedBucketObjectConfig):
-		return cmd.ErrMalformedXML, true
 	case errors.Is(err, objectlock.ErrInvalidRetentionPeriod):
 		return cmd.ErrInvalidRetentionPeriod, true
 	case errors.Is(err, objectlock.ErrRetentionPeriodTooLarge):

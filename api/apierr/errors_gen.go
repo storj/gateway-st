@@ -547,7 +547,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeMalformedXML: {
 		Code:           "MalformedXML",
-		Description:    "The XML you provided was not well-formed or did not validate against our published schema.",
+		Description:    "The XML you provided was not well-formed or did not validate against our published schema",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMaxKeysNegative: {
@@ -597,7 +597,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeMissingContentMD5: {
 		Code:           "InvalidRequest",
-		Description:    "Missing required header for this request: Content-MD5",
+		Description:    "Missing required header for this request: Content-MD5 OR x-amz-checksum-*",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMissingDefaultRetentionPeriod: {

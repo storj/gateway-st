@@ -39,8 +39,6 @@ const (
 	maxUploadsLimit = 1000
 	// minPartSize is miniogw's default minimum size of a part other than the last one.
 	minPartSize = 5 << 20
-	// maxKeyLength is the longest object key, in bytes.
-	maxKeyLength = 1024
 
 	tagsKey = "s3:tags"
 
@@ -469,7 +467,7 @@ func objectInfo(bucket, key string, version versionMeta, latest bool) objectlaye
 
 // checkPutOptions checks the options of a new object like miniogw does.
 func checkPutOptions(bucket, key string, opts objectlayer.ObjectOptions) error {
-	if len(key) > maxKeyLength {
+	if len(key) > objectlayer.MaxObjectKeyLength {
 		return objectlayer.ObjectNameTooLong{Bucket: bucket, Object: key}
 	}
 	if storageClass, ok := opts.UserDefined[amzStorageClass]; ok && storageClass != storageClassNormal {
@@ -924,7 +922,7 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 	if dstOpts.VersionID != "" {
 		return objectlayer.ObjectInfo{}, objectlayer.NotImplemented{}
 	}
-	if len(dstObject) > maxKeyLength {
+	if len(dstObject) > objectlayer.MaxObjectKeyLength {
 		return objectlayer.ObjectInfo{}, objectlayer.ObjectNameTooLong{Bucket: dstBucket, Object: dstObject}
 	}
 	if storageClass, ok := srcInfo.UserDefined[amzStorageClass]; ok && storageClass != storageClassNormal {

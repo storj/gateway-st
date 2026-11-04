@@ -410,7 +410,7 @@
 
 - name: MalformedXML
   code: MalformedXML
-  description: The XML you provided was not well-formed or did not validate against our published schema.
+  description: The XML you provided was not well-formed or did not validate against our published schema
   http_status: 400
 
 - name: MaximumExpires
@@ -435,7 +435,7 @@
 
 - name: MissingContentMD5
   code: InvalidRequest
-  description: "Missing required header for this request: Content-MD5"
+  description: "Missing required header for this request: Content-MD5 OR x-amz-checksum-*"
   http_status: 400
 
 - name: MissingObjectAttributes
