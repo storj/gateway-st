@@ -70,7 +70,7 @@ func TestDeleteObjectsPerKeyStorageError(t *testing.T) {
 
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchKey</Code>")
+	require.Contains(t, resp.Body, "<Error><Key>key</Key><Code>NoSuchKey</Code>")
 }
 
 func TestInvalidContentMD5(t *testing.T) {

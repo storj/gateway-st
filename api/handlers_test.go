@@ -451,7 +451,7 @@ func TestDeleteObjectsErrors(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	respBody := resp.Body
 	require.Equal(t, http.StatusOK, resp.StatusCode, respBody)
-	require.Contains(t, respBody, "<Error><Code>AccessDenied</Code><Message>Access Denied</Message><Key>key</Key></Error>")
+	require.Contains(t, respBody, "<Error><Key>key</Key><Code>AccessDenied</Code><Message>Access Denied</Message></Error>")
 }
 
 // singleObjectLayer returns a fake object layer containing a single object.
@@ -1973,13 +1973,12 @@ func TestDeleteObjectsVersionIDs(t *testing.T) {
 	require.Contains(t, resp.Body, "<Deleted><Key>latest</Key></Deleted>")
 	require.Contains(t, resp.Body, "<Deleted><Key>valid</Key><VersionId>00000000000000000000000000000001</VersionId></Deleted>")
 	require.Contains(t, resp.Body, "<Deleted><Key>both</Key></Deleted>")
-	require.Contains(t, resp.Body, "<Error><Code>NotImplemented</Code>")
-	require.Contains(t, resp.Body, "<Key>null</Key><VersionId>null</VersionId></Error>")
+	require.Contains(t, resp.Body, "<Error><Key>null</Key><VersionId>null</VersionId><Code>NotImplemented</Code>")
 	// S3 reports an empty or malformed version ID as a version that doesn't exist.
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>dashed</Key>")
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>garbage</Key>")
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>empty</Key>")
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>both</Key>")
+	require.Contains(t, resp.Body, "<Error><Key>dashed</Key><VersionId>00000000-0000-0000-0000-000000000001</VersionId><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message></Error>")
+	require.Contains(t, resp.Body, "<Error><Key>garbage</Key><VersionId>garbage</VersionId><Code>NoSuchVersion</Code>")
+	require.Contains(t, resp.Body, "<Error><Key>empty</Key><Code>NoSuchVersion</Code>")
+	require.Contains(t, resp.Body, "<Error><Key>both</Key><Code>NoSuchVersion</Code>")
 }
 
 func TestDeleteObjectsOnlyFiltered(t *testing.T) {
@@ -2002,8 +2001,86 @@ func TestDeleteObjectsOnlyFiltered(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Empty(t, objectAPI.Calls())
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>dashed</Key>")
-	require.Contains(t, resp.Body, "<Error><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message><Key>garbage</Key>")
+	require.Contains(t, resp.Body, "<Error><Key>dashed</Key><VersionId>00000000-0000-0000-0000-000000000001</VersionId><Code>NoSuchVersion</Code>")
+	require.Contains(t, resp.Body, "<Error><Key>garbage</Key><VersionId>garbage</VersionId><Code>NoSuchVersion</Code>")
+}
+
+// newDeleteObjectsLayer reports the version it removes even when none was requested, like the
+// object layers do.
+func newDeleteObjectsLayer() *fakeObjectLayer {
+	return &fakeObjectLayer{
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			deleted := make([]cmd.DeletedObject, 0, len(objects))
+			for _, object := range objects {
+				if object.VersionID == "" {
+					deleted = append(deleted, cmd.DeletedObject{ObjectName: object.ObjectName, VersionID: "removed", DeleteMarker: true, DeleteMarkerVersionID: "marker"})
+				} else {
+					deleted = append(deleted, cmd.DeletedObject{ObjectName: object.ObjectName, VersionID: object.VersionID})
+				}
+			}
+			return deleted, nil, nil
+		},
+	}
+}
+
+// TestDeleteObjectsLikeS3 checks the responses that S3 returned for the same requests.
+func TestDeleteObjectsLikeS3(t *testing.T) {
+	deleteObjects := func(objectAPI cmd.ObjectLayer, body string, header http.Header) response {
+		header = header.Clone()
+		if header == nil {
+			header = http.Header{}
+		}
+		header.Set("Content-Md5", base64MD5([]byte(body)))
+		return serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, []byte(body))
+	}
+
+	t.Run("refused", func(t *testing.T) {
+		for _, tt := range []struct{ name, body, code string }{
+			{"no Key", "<Delete><Object></Object></Delete>", "MalformedXML"},
+			{"two Keys", "<Delete><Object><Key>a</Key><Key>b</Key></Object></Delete>", "MalformedXML"},
+			{"two VersionIds", "<Delete><Object><Key>a</Key><VersionId>null</VersionId><VersionId>null</VersionId></Object></Delete>", "MalformedXML"},
+			{"two Quiets", "<Delete><Quiet>true</Quiet><Quiet>false</Quiet><Object><Key>a</Key></Object></Delete>", "MalformedXML"},
+			{"unknown element in Object", "<Delete><Object><Key>a</Key><Foo>x</Foo></Object></Delete>", "MalformedXML"},
+			{"unknown element in Delete", "<Delete><Foo>x</Foo><Object><Key>a</Key></Object></Delete>", "MalformedXML"},
+			{"empty Key", "<Delete><Object><Key>a</Key></Object><Object><Key></Key></Object></Delete>", "UserKeyMustBeSpecified"},
+			// S3 checks the whole document's structure before the entries.
+			{"empty Key, then no Key", "<Delete><Object><Key></Key></Object><Object></Object></Delete>", "MalformedXML"},
+			{"ETag condition, then unknown element", "<Delete><Object><Key>a</Key><ETag>x</ETag></Object><Object><Key>b</Key><Foo>x</Foo></Object></Delete>", "MalformedXML"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				objectAPI := newDeleteObjectsLayer()
+				resp := deleteObjects(objectAPI, tt.body, nil)
+				require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+				require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
+				require.Empty(t, objectAPI.Calls())
+			})
+		}
+	})
+
+	t.Run("wrong root element and a key over 1024 bytes", func(t *testing.T) {
+		// Unlike S3, a long key is left to the object layer, which may accept it.
+		long := strings.Repeat("k", 1025)
+		resp := deleteObjects(newDeleteObjectsLayer(), "<Remove><Object><Key>"+long+"</Key></Object></Remove>", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Deleted><Key>"+long+"</Key>")
+	})
+
+	t.Run("quiet", func(t *testing.T) {
+		for value, quiet := range map[string]bool{"true": true, "True": true, "TRUE": true, "1": false, "false": false, "maybe": false, "": false} {
+			resp := deleteObjects(newDeleteObjectsLayer(), "<Delete><Quiet>"+value+"</Quiet><Object><Key>a</Key></Object></Delete>", nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+			require.Equal(t, !quiet, strings.Contains(resp.Body, "<Deleted>"), value)
+		}
+	})
+
+	t.Run("version IDs and element order", func(t *testing.T) {
+		resp := deleteObjects(newDeleteObjectsLayer(), "<Delete><Object><Key>a</Key></Object><Object><Key>b</Key><VersionId>00000000000000000000000000000001</VersionId></Object></Delete>", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		// The removed version is only reported when it was requested.
+		require.Contains(t, resp.Body, "<Deleted><Key>a</Key><DeleteMarker>true</DeleteMarker><DeleteMarkerVersionId>marker</DeleteMarkerVersionId></Deleted>")
+		require.Contains(t, resp.Body, "<Deleted><Key>b</Key><VersionId>00000000000000000000000000000001</VersionId></Deleted>")
+	})
+
 }
 
 func TestUnauthenticatedRequestValidation(t *testing.T) {

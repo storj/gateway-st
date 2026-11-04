@@ -856,41 +856,43 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.ContentLength == 0 {
-		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+		api.writeErrorResponse(w, r, apierr.CodeMissingRequestBody)
 		return
 	}
 
-	// objectlayer.ObjectToDelete has no condition fields, so decode into a type that keeps them.
-	// VersionID shadows ObjectToDelete.VersionID, so that an empty VersionId element can be told
-	// apart from a missing one.
+	// The elements that S3 allows once are slices, and unknown ones are collected, so that the
+	// request can be refused as MalformedXML like S3 does instead of decoded leniently. An empty
+	// VersionId element is then also told apart from a missing one.
 	var req struct {
-		Quiet   bool
+		Quiet   []string
 		Objects []struct {
-			objectlayer.ObjectToDelete
-			VersionID        *string `xml:"VersionId"`
+			Key              []string
+			VersionID        []string `xml:"VersionId"`
 			ETag             string
 			Size             string
 			LastModifiedTime string
+			Unknown          []struct{ XMLName xml.Name } `xml:",any"`
 		} `xml:"Object"`
+		Unknown []struct{ XMLName xml.Name } `xml:",any"`
 	}
 	if err := decodeVerifiedXML(body, &req, maxDeleteObjectsBodySize); err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
-	if len(req.Objects) == 0 || len(req.Objects) > maxDeleteList {
+	if len(req.Objects) == 0 || len(req.Objects) > maxDeleteList || len(req.Quiet) > 1 || len(req.Unknown) > 0 {
 		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 		return
 	}
-
 	for _, object := range req.Objects {
-		// Conditional deletes are refused like If-Match on DeleteObject, because the object layer
-		// can't check their conditions.
-		if object.ETag != "" || object.Size != "" || object.LastModifiedTime != "" {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+		if len(object.Key) != 1 || len(object.VersionID) > 1 || len(object.Unknown) > 0 {
+			api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 			return
 		}
 	}
+
+	// S3 only treats a case-insensitive "true" as quiet and ignores any other value.
+	quiet := len(req.Quiet) == 1 && strings.EqualFold(req.Quiet[0], "true")
 
 	type bucketObjectLocation struct {
 		key          string
@@ -900,15 +902,28 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	seen := make(map[bucketObjectLocation]struct{}, len(req.Objects))
 
-	deleteReq := &cmd.DeleteObjectsRequest{Quiet: req.Quiet, Objects: make([]objectlayer.ObjectToDelete, 0, len(req.Objects))}
+	objects := make([]objectlayer.ObjectToDelete, 0, len(req.Objects))
 	deleteErrs := make([]deleteError, 0, len(req.Objects))
 	for _, object := range req.Objects {
-		loc := bucketObjectLocation{
-			key:          object.ObjectName,
-			hasVersionID: object.VersionID != nil,
+		// Conditional deletes are refused like If-Match on DeleteObject, because the object layer
+		// can't check their conditions.
+		if object.ETag != "" || object.Size != "" || object.LastModifiedTime != "" {
+			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+			return
 		}
-		if object.VersionID != nil {
-			loc.versionID = *object.VersionID
+		// S3 refuses the whole request for an empty key. Its 1024-byte limit isn't applied, because
+		// the satellite limits the encrypted key and allows longer keys written through uplink.
+		if object.Key[0] == "" {
+			api.writeErrorResponse(w, r, apierr.CodeUserKeyMustBeSpecified)
+			return
+		}
+
+		loc := bucketObjectLocation{
+			key:          object.Key[0],
+			hasVersionID: len(object.VersionID) == 1,
+		}
+		if loc.hasVersionID {
+			loc.versionID = object.VersionID[0]
 		}
 
 		if _, ok := seen[loc]; ok {
@@ -926,26 +941,25 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				resp, _ := errToResponse(err)
 				deleteErrs = append(deleteErrs, deleteError{
+					Key:       loc.key,
+					VersionID: loc.versionID,
 					Code:      resp.Code,
 					Message:   resp.Description,
-					Key:       object.ObjectName,
-					VersionID: loc.versionID,
 				})
 				continue
 			}
 		}
 
-		object.ObjectToDelete.VersionID = loc.versionID
-		deleteReq.Objects = append(deleteReq.Objects, object.ObjectToDelete)
+		objects = append(objects, objectlayer.ObjectToDelete{ObjectName: loc.key, VersionID: loc.versionID})
 	}
 
 	var deletedObjects []objectlayer.DeletedObject
 	var apiDeleteErrs []objectlayer.DeleteObjectsError
-	if len(deleteReq.Objects) > 0 {
+	if len(objects) > 0 {
 		var err error
-		deletedObjects, apiDeleteErrs, err = api.objectAPI.DeleteObjects(ctx, bucketName, deleteReq.Objects, objectlayer.ObjectOptions{
+		deletedObjects, apiDeleteErrs, err = api.objectAPI.DeleteObjects(ctx, bucketName, objects, objectlayer.ObjectOptions{
 			BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
-			Quiet:                     deleteReq.Quiet,
+			Quiet:                     quiet,
 		})
 		if err != nil {
 			api.writeErrorResponse(w, r, err)
@@ -961,10 +975,10 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 			resp, _ = apierr.CodeInternal.ToResponse()
 		}
 		deleteErrs = append(deleteErrs, deleteError{
-			Code:      resp.Code,
-			Message:   resp.Description,
 			Key:       deleteErr.ObjectName,
 			VersionID: deleteErr.VersionID,
+			Code:      resp.Code,
+			Message:   resp.Description,
 		})
 	}
 
@@ -973,12 +987,27 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The object layer may ignore Quiet, so enforce it here.
-	if deleteReq.Quiet {
-		deletedObjects = nil
+	var deleted []deletedObject
+	if !quiet {
+		deleted = make([]deletedObject, 0, len(deletedObjects))
+		for _, object := range deletedObjects {
+			// The object layers report the version they removed, but S3 only reports a VersionId
+			// that was requested.
+			versionID := object.VersionID
+			if _, ok := seen[bucketObjectLocation{key: object.ObjectName, versionID: versionID, hasVersionID: true}]; !ok {
+				versionID = ""
+			}
+			deleted = append(deleted, deletedObject{
+				Key:                   object.ObjectName,
+				VersionID:             versionID,
+				DeleteMarker:          object.DeleteMarker,
+				DeleteMarkerVersionID: object.DeleteMarkerVersionID,
+			})
+		}
 	}
 
 	encodedSuccessResponse, err := encodeResponse(deleteObjectsResponse{
-		DeletedObjects: deletedObjects,
+		DeletedObjects: deleted,
 		Errors:         deleteErrs,
 	})
 	if err != nil {

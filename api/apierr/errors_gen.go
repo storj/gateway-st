@@ -75,6 +75,7 @@ const (
 	CodeMissingContentMD5
 	CodeMissingObjectAttributes
 	CodeMissingPOSTPolicy
+	CodeMissingRequestBody
 	CodeMissingSecurityHeader
 	CodeMultipleChecksums
 	CodeNegativeExpires
@@ -110,6 +111,7 @@ const (
 	CodeUnsignedHeaders
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
+	CodeUserKeyMustBeSpecified
 )
 
 var codeToResponse = map[Code]Response{
@@ -458,6 +460,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Bucket POST must contain a field named 'policy'.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeMissingRequestBody: {
+		Code:           "MissingRequestBodyError",
+		Description:    "Request Body is empty",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMissingSecurityHeader: {
 		Code:           "MissingSecurityHeader",
 		Description:    "Your request is missing a required header.",
@@ -631,6 +638,11 @@ var codeToResponse = map[Code]Response{
 	CodeUnsupportedSignature: {
 		Code:           "UnsupportedSignature",
 		Description:    "The provided request is signed with an unsupported STS Token version or the signature version is not supported.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeUserKeyMustBeSpecified: {
+		Code:           "UserKeyMustBeSpecified",
+		Description:    "User key must be specified.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 }

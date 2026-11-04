@@ -184,20 +184,28 @@ type postResponse struct {
 	cmd.PostResponse
 }
 
-// deleteError is cmd.DeleteError without an empty VersionId.
+// deleteError is cmd.DeleteError without an empty VersionId, in S3's element order.
 type deleteError struct {
-	Code      string
-	Message   string
 	Key       string
 	VersionID string `xml:"VersionId,omitempty"`
+	Code      string
+	Message   string
 }
 
-// deleteObjectsResponse is cmd.DeleteObjectsResponse with deleteError errors.
+// deletedObject is objectlayer.DeletedObject without the MinIO extensions, in S3's element order.
+type deletedObject struct {
+	Key                   string
+	VersionID             string `xml:"VersionId,omitempty"`
+	DeleteMarker          bool   `xml:",omitempty"`
+	DeleteMarkerVersionID string `xml:"DeleteMarkerVersionId,omitempty"`
+}
+
+// deleteObjectsResponse is cmd.DeleteObjectsResponse with deletedObject and deleteError entries.
 type deleteObjectsResponse struct {
 	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ DeleteResult"`
 
-	DeletedObjects []objectlayer.DeletedObject `xml:"Deleted,omitempty"`
-	Errors         []deleteError               `xml:"Error,omitempty"`
+	DeletedObjects []deletedObject `xml:"Deleted,omitempty"`
+	Errors         []deleteError   `xml:"Error,omitempty"`
 }
 
 // objectRetentionResponse is objectlayer.ObjectRetention with a RetainUntilDate in milliseconds.

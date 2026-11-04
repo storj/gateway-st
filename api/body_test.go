@@ -228,15 +228,16 @@ func TestXMLBodyLimits(t *testing.T) {
 		for _, tt := range []struct {
 			name, target string
 			header       http.Header
+			code         string
 		}{
-			{"CompleteMultipartUpload", "/bucket/key?uploadId=upload-id", nil},
-			{"DeleteObjects", "/bucket?delete", http.Header{"Content-Md5": {base64MD5(nil)}}},
+			{"CompleteMultipartUpload", "/bucket/key?uploadId=upload-id", nil, "MalformedXML"},
+			{"DeleteObjects", "/bucket?delete", http.Header{"Content-Md5": {base64MD5(nil)}}, "MissingRequestBodyError"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				objectAPI := newBodyObjectLayer()
 				resp := serveHTTP(t, objectAPI, http.MethodPost, tt.target, tt.header, nil)
 				require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
-				require.Contains(t, resp.Body, "<Code>MalformedXML</Code>")
+				require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
 				require.Empty(t, objectAPI.Calls())
 			})
 		}

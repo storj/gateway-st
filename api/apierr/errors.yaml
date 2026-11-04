@@ -348,6 +348,11 @@
   description: Bucket POST must contain a field named 'policy'.
   http_status: 400
 
+- name: MissingRequestBody
+  code: MissingRequestBodyError
+  description: Request Body is empty
+  http_status: 400
+
 - name: MissingSecurityHeader
   code: MissingSecurityHeader
   description: Your request is missing a required header.
@@ -516,4 +521,9 @@
 - name: UnsupportedSignature
   code: UnsupportedSignature
   description: The provided request is signed with an unsupported STS Token version or the signature version is not supported.
+  http_status: 400
+
+- name: UserKeyMustBeSpecified
+  code: UserKeyMustBeSpecified
+  description: User key must be specified.
   http_status: 400
