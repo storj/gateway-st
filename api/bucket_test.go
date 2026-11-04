@@ -98,11 +98,12 @@ func TestPutBucketTaggingUnknownContentLength(t *testing.T) {
 	body := []byte(`<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/bucket?tagging", bytes.NewReader(body))
 	req.ContentLength = -1
+	req.Header.Set("Content-Md5", base64MD5(body))
 	signV4(req, body, time.Now())
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 	require.NotNil(t, got)
 	require.Equal(t, "k=v", got.String())
 }
@@ -137,6 +138,82 @@ func TestListObjectsV2(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
 	}
+}
+
+// putTagsLayer records the tags set on a bucket or an object.
+type putTagsLayer struct {
+	*fakeObjectLayer
+	got *tags.Tags
+}
+
+func (l *putTagsLayer) SetBucketTagging(_ context.Context, _ string, t *tags.Tags) error {
+	l.got = t
+	return nil
+}
+
+func (l *putTagsLayer) PutObjectTags(_ context.Context, bucket, object, t string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	var err error
+	l.got, err = tags.ParseObjectTags(t)
+	return cmd.ObjectInfo{Bucket: bucket, Name: object}, err
+}
+
+// TestPutTaggingLikeS3 checks the responses that S3 returned for the same requests.
+func TestPutTaggingLikeS3(t *testing.T) {
+	objectAPI := &putTagsLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	put := func(target, body string) response {
+		return serve(t, objectAPI, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
+	}
+
+	for _, target := range []string{"/bucket?tagging", "/bucket/key?tagging"} {
+		for _, body := range []string{
+			`<Tagging><TagSet><Tag><Key>a</Key></Tag></TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag><Value>1</Value></Tag></TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag><Key>a</Key><Key>b</Key><Value>1</Value></Tag></TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag></TagSet><TagSet></TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag></TagSet><Foo/></Tagging>`,
+			`<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value><Foo/></Tag></TagSet></Tagging>`,
+			// Text in the elements that only hold elements, but not whitespace.
+			`<Tagging>hi<TagSet><Tag><Key>a</Key><Value>1</Value></Tag></TagSet></Tagging>`,
+			`<Tagging><TagSet>hi<Tag><Key>a</Key><Value>1</Value></Tag></TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag>hi<Key>a</Key><Value>1</Value></Tag></TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag>hi</TagSet></Tagging>`,
+			`<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag></TagSet>hi</Tagging>`,
+			`<Tagging><![CDATA[hi]]><TagSet></TagSet></Tagging>`,
+			`<Tagging>&amp;<TagSet></TagSet></Tagging>`,
+			"<Tagging>\u00a0<TagSet></TagSet></Tagging>",
+		} {
+			resp := put(target, body)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, body)
+			require.Contains(t, resp.Body, "<Code>MalformedXML</Code>", body)
+		}
+
+		want := http.StatusOK
+		if target == "/bucket?tagging" {
+			want = http.StatusNoContent
+		}
+		// Any root element and declared encoding is accepted.
+		for body, tagString := range map[string]string{
+			`<Tags><TagSet><Tag><Key>a</Key><Value>1</Value></Tag></TagSet></Tags>`:                                            "a=1",
+			`<?xml version="1.0" encoding="bogus"?><Tagging><TagSet><Tag><Key>b</Key><Value></Value></Tag></TagSet></Tagging>`: "b=",
+			`<Tagging><TagSet></TagSet></Tagging>`:                                                                             "",
+			`<Tagging></Tagging>`:                                                                                              "",
+			"<Tagging>\n <!-- c --><TagSet>\t<Tag>\r\n<Key>a</Key><Value>1</Value> </Tag><![CDATA[ ]]></TagSet>\n</Tagging>":   "a=1",
+		} {
+			objectAPI.got = nil
+			resp := put(target, body)
+			require.Equal(t, want, resp.StatusCode, body+": "+resp.Body)
+			require.NotNil(t, objectAPI.got, body)
+			require.Equal(t, tagString, objectAPI.got.String(), body)
+		}
+	}
+
+	// Unlike PutObjectTagging, PutBucketTagging requires Content-MD5 or a checksum.
+	body := []byte(`<Tagging><TagSet></TagSet></Tagging>`)
+	resp := serve(t, objectAPI, http.MethodPut, "/bucket?tagging", nil, body)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket/key?tagging", nil, body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 }
 
 func TestBucketConfigurationErrors(t *testing.T) {

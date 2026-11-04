@@ -280,6 +280,10 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		api.writeErrorResponse(w, r, err)
 		return
 	}
+	if len(data) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingRequestBody)
+		return
+	}
 
 	tags, err := parseTaggingXML(bytes.NewReader(data), true)
 	if err != nil {

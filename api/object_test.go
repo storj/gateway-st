@@ -471,7 +471,12 @@ func TestUploadPartCopySourceVersion(t *testing.T) {
 }
 
 func TestUnparsableXMLIsMalformed(t *testing.T) {
-	for _, target := range []string{"/bucket?tagging", "/bucket/key?tagging", "/bucket/key?legal-hold", "/bucket/key?retention"} {
+	for _, target := range []string{"/bucket?tagging", "/bucket/key?tagging"} {
+		resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5(nil)}}, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target+": "+resp.Body)
+		require.Contains(t, resp.Body, "<Code>MissingRequestBodyError</Code>", target)
+	}
+	for _, target := range []string{"/bucket/key?legal-hold", "/bucket/key?retention"} {
 		for _, body := range []string{"", `<?xml version="1.0" encoding="ISO-8859-1"?><Tagging></Tagging>`} {
 			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
 			require.Equal(t, http.StatusBadRequest, resp.StatusCode, target+": "+resp.Body)

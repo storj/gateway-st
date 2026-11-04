@@ -162,7 +162,8 @@ func TestTagValidation(t *testing.T) {
 		})
 	}
 
-	resp := serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket?tagging", nil, []byte(tagXML([][2]string{{"aws:key", "1"}})))
+	body := []byte(tagXML([][2]string{{"aws:key", "1"}}))
+	resp := serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket?tagging", http.Header{"Content-Md5": {base64MD5(body)}}, body)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>InvalidTag</Code>")
 	require.Contains(t, resp.Body, "System tags cannot be added/updated by requester")

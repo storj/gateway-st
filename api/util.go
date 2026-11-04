@@ -21,6 +21,7 @@
 package api
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -167,13 +168,56 @@ func validateTaggingHeader(header string) error {
 	return validateTags(tagMap, true)
 }
 
-// parseTaggingXML parses a Tagging XML document and validates its tags.
+// parseTaggingXML parses a Tagging XML document and validates its tags. Like S3, any root element is
+// accepted, but unknown and repeated elements are refused as MalformedXML.
 func parseTaggingXML(r io.Reader, isObject bool) (*tags.Tags, error) {
+	var doc struct {
+		Text   string `xml:",chardata"`
+		TagSet []struct {
+			Text string `xml:",chardata"`
+			Tags []struct {
+				Text    string `xml:",chardata"`
+				Key     []string
+				Value   []string
+				Unknown unknownElements `xml:",any"`
+			} `xml:"Tag"`
+			Unknown unknownElements `xml:",any"`
+		}
+		Unknown unknownElements `xml:",any"`
+	}
+	if err := xmlDecoder(r, &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.TagSet) > 1 || len(doc.Unknown) > 0 || hasText(doc.Text) {
+		return nil, apierr.CodeMalformedXML
+	}
+
+	// The tags are passed to minio's parser in a canonical document for its validation.
+	var canonical struct {
+		XMLName xml.Name   `xml:"Tagging"`
+		Tags    []tags.Tag `xml:"TagSet>Tag"`
+	}
+	for _, set := range doc.TagSet {
+		if len(set.Unknown) > 0 || hasText(set.Text) {
+			return nil, apierr.CodeMalformedXML
+		}
+		for _, tag := range set.Tags {
+			if len(tag.Key) != 1 || len(tag.Value) != 1 || len(tag.Unknown) > 0 || hasText(tag.Text) {
+				return nil, apierr.CodeMalformedXML
+			}
+			canonical.Tags = append(canonical.Tags, tags.Tag{Key: tag.Key[0], Value: tag.Value[0]})
+		}
+	}
+	data, err := xml.Marshal(canonical)
+	if err != nil {
+		return nil, err
+	}
+
 	parse := tags.ParseBucketXML
 	if isObject {
 		parse = tags.ParseObjectXML
 	}
-	t, err := parse(r)
+	t, err := parse(bytes.NewReader(data))
 	if err != nil {
 		// Too many tags is the only BadRequest that minio-go returns.
 		if tagsErr := tags.Error(nil); isObject && errors.As(err, &tagsErr) && tagsErr.Code() == "BadRequest" {

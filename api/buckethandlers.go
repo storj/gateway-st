@@ -243,7 +243,8 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	body, err := api.verifyWithBody(r, false)
+	// PutBucketTagging requires either Content-MD5 or an X-Amz-Checksum-<algorithm> header.
+	body, err := api.verifyWithBody(r, true)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -252,6 +253,10 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 	data, err := readVerifiedBody(body, maxPutBucketTaggingBodySize)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if len(data) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingRequestBody)
 		return
 	}
 
@@ -266,7 +271,7 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	api.writeSuccessResponseHeadersOnly(w, r)
+	api.writeSuccessNoContent(w, r)
 }
 
 // PutBucketVersioningHandler is the HTTP handler for the PutBucketVersioning operation,
