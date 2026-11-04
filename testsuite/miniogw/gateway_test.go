@@ -1338,7 +1338,8 @@ func TestGetObjectInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, metadata, info.UserDefined)
 
-		retentionPeriod := time.Now().Add(time.Hour).UTC()
+		// The satellite keeps the date in microseconds.
+		retentionPeriod := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
 		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, minio.ObjectOptions{Retention: &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
 			RetainUntilDate: lock.RetentionDate{
@@ -1348,7 +1349,7 @@ func TestGetObjectInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 
 		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
-		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339)
+		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339Nano)
 
 		// Get the object info using the Minio API
 		info, err = layer.GetObjectInfo(ctx, testBucket, testFile, minio.ObjectOptions{})
@@ -1470,7 +1471,8 @@ func TestGetObjectNInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, metadata, info.UserDefined)
 
-		retentionPeriod := time.Now().Add(time.Hour).UTC()
+		// The satellite keeps the date in microseconds.
+		retentionPeriod := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
 		err = layer.SetObjectRetention(ctx, testBucket, testFile, info.VersionID, minio.ObjectOptions{Retention: &lock.ObjectRetention{
 			Mode: lock.RetCompliance,
 			RetainUntilDate: lock.RetentionDate{
@@ -1480,7 +1482,7 @@ func TestGetObjectNInfoWithObjectLock(t *testing.T) {
 		require.NoError(t, err)
 
 		metadata[strings.ToLower(lock.AmzObjectLockMode)] = string(lock.RetCompliance)
-		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339)
+		metadata[strings.ToLower(lock.AmzObjectLockRetainUntilDate)] = retentionPeriod.Format(time.RFC3339Nano)
 
 		// Get the object info using the Minio API
 		reader, err := layer.GetObjectNInfo(ctx, testBucket, testFile, &minio.HTTPRangeSpec{Start: 0, End: 0}, nil, 0, minio.ObjectOptions{})
@@ -1731,7 +1733,8 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 		_, err = project.CreateBucket(ctx, destBucket)
 		require.NoError(t, err)
 
-		retentionPeriod := time.Now().Add(time.Hour)
+		// The satellite keeps the date in microseconds.
+		retentionPeriod := time.Now().Add(time.Hour).Truncate(time.Microsecond)
 		amzObjectLockMode := strings.ToLower(lock.AmzObjectLockMode)
 		amzObjectLockRetainUntilDate := strings.ToLower(lock.AmzObjectLockRetainUntilDate)
 		amzObjectLockLegalHold := strings.ToLower(lock.AmzObjectLockLegalHold)
@@ -1814,7 +1817,7 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 				require.NoError(t, err)
 				if testCase.expectedRetention != nil {
 					assert.Equal(t, string(testCase.expectedRetention.Mode), info.UserDefined[amzObjectLockMode])
-					assert.Equal(t, testCase.expectedRetention.RetainUntilDate.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+					assert.Equal(t, testCase.expectedRetention.RetainUntilDate.UTC().Format(time.RFC3339Nano), info.UserDefined[amzObjectLockRetainUntilDate])
 				}
 				assert.Equal(t, string(testCase.legalHold), info.UserDefined[amzObjectLockLegalHold])
 
@@ -1823,7 +1826,7 @@ func TestCopyObjectWithObjectLock(t *testing.T) {
 				require.NoError(t, err)
 				if testCase.expectedRetention != nil {
 					assert.Equal(t, string(testCase.expectedRetention.Mode), info.UserDefined[amzObjectLockMode])
-					assert.Equal(t, testCase.expectedRetention.RetainUntilDate.UTC().Format(time.RFC3339), info.UserDefined[amzObjectLockRetainUntilDate])
+					assert.Equal(t, testCase.expectedRetention.RetainUntilDate.UTC().Format(time.RFC3339Nano), info.UserDefined[amzObjectLockRetainUntilDate])
 				}
 				assert.Equal(t, string(testCase.legalHold), info.UserDefined[amzObjectLockLegalHold])
 			})

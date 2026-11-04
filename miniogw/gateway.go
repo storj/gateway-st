@@ -1968,7 +1968,7 @@ func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) 
 			lockMode = objectlock.RetGovernance
 		}
 		object.Custom[strings.ToLower(objectlock.AmzObjectLockMode)] = string(lockMode)
-		object.Custom[strings.ToLower(objectlock.AmzObjectLockRetainUntilDate)] = object.Retention.RetainUntil.Format(time.RFC3339)
+		object.Custom[strings.ToLower(objectlock.AmzObjectLockRetainUntilDate)] = object.Retention.RetainUntil.Format(time.RFC3339Nano)
 	}
 
 	if object.LegalHold != nil {

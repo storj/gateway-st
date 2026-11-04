@@ -32,6 +32,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
@@ -804,6 +805,22 @@ var objectMetadataHeaders = []string{
 	xhttp.AmzStorageClass,
 }
 
+// formatRetainUntilHeader formats the stored retain until date of an object for the
+// x-amz-object-lock-retain-until-date header like S3: in milliseconds, which are left out if they are
+// zero. A value that isn't a date is returned as it is.
+func formatRetainUntilHeader(stored string) string {
+	date, err := time.Parse(time.RFC3339Nano, stored)
+	if err != nil {
+		return stored
+	}
+	date = date.UTC()
+	formatted := date.Format("2006-01-02T15:04:05")
+	if millis := date.Nanosecond() / int(time.Millisecond); millis != 0 {
+		formatted += fmt.Sprintf(".%03d", millis)
+	}
+	return formatted + "Z"
+}
+
 // objectLockMetadataPrefix is the prefix of the object lock metadata keys that the object layer
 // returns in lower case.
 const objectLockMetadataPrefix = "x-amz-object-lock-"
@@ -862,6 +879,10 @@ func setObjectHeaders(w http.ResponseWriter, objInfo objectlayer.ObjectInfo, ran
 		}
 		// Like S3, the default storage class isn't reported.
 		if strings.EqualFold(k, xhttp.AmzStorageClass) && v == defaultStorageClass {
+			continue
+		}
+		if lowerK == strings.ToLower(objectlock.AmzObjectLockRetainUntilDate) {
+			h.Set(k, formatRetainUntilHeader(v))
 			continue
 		}
 		if strings.HasPrefix(lowerK, objectLockMetadataPrefix) || slices.ContainsFunc(objectMetadataHeaders, func(header string) bool {

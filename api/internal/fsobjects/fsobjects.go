@@ -442,7 +442,7 @@ func objectInfo(bucket, key string, version versionMeta, latest bool) objectlaye
 	}
 	if r := version.Retention; r != nil {
 		metadata[strings.ToLower(amzObjectLockMode)] = string(r.Mode)
-		metadata[strings.ToLower(amzObjectLockRetainUntilDate)] = r.RetainUntil.Format(time.RFC3339)
+		metadata[strings.ToLower(amzObjectLockRetainUntilDate)] = r.RetainUntil.Format(time.RFC3339Nano)
 	}
 	if version.LegalHold != nil {
 		status := objectlayer.LegalHoldOff

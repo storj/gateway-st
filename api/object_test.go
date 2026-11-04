@@ -1195,3 +1195,26 @@ func TestPresignedV2QueryHeaders(t *testing.T) {
 		require.Contains(t, rec.Body.String(), "<Code>AccessControlListNotSupported</Code>")
 	}
 }
+
+// TestRetainUntilDateHeaderLikeS3 checks the x-amz-object-lock-retain-until-date header that S3
+// returned: in milliseconds, which are left out if they are zero.
+func TestRetainUntilDateHeaderLikeS3(t *testing.T) {
+	for stored, want := range map[string]string{
+		"2100-01-02T03:04:05Z":           "2100-01-02T03:04:05Z",
+		"2100-01-02T03:04:05.123Z":       "2100-01-02T03:04:05.123Z",
+		"2100-01-02T03:04:05.1Z":         "2100-01-02T03:04:05.100Z",
+		"2100-01-02T03:04:05.123456789Z": "2100-01-02T03:04:05.123Z",
+		"2100-01-02T03:04:05.000456Z":    "2100-01-02T03:04:05Z",
+		"2100-01-02T05:04:05.5+02:00":    "2100-01-02T03:04:05.500Z",
+		"not a date":                     "not a date",
+	} {
+		objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag", ModTime: time.Now(),
+			UserDefined: map[string]string{"X-Amz-Object-Lock-Mode": "GOVERNANCE", "x-amz-object-lock-retain-until-date": stored}}
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			resp := serve(t, singleObjectLayer(objInfo, "data"), method, "/bucket/key", nil, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+			require.Equal(t, want, resp.Header.Get("X-Amz-Object-Lock-Retain-Until-Date"), "%s %s", method, stored)
+			require.Equal(t, "GOVERNANCE", resp.Header.Get("X-Amz-Object-Lock-Mode"))
+		}
+	}
+}
