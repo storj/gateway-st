@@ -338,6 +338,24 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+	if uploadID == "" {
+		api.writeErrorResponse(w, r, apierr.CodePartNumberWithoutUploadID)
+		return
+	}
+
+	partNumStr := r.URL.Query().Get(xhttp.PartNumber)
+	partNumber, err := strconv.Atoi(partNumStr)
+	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberArgument)
+		return
+	}
+
+	if err := checkUploadPartHeaders(r.Header, false); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	if _, requested := crypto.IsRequested(r.Header); requested {
 		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
@@ -351,15 +369,6 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 
 	if size > maxPartSize {
 		api.writeErrorResponse(w, r, apierr.CodeEntityTooLarge)
-		return
-	}
-
-	uploadID := r.URL.Query().Get(xhttp.UploadID)
-
-	partNumStr := r.URL.Query().Get(xhttp.PartNumber)
-	partNumber, err := strconv.Atoi(partNumStr)
-	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberArgument)
 		return
 	}
 
@@ -411,18 +420,27 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+	if uploadID == "" {
+		api.writeErrorResponse(w, r, apierr.CodePartNumberWithoutUploadID)
 		return
 	}
-
-	uploadID := r.URL.Query().Get(xhttp.UploadID)
 
 	partNumberStr := r.URL.Query().Get(xhttp.PartNumber)
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil || partNumber < minPartNumber || partNumber > maxPartNumber {
 		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberArgument)
+		return
+	}
+
+	if err := checkUploadPartHeaders(r.Header, true); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 

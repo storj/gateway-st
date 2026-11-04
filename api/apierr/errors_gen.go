@@ -23,6 +23,7 @@ const (
 	CodeEntityTooLarge
 	CodeEntityTooSmall
 	CodeExpiredPresignedRequest
+	CodeHeaderNotValidForPart
 	CodeIllegalCopyHeader
 	CodeIllegalVersioningConfiguration
 	CodeIncorrectContinuationToken
@@ -72,6 +73,7 @@ const (
 	CodeMalformedXML
 	CodeMaxPostPreDataLengthExceeded
 	CodeMaximumExpires
+	CodeMetadataNotValidForPart
 	CodeMetadataTooLarge
 	CodeMethodNotAllowed
 	CodeMissingChecksumForSdkAlgorithm
@@ -93,6 +95,7 @@ const (
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
 	CodeOperationNotSupported
+	CodePartNumberWithoutUploadID
 	CodePostFormInvalidFileCount
 	CodePostFormMultipleKeyFields
 	CodePostPolicyConditionMissingOperationID
@@ -113,11 +116,13 @@ const (
 	CodePreconditionFailed
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
+	CodeServerSideEncryptionNotValidForPart
 	CodeSignatureDoesNotMatch
 	CodeUnsignedHeaders
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
 	CodeUserKeyMustBeSpecified
+	CodeWebsiteRedirectNotValidForPart
 )
 
 var codeToResponse = map[Code]Response{
@@ -205,6 +210,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "AccessDenied",
 		Description:    "Request has expired",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeHeaderNotValidForPart: {
+		Code:           "InvalidArgument",
+		Description:    "The specified header is not valid in this context",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeIllegalCopyHeader: {
 		Code:           "InvalidArgument",
@@ -451,6 +461,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeMetadataNotValidForPart: {
+		Code:           "InvalidArgument",
+		Description:    "Metadata cannot be specified in this context.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMetadataTooLarge: {
 		Code:           "MetadataTooLarge",
 		Description:    "Your metadata headers exceed the maximum allowed metadata size.",
@@ -556,6 +571,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The specified operation is not supported.",
 		HTTPStatusCode: http.StatusNotImplemented,
 	},
+	CodePartNumberWithoutUploadID: {
+		Code:           "InvalidArgument",
+		Description:    "This operation does not accept partNumber without uploadId",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodePostFormInvalidFileCount: {
 		Code:           "InvalidArgument",
 		Description:    "POST requires exactly one file upload per request.",
@@ -656,6 +676,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The difference between the request time and the server's time is too large.",
 		HTTPStatusCode: http.StatusForbidden,
 	},
+	CodeServerSideEncryptionNotValidForPart: {
+		Code:           "InvalidArgument",
+		Description:    "x-amz-server-side-encryption header is not supported for this operation.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeSignatureDoesNotMatch: {
 		Code:           "SignatureDoesNotMatch",
 		Description:    "The request signature we calculated does not match the signature you provided. Check your key and signing method.",
@@ -679,6 +704,11 @@ var codeToResponse = map[Code]Response{
 	CodeUserKeyMustBeSpecified: {
 		Code:           "UserKeyMustBeSpecified",
 		Description:    "User key must be specified.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeWebsiteRedirectNotValidForPart: {
+		Code:           "InvalidArgument",
+		Description:    "x-amz-website-redirect-location header is not supported for this operation.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 }

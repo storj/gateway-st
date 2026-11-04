@@ -435,6 +435,33 @@ func parseLegalHoldXML(data []byte) (*objectlock.ObjectLegalHold, error) {
 	return objectlock.ParseObjectLegalHold(bytes.NewReader(data))
 }
 
+// checkUploadPartHeaders refuses the headers that S3 doesn't accept on UploadPart and UploadPartCopy.
+// When several are present, S3 reports the server-side encryption header first, then the website
+// redirect location, then the headers that aren't valid in this context, and the metadata last.
+func checkUploadPartHeaders(h http.Header, isCopy bool) error {
+	if len(h.Values(xhttp.AmzServerSideEncryption)) > 0 {
+		return apierr.CodeServerSideEncryptionNotValidForPart
+	}
+	if len(h.Values("X-Amz-Website-Redirect-Location")) > 0 {
+		return apierr.CodeWebsiteRedirectNotValidForPart
+	}
+	notValid := []string{xhttp.AmzStorageClass, xhttp.AmzObjectTagging, xhttp.AmzACL}
+	if isCopy {
+		notValid = append(notValid, xhttp.AmzMetadataDirective, xhttp.AmzTagDirective)
+	}
+	for _, name := range notValid {
+		if len(h.Values(name)) > 0 {
+			return apierr.CodeHeaderNotValidForPart
+		}
+	}
+	for name := range h {
+		if strings.HasPrefix(http.CanonicalHeaderKey(name), "X-Amz-Meta-") {
+			return apierr.CodeMetadataNotValidForPart
+		}
+	}
+	return nil
+}
+
 // validateTags checks the tag rules that minio-go doesn't: the reserved aws: prefix and allowed characters.
 func validateTags(tagMap map[string]string, isObject bool) error {
 	for key, value := range tagMap {

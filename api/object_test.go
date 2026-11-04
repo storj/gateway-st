@@ -255,6 +255,86 @@ func TestCompleteMultipartUploadLikeS3(t *testing.T) {
 	require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
 }
 
+// TestUploadPartHeadersLikeS3 checks the responses that S3 returned for the same requests.
+func TestUploadPartHeadersLikeS3(t *testing.T) {
+	const (
+		notValid = "<Code>InvalidArgument</Code><Message>The specified header is not valid in this context</Message>"
+		metadata = "<Code>InvalidArgument</Code><Message>Metadata cannot be specified in this context.</Message>"
+	)
+	for _, copySource := range []string{"", "/bucket/src"} {
+		for _, tt := range []struct {
+			header http.Header
+			want   string
+		}{
+			{http.Header{"X-Amz-Storage-Class": {""}}, notValid},
+			{http.Header{"X-Amz-Tagging": {"a=1"}}, notValid},
+			{http.Header{"X-Amz-Acl": {"private"}}, notValid},
+			{http.Header{"X-Amz-Meta-": {"x"}}, metadata},
+			{http.Header{"X-Amz-Meta-Foo": {"x"}, "X-Amz-Storage-Class": {"STANDARD"}}, notValid},
+			{http.Header{"X-Amz-Website-Redirect-Location": {"/x"}}, "x-amz-website-redirect-location header is not supported for this operation."},
+			{http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}}, "x-amz-server-side-encryption header is not supported for this operation."},
+			// With several, S3 reports encryption first, then the website redirect location, then
+			// the headers that aren't valid, then metadata.
+			{http.Header{"X-Amz-Meta-Foo": {"x"}, "X-Amz-Website-Redirect-Location": {"/x"}}, "x-amz-website-redirect-location header is not supported for this operation."},
+			{http.Header{"X-Amz-Website-Redirect-Location": {"/x"}, "X-Amz-Server-Side-Encryption": {"AES256"}}, "x-amz-server-side-encryption header is not supported for this operation."},
+			{http.Header{"X-Amz-Storage-Class": {"STANDARD"}, "X-Amz-Website-Redirect-Location": {"/x"}}, "x-amz-website-redirect-location header is not supported for this operation."},
+			{http.Header{"X-Amz-Acl": {"private"}, "X-Amz-Server-Side-Encryption": {"AES256"}}, "x-amz-server-side-encryption header is not supported for this operation."},
+			{http.Header{"X-Amz-Meta-Foo": {"x"}, "X-Amz-Website-Redirect-Location": {"/x"}, "X-Amz-Server-Side-Encryption": {"AES256"}}, "x-amz-server-side-encryption header is not supported for this operation."},
+			{http.Header{"X-Amz-Tagging": {"a=1"}, "X-Amz-Meta-Foo": {"x"}}, notValid},
+		} {
+			header := tt.header.Clone()
+			if copySource != "" {
+				header.Set("X-Amz-Copy-Source", copySource)
+			} else {
+				header.Set("Content-Length", "1")
+			}
+			objectAPI := &readingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/key?partNumber=1&uploadId=id", header, []byte("x")[:len(header.Get("Content-Length"))])
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, "%v: %s", header, resp.Body)
+			require.Contains(t, resp.Body, tt.want, header)
+			require.Empty(t, objectAPI.Calls(), header)
+		}
+
+		// The directives are only refused on UploadPartCopy.
+		header := http.Header{"X-Amz-Metadata-Directive": {"COPY"}}
+		if copySource != "" {
+			header.Set("X-Amz-Copy-Source", copySource)
+			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket/key?partNumber=1&uploadId=id", header, nil)
+			require.Contains(t, resp.Body, notValid)
+		} else {
+			header.Set("Content-Length", "1")
+			objectAPI := &readingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/key?partNumber=1&uploadId=id", header, []byte("x"))
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		}
+
+		// A part number without an upload ID.
+		for _, target := range []string{"/bucket/key?partNumber=1&uploadId=", "/bucket/key?partNumber=&uploadId=", "/bucket/key?partNumber=1"} {
+			header := http.Header{"Content-Length": {"0"}}
+			if copySource != "" {
+				header = http.Header{"X-Amz-Copy-Source": {copySource}}
+			}
+			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, header, nil)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+			require.Contains(t, resp.Body, "<Message>This operation does not accept partNumber without uploadId</Message>", target)
+		}
+	}
+
+	// Headers that S3 accepts on parts.
+	header := http.Header{
+		"Content-Length":               {"1"},
+		"Content-Type":                 {"text/plain"},
+		"Cache-Control":                {"no-cache"},
+		"X-Amz-Object-Lock-Mode":       {"GOVERNANCE"},
+		"X-Amz-Object-Lock-Legal-Hold": {"ON"},
+		"X-Amz-Grant-Read":             {"id=abc"},
+		"X-Amz-Tagging-Directive":      {"bogus"},
+	}
+	objectAPI := &readingObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	resp := serve(t, objectAPI, http.MethodPut, "/bucket/key?partNumber=1&uploadId=id", header, []byte("x"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+}
+
 func TestCopyObjectStorageClass(t *testing.T) {
 	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
 	var gotMetadata map[string]string

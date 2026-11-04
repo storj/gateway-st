@@ -238,6 +238,31 @@
   description: The requested partnumber is not satisfiable
   http_status: 416
 
+- name: HeaderNotValidForPart
+  code: InvalidArgument
+  description: The specified header is not valid in this context
+  http_status: 400
+
+- name: MetadataNotValidForPart
+  code: InvalidArgument
+  description: Metadata cannot be specified in this context.
+  http_status: 400
+
+- name: PartNumberWithoutUploadID
+  code: InvalidArgument
+  description: This operation does not accept partNumber without uploadId
+  http_status: 400
+
+- name: ServerSideEncryptionNotValidForPart
+  code: InvalidArgument
+  description: x-amz-server-side-encryption header is not supported for this operation.
+  http_status: 400
+
+- name: WebsiteRedirectNotValidForPart
+  code: InvalidArgument
+  description: x-amz-website-redirect-location header is not supported for this operation.
+  http_status: 400
+
 - name: InvalidPartNumberTooSmall
   code: InvalidArgument
   description: PartNumber must be >= 1

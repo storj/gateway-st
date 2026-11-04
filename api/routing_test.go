@@ -385,7 +385,7 @@ func TestSubresourceRouting(t *testing.T) {
 		{method: http.MethodPut, target: "/bucket/key?attributes", want: notAllowed},
 		{method: http.MethodPut, target: "/bucket/key?uploads", want: notAllowed},
 		{method: http.MethodPut, target: "/bucket/key?uploadId=x", want: notAllowed},
-		{method: http.MethodPut, target: "/bucket/key?partNumber=1", want: notAllowed},
+		{method: http.MethodPut, target: "/bucket/key?partNumber=1", want: "400 InvalidArgument"}, // like S3
 		{method: http.MethodPut, target: "/bucket/key?annotation", want: notAllowed},
 		{method: http.MethodPut, target: "/bucket/key?renameObject", want: notAllowed},
 		{method: http.MethodPut, target: "/bucket/key?attributes", copySource: true, want: notAllowed},
