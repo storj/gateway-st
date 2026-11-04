@@ -1127,3 +1127,27 @@ func TestObjectLockMessagesLikeS3(t *testing.T) {
 		require.Contains(t, resp.Body, "<Code>InvalidBucketState</Code><Message>An Object Lock configuration is present on this bucket, so the versioning state cannot be changed.</Message>")
 	}
 }
+
+// retentionLayer returns an empty retention or an error from GetObjectRetention.
+type retentionLayer struct {
+	*fakeObjectLayer
+	err error
+}
+
+func (l retentionLayer) GetObjectRetention(context.Context, string, string, string) (*objectlock.ObjectRetention, error) {
+	return &objectlock.ObjectRetention{}, l.err
+}
+
+// TestGetObjectRetentionMissingLikeS3 checks the message that S3 returned for an object without
+// retention, whichever way the object layer reports it.
+func TestGetObjectRetentionMissingLikeS3(t *testing.T) {
+	for _, layerErr := range []error{
+		nil,
+		apierr.Response{Code: "NoSuchObjectLockConfiguration", Description: "Object is missing retention configuration", HTTPStatusCode: http.StatusNotFound},
+		miniogw.ErrRetentionNotFound,
+	} {
+		resp := serve(t, retentionLayer{&fakeObjectLayer{}, layerErr}, http.MethodGet, "/bucket/key?retention", nil, nil)
+		require.Equal(t, http.StatusNotFound, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>NoSuchObjectLockConfiguration</Code><Message>The specified object does not have a ObjectLock configuration</Message>")
+	}
+}

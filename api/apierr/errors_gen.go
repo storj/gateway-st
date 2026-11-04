@@ -688,7 +688,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeNoSuchObjectLockConfiguration: {
 		Code:           "NoSuchObjectLockConfiguration",
-		Description:    "The specified object does not have an ObjectLock configuration",
+		Description:    "The specified object does not have a ObjectLock configuration",
 		HTTPStatusCode: http.StatusNotFound,
 	},
 	CodeNoSuchUpload: {

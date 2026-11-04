@@ -580,7 +580,7 @@
 
 - name: NoSuchObjectLockConfiguration
   code: NoSuchObjectLockConfiguration
-  description: The specified object does not have an ObjectLock configuration
+  description: The specified object does not have a ObjectLock configuration
   http_status: 404
 
 - name: NoSuchUpload

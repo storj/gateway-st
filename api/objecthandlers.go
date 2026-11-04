@@ -935,6 +935,10 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 
 	retention, err := api.objectAPI.GetObjectRetention(ctx, bucketName, objectKey, versionID)
 	if err != nil {
+		// The object layers have a message of their own for an object without retention.
+		if resp, ok := errToResponse(err); ok && resp.Code == "NoSuchObjectLockConfiguration" {
+			err = apierr.CodeNoSuchObjectLockConfiguration
+		}
 		api.writeErrorResponse(w, r, err)
 		return
 	}
