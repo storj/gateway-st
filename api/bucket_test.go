@@ -216,6 +216,83 @@ func TestPutTaggingLikeS3(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 }
 
+// lockConfigObjectLayer records the object lock configuration set on a bucket.
+type lockConfigObjectLayer struct {
+	*fakeObjectLayer
+	got *objectlock.Config
+}
+
+func (l *lockConfigObjectLayer) SetObjectLockConfig(_ context.Context, _ string, config *objectlock.Config) error {
+	l.got = config
+	return nil
+}
+
+// TestPutObjectLockConfigurationLikeS3 checks the responses that S3 returned for the same requests.
+func TestPutObjectLockConfigurationLikeS3(t *testing.T) {
+	objectAPI := &lockConfigObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	put := func(body string, header http.Header) response {
+		if header == nil {
+			header = http.Header{"Content-Md5": {base64MD5([]byte(body))}}
+		}
+		return serve(t, objectAPI, http.MethodPut, "/bucket?object-lock", header, []byte(body))
+	}
+	config := func(inner string) string {
+		return "<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled>" + inner + "</ObjectLockConfiguration>"
+	}
+	rule := func(retention string) string {
+		return config("<Rule><DefaultRetention>" + retention + "</DefaultRetention></Rule>")
+	}
+
+	for _, tt := range []struct{ name, body, code string }{
+		{"empty body", "", "MissingRequestBodyError"},
+		{"two Rules", config("<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>1</Days></DefaultRetention></Rule><Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>1</Days></DefaultRetention></Rule>"), "MalformedXML"},
+		{"two ObjectLockEnabled", "<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>", "MalformedXML"},
+		{"two DefaultRetentions", config("<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>1</Days></DefaultRetention><DefaultRetention><Mode>GOVERNANCE</Mode><Days>1</Days></DefaultRetention></Rule>"), "MalformedXML"},
+		{"two Days", rule("<Mode>GOVERNANCE</Mode><Days>1</Days><Days>1</Days>"), "MalformedXML"},
+		{"unknown element", config("<Foo/>"), "MalformedXML"},
+		{"unknown element in Rule", config("<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>1</Days></DefaultRetention><Foo/></Rule>"), "MalformedXML"},
+		{"unknown element in DefaultRetention", rule("<Mode>GOVERNANCE</Mode><Days>1</Days><Foo/>"), "MalformedXML"},
+		{"empty Rule", config("<Rule></Rule>"), "MalformedXML"},
+		{"empty DefaultRetention", rule(""), "MalformedXML"},
+		{"Days without Mode", rule("<Days>1</Days>"), "MalformedXML"},
+		{"Mode without period", rule("<Mode>GOVERNANCE</Mode>"), "InvalidRequest"},
+		{"Days 0", rule("<Mode>GOVERNANCE</Mode><Days>0</Days>"), "InvalidArgument"},
+		// Text in the elements that only hold elements, but not whitespace.
+		{"text in root", "<ObjectLockConfiguration>hi<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>", "MalformedXML"},
+		{"text after the elements", config("hi"), "MalformedXML"},
+		{"cdata in root", config("<![CDATA[hi]]>"), "MalformedXML"},
+		{"entity in root", config("&amp;"), "MalformedXML"},
+		{"non-breaking space in root", config("\u00a0"), "MalformedXML"},
+		{"text in Rule", config("<Rule>hi<DefaultRetention><Mode>GOVERNANCE</Mode><Days>1</Days></DefaultRetention></Rule>"), "MalformedXML"},
+		{"text in DefaultRetention", rule("hi<Mode>GOVERNANCE</Mode><Days>1</Days>"), "MalformedXML"},
+	} {
+		objectAPI.got = nil
+		resp := put(tt.body, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, tt.name)
+		require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>", tt.name)
+		require.Nil(t, objectAPI.got, tt.name)
+	}
+
+	// Any root element and declared encoding is accepted.
+	for _, body := range []string{
+		`<LockConfig><ObjectLockEnabled>Enabled</ObjectLockEnabled></LockConfig>`,
+		"<ObjectLockConfiguration>\n\t<!-- c --><ObjectLockEnabled>Enabled</ObjectLockEnabled>\r\n<Rule> <DefaultRetention>\n<Mode>GOVERNANCE</Mode><Days>1</Days> </DefaultRetention><![CDATA[ ]]></Rule></ObjectLockConfiguration>",
+		`<?xml version="1.0" encoding="bogus"?>` + rule("<Mode>COMPLIANCE</Mode><Years>1</Years>"),
+	} {
+		objectAPI.got = nil
+		resp := put(body, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, body+": "+resp.Body)
+		require.NotNil(t, objectAPI.got, body)
+		require.Equal(t, "Enabled", objectAPI.got.ObjectLockEnabled, body)
+	}
+	require.Equal(t, objectlock.RetCompliance, objectAPI.got.Rule.DefaultRetention.Mode)
+	require.Equal(t, int32(1), *objectAPI.got.Rule.DefaultRetention.Years)
+
+	resp := put(config(""), http.Header{})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>")
+}
+
 func TestBucketConfigurationErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name, target, body, code string
@@ -240,11 +317,11 @@ func TestBucketConfigurationErrors(t *testing.T) {
 		{"object lock period", "/bucket?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>-1</Days></DefaultRetention></Rule></ObjectLockConfiguration>`, "InvalidArgument"},
 		{"notification", "/bucket?notification", `<NotificationConfiguration><QueueConfiguration><Queue>arn:minio:sqs::1:webhook</Queue><Event>s3:Bogus</Event></QueueConfiguration></NotificationConfiguration>`, "InvalidArgument"},
 		{"notification without event", "/bucket?notification", `<NotificationConfiguration><QueueConfiguration><Queue>arn:gcp:pubsub::project:topic</Queue></QueueConfiguration></NotificationConfiguration>`, "MalformedXML"},
-		{"object lock encoding", "/bucket?object-lock", `<?xml version="1.0" encoding="bogus"?><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`, "MalformedXML"},
 		{"notification encoding", "/bucket?notification", `<?xml version="1.0" encoding="bogus"?><NotificationConfiguration></NotificationConfiguration>`, "MalformedXML"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, tt.target, nil, []byte(tt.body))
+			header := http.Header{"Content-Md5": {base64MD5([]byte(tt.body))}}
+			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, tt.target, header, []byte(tt.body))
 			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
 		})

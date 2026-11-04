@@ -228,6 +228,80 @@ func parseTaggingXML(r io.Reader, isObject bool) (*tags.Tags, error) {
 	return t, validateTags(t.ToMap(), isObject)
 }
 
+// parseObjectLockConfigXML parses an ObjectLockConfiguration XML document. Like S3, any root element
+// is accepted, but unknown and repeated elements are refused as MalformedXML.
+func parseObjectLockConfigXML(data []byte) (*objectlock.Config, error) {
+	type retention struct {
+		Text    string `xml:",chardata"`
+		Mode    []string
+		Days    []string
+		Years   []string
+		Unknown unknownElements `xml:",any"`
+	}
+	var doc struct {
+		Text              string `xml:",chardata"`
+		ObjectLockEnabled []string
+		Rule              []struct {
+			Text             string `xml:",chardata"`
+			DefaultRetention []retention
+			Unknown          unknownElements `xml:",any"`
+		}
+		Unknown unknownElements `xml:",any"`
+	}
+	if err := xmlDecoder(bytes.NewReader(data), &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.ObjectLockEnabled) > 1 || len(doc.Rule) > 1 || len(doc.Unknown) > 0 || hasText(doc.Text) {
+		return nil, apierr.CodeMalformedXML
+	}
+
+	// The configuration is passed to minio's parser in a canonical document for its validation.
+	type canonicalRetention struct {
+		Mode  string  `xml:"Mode,omitempty"`
+		Days  *string `xml:"Days,omitempty"`
+		Years *string `xml:"Years,omitempty"`
+	}
+	var canonical struct {
+		XMLName           xml.Name `xml:"ObjectLockConfiguration"`
+		ObjectLockEnabled *string  `xml:"ObjectLockEnabled,omitempty"`
+		Rule              *struct {
+			DefaultRetention canonicalRetention
+		} `xml:"Rule,omitempty"`
+	}
+	if len(doc.ObjectLockEnabled) == 1 {
+		canonical.ObjectLockEnabled = &doc.ObjectLockEnabled[0]
+	}
+	for _, rule := range doc.Rule {
+		if len(rule.DefaultRetention) != 1 || len(rule.Unknown) > 0 || hasText(rule.Text) {
+			return nil, apierr.CodeMalformedXML
+		}
+		r := rule.DefaultRetention[0]
+		if len(r.Mode) > 1 || len(r.Days) > 1 || len(r.Years) > 1 || len(r.Unknown) > 0 || hasText(r.Text) {
+			return nil, apierr.CodeMalformedXML
+		}
+		var c canonicalRetention
+		if len(r.Mode) == 1 {
+			c.Mode = r.Mode[0]
+		}
+		if len(r.Days) == 1 {
+			c.Days = &r.Days[0]
+		}
+		if len(r.Years) == 1 {
+			c.Years = &r.Years[0]
+		}
+		// S3 refuses a valid mode without a period as an invalid request rather than MalformedXML.
+		if objectlock.RetMode(c.Mode).Valid() && c.Days == nil && c.Years == nil {
+			return nil, apierr.CodeMissingDefaultRetentionPeriod
+		}
+		canonical.Rule = &struct{ DefaultRetention canonicalRetention }{c}
+	}
+	data, err := xml.Marshal(canonical)
+	if err != nil {
+		return nil, err
+	}
+	return objectlock.ParseObjectLockConfig(bytes.NewReader(data))
+}
+
 // validateTags checks the tag rules that minio-go doesn't: the reserved aws: prefix and allowed characters.
 func validateTags(tagMap map[string]string, isObject bool) error {
 	for key, value := range tagMap {

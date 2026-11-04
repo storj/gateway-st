@@ -75,6 +75,7 @@ const (
 	CodeMissingChecksumForSdkAlgorithm
 	CodeMissingContentLength
 	CodeMissingContentMD5
+	CodeMissingDefaultRetentionPeriod
 	CodeMissingObjectAttributes
 	CodeMissingPOSTPolicy
 	CodeMissingRequestBody
@@ -460,6 +461,11 @@ var codeToResponse = map[Code]Response{
 	CodeMissingContentMD5: {
 		Code:           "InvalidRequest",
 		Description:    "Missing required header for this request: Content-MD5",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMissingDefaultRetentionPeriod: {
+		Code:           "InvalidRequest",
+		Description:    "DefaultRetention must specify a fixed retention (Days or Years) or a DefaultEventHold.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMissingObjectAttributes: {

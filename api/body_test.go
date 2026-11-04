@@ -106,7 +106,7 @@ var xmlBodyHandlers = []struct {
 	{name: "CreateBucket", method: http.MethodPut, target: "/bucket", body: `<CreateBucketConfiguration><LocationConstraint>us-east-1</LocationConstraint></CreateBucketConfiguration>`},
 	{name: "PutBucketAcl", method: http.MethodPut, target: "/bucket?acl", body: aclBody},
 	{name: "PutBucketNotificationConfiguration", method: http.MethodPut, target: "/bucket?notification", body: `<NotificationConfiguration></NotificationConfiguration>`},
-	{name: "PutObjectLockConfiguration", method: http.MethodPut, target: "/bucket?object-lock", body: `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`},
+	{name: "PutObjectLockConfiguration", method: http.MethodPut, target: "/bucket?object-lock", body: `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`, requireMD5: true},
 	{name: "PutBucketTagging", method: http.MethodPut, target: "/bucket?tagging", body: `<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`, requireMD5: true},
 	{name: "PutBucketVersioning", method: http.MethodPut, target: "/bucket?versioning", body: `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`},
 	{name: "CompleteMultipartUpload", method: http.MethodPost, target: "/bucket/key?uploadId=upload-id", body: completeBody, noCRC32: true},

@@ -358,6 +358,11 @@
   description: Mfa Authentication must be used for this request
   http_status: 403
 
+- name: MissingDefaultRetentionPeriod
+  code: InvalidRequest
+  description: DefaultRetention must specify a fixed retention (Days or Years) or a DefaultEventHold.
+  http_status: 400
+
 - name: MissingRequestBody
   code: MissingRequestBodyError
   description: Request Body is empty

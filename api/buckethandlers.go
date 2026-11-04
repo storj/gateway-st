@@ -209,7 +209,8 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	body, err := api.verifyWithBody(r, false)
+	// PutObjectLockConfiguration requires either Content-MD5 or an X-Amz-Checksum-<algorithm> header.
+	body, err := api.verifyWithBody(r, true)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -220,8 +221,12 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 		api.writeErrorResponse(w, r, err)
 		return
 	}
+	if len(data) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingRequestBody)
+		return
+	}
 
-	config, err := objectlock.ParseObjectLockConfig(bytes.NewReader(data))
+	config, err := parseObjectLockConfigXML(data)
 	if err != nil {
 		// The parsers also return plain errors, such as for an unsupported XML encoding.
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
