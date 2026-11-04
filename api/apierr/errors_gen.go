@@ -77,6 +77,7 @@ const (
 	CodeKeyMustBeSpecified
 	CodeListObjectsContinuationToken
 	CodeListObjectsStartAfter
+	CodeListObjectsV2Marker
 	CodeMFAAuthenticationRequired
 	CodeMalformedCopySourceRange
 	CodeMalformedExpires
@@ -501,6 +502,11 @@ var codeToResponse = map[Code]Response{
 	CodeListObjectsStartAfter: {
 		Code:           "InvalidArgument",
 		Description:    "startAfter only supported in REST.GET.BUCKET with list-type=2",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeListObjectsV2Marker: {
+		Code:           "InvalidArgument",
+		Description:    "Marker unsupported with REST.GET.BUCKET in list-type=2",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMFAAuthenticationRequired: {

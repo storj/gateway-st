@@ -683,6 +683,31 @@ func TestListObjectsLikeS3(t *testing.T) {
 	require.Contains(t, resp.Body, "<NextMarker>a/1</NextMarker>")
 }
 
+func TestListObjectsV2MarkerLikeS3(t *testing.T) {
+	for _, target := range []string{"/bucket?list-type=2&marker=a", "/bucket?list-type=2&marker="} {
+		objectAPI := &fakeObjectLayer{}
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>Marker unsupported with REST.GET.BUCKET in list-type=2</Message>", target)
+		require.Empty(t, objectAPI.Calls(), target)
+	}
+}
+
+// TestListObjectsV2MarkerOrderLikeS3 checks that S3 parses max-keys before it refuses the marker.
+func TestListObjectsV2MarkerOrderLikeS3(t *testing.T) {
+	for target, message := range map[string]string{
+		"/bucket?list-type=2&marker=&max-keys=abc":                    "Provided max-keys not an integer or within integer range",
+		"/bucket?list-type=2&marker=a&max-keys=2147483648":            "Provided max-keys not an integer or within integer range",
+		"/bucket?list-type=2&marker=a&max-keys=abc&encoding-type=foo": "Provided max-keys not an integer or within integer range",
+	} {
+		objectAPI := &fakeObjectLayer{}
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+message+"</Message>", target)
+		require.Empty(t, objectAPI.Calls(), target)
+	}
+}
+
 // TestListParameterOrderLikeS3 checks the order in which S3 reported the problems of the same list
 // requests, and their messages.
 func TestListParameterOrderLikeS3(t *testing.T) {

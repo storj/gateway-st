@@ -221,6 +221,15 @@ type listObjectsV2Params struct {
 }
 
 func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err error) {
+	// S3 parses max-keys before it refuses the ListObjects marker, even an empty one.
+	maxKeys, err := getMaxKeys(values)
+	if err != nil {
+		return listObjectsV2Params{}, err
+	}
+	if values.Has("marker") {
+		return listObjectsV2Params{}, apierr.CodeListObjectsV2Marker
+	}
+
 	// S3 rejects an empty continuation-token like any other that it didn't issue.
 	var decodedToken []byte
 	if values.Has("continuation-token") {
@@ -230,10 +239,6 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 		}
 	}
 
-	maxKeys, err := getMaxKeys(values)
-	if err != nil {
-		return listObjectsV2Params{}, err
-	}
 	encodingType, err := getEncodingType(values)
 	if err != nil {
 		return listObjectsV2Params{}, err
