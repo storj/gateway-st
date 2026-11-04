@@ -186,6 +186,10 @@ func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter,
 		api.writeErrorResponse(w, r, err)
 		return
 	}
+	if len(data) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingRequestBody)
+		return
+	}
 
 	config, err := event.ParseConfig(bytes.NewReader(data))
 	if err != nil {
