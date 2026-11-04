@@ -48,7 +48,6 @@ const (
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
 	CodeInvalidLegalHoldHeader
-	CodeInvalidListType
 	CodeInvalidMaxBuckets
 	CodeInvalidMaxKeys
 	CodeInvalidMaxParts
@@ -359,11 +358,6 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidLegalHoldHeader: {
 		Code:           "InvalidArgument",
 		Description:    "Legal Hold must be either of 'ON' or 'OFF'",
-		HTTPStatusCode: http.StatusBadRequest,
-	},
-	CodeInvalidListType: {
-		Code:           "InvalidArgument",
-		Description:    "Invalid List Type specified in Request",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidMaxBuckets: {

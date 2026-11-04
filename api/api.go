@@ -249,9 +249,10 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListMultipartUploadsHandler).Queries("uploads", "")
 		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectVersionsHandler).Queries("versions", "")
-		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectsV2Handler).Queries("list-type", "2")
-		bucketRouter.Methods(http.MethodGet).Queries("list-type", "").HandlerFunc(api.errorHandler(apierr.CodeInvalidListType))
-		bucketRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListObjectsHandler)
+		// Like S3, only a list-type of exactly 2 selects ListObjectsV2, and any other value, even an
+		// empty one, lists like ListObjects.
+		bucketRouter.Methods(http.MethodGet).MatcherFunc(isListObjectsV2).HandlerFunc(api.ListObjectsV2Handler)
+		bucketRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources("list-type")).HandlerFunc(api.ListObjectsHandler)
 
 		bucketRouter.Methods(http.MethodPost).MatcherFunc(withoutSubresources()).HeadersRegexp(xhttp.ContentType, "(?i)^multipart/form-data").HandlerFunc(api.PostObjectHandler)
 		bucketRouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
@@ -261,6 +262,12 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	}
 
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListBucketsHandler)
+}
+
+// isListObjectsV2 is a matcher for requests with a list-type of 2. Like S3, it only looks at the
+// first list-type parameter.
+func isListObjectsV2(r *http.Request, _ *mux.RouteMatch) bool {
+	return r.URL.Query().Get("list-type") == "2"
 }
 
 // amzID2 is the header carrying the extended request ID.

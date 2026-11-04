@@ -208,11 +208,6 @@
   description: X-Minio-Force-Delete must be a valid boolean.
   http_status: 400
 
-- name: InvalidListType
-  code: InvalidArgument
-  description: Invalid List Type specified in Request
-  http_status: 400
-
 - name: InvalidMaxBuckets
   code: InvalidArgument
   description: Argument max-buckets must be an integer between 1 and 10000
