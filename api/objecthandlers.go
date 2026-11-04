@@ -224,7 +224,7 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	retention, err := objectlock.ParseObjectRetention(bytes.NewReader(data))
+	retention, err := parseRetentionXML(data)
 	if err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return

@@ -302,6 +302,58 @@ func parseObjectLockConfigXML(data []byte) (*objectlock.Config, error) {
 	return objectlock.ParseObjectLockConfig(bytes.NewReader(data))
 }
 
+// parseRetentionXML parses a Retention XML document. Like S3, any root element is accepted, but
+// unknown and repeated elements are refused as MalformedXML.
+func parseRetentionXML(data []byte) (*objectlock.ObjectRetention, error) {
+	var doc struct {
+		Text            string `xml:",chardata"`
+		Mode            []string
+		RetainUntilDate []string
+		Unknown         unknownElements `xml:",any"`
+	}
+	if err := xmlDecoder(bytes.NewReader(data), &doc); err != nil {
+		return nil, err
+	}
+	if len(doc.Mode) > 1 || len(doc.RetainUntilDate) > 1 || len(doc.Unknown) > 0 || hasText(doc.Text) {
+		return nil, apierr.CodeMalformedXML
+	}
+
+	// The retention is passed to minio's parser in a canonical document for its validation.
+	var canonical struct {
+		XMLName         xml.Name `xml:"Retention"`
+		Mode            *string  `xml:"Mode,omitempty"`
+		RetainUntilDate string   `xml:"RetainUntilDate,omitempty"`
+	}
+	if len(doc.Mode) == 1 {
+		canonical.Mode = &doc.Mode[0]
+	}
+	if len(doc.RetainUntilDate) == 1 {
+		date, err := parseRetainUntilDate(doc.RetainUntilDate[0])
+		if err != nil {
+			return nil, err
+		}
+		canonical.RetainUntilDate = date.Format(time.RFC3339Nano)
+	}
+	data, err := xml.Marshal(canonical)
+	if err != nil {
+		return nil, err
+	}
+	return objectlock.ParseObjectRetention(bytes.NewReader(data))
+}
+
+// parseRetainUntilDate parses a RetainUntilDate element like S3: in RFC 3339, or without a time zone
+// for UTC, with surrounding whitespace ignored.
+func parseRetainUntilDate(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if date, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return date, nil
+	}
+	if date, err := time.Parse("2006-01-02T15:04:05.999999999", value); err == nil {
+		return date, nil
+	}
+	return time.Time{}, apierr.CodeMalformedXML
+}
+
 // validateTags checks the tag rules that minio-go doesn't: the reserved aws: prefix and allowed characters.
 func validateTags(tagMap map[string]string, isObject bool) error {
 	for key, value := range tagMap {

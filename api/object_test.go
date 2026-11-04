@@ -470,6 +470,66 @@ func TestUploadPartCopySourceVersion(t *testing.T) {
 	}
 }
 
+// TestPutObjectRetentionLikeS3 checks the responses that S3 returned for the same requests.
+func TestPutObjectRetentionLikeS3(t *testing.T) {
+	objectAPI := &retentionObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+	put := func(inner string) response {
+		body := []byte("<Retention>" + inner + "</Retention>")
+		return serve(t, objectAPI, http.MethodPut, "/bucket/key?retention", http.Header{"Content-Md5": {base64MD5(body)}}, body)
+	}
+	date := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+
+	for _, inner := range []string{
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format("2006-01-02T15:04") + "Z</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format("2006-01-02") + "</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(http.TimeFormat) + "</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate></RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>soon</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate><Foo/>",
+		"<Mode>GOVERNANCE</Mode><Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+		"<Mode>governance</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode>",
+		// Text in the root, but not whitespace.
+		"hi<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+		"<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>hi",
+		"<![CDATA[hi]]><Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+		"&amp;<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+		"\u00a0<Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate>",
+	} {
+		objectAPI.retention = nil
+		resp := put(inner)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, inner)
+		require.Contains(t, resp.Body, "<Code>MalformedXML</Code>", inner)
+		require.Nil(t, objectAPI.retention, inner)
+	}
+
+	// Whitespace and comments between the elements are accepted.
+	objectAPI.retention = nil
+	resp := put("\n\t <!-- c --><Mode>GOVERNANCE</Mode>\r\n<![CDATA[ ]]><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate> ")
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.NotNil(t, objectAPI.retention)
+
+	// A date without a time zone is in UTC, and whitespace around it is ignored.
+	for _, value := range []string{
+		date.Format("2006-01-02T15:04:05"),
+		" " + date.Format(time.RFC3339) + " ",
+		date.In(time.FixedZone("", 2*60*60)).Format(time.RFC3339),
+		date.Add(123 * time.Millisecond).Format(time.RFC3339Nano),
+	} {
+		objectAPI.retention = nil
+		resp := put("<Mode>GOVERNANCE</Mode><RetainUntilDate>" + value + "</RetainUntilDate>")
+		require.Equal(t, http.StatusOK, resp.StatusCode, value+": "+resp.Body)
+		require.NotNil(t, objectAPI.retention, value)
+		require.True(t, objectAPI.retention.RetainUntilDate.Truncate(time.Second).Equal(date), value)
+	}
+
+	// Any root element is accepted.
+	body := []byte("<Ret><Mode>GOVERNANCE</Mode><RetainUntilDate>" + date.Format(time.RFC3339) + "</RetainUntilDate></Ret>")
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket/key?retention", http.Header{"Content-Md5": {base64MD5(body)}}, body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+}
+
 func TestUnparsableXMLIsMalformed(t *testing.T) {
 	for _, target := range []string{"/bucket?tagging", "/bucket/key?tagging"} {
 		resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5(nil)}}, nil)
@@ -478,6 +538,9 @@ func TestUnparsableXMLIsMalformed(t *testing.T) {
 	}
 	for _, target := range []string{"/bucket/key?legal-hold", "/bucket/key?retention"} {
 		for _, body := range []string{"", `<?xml version="1.0" encoding="ISO-8859-1"?><Tagging></Tagging>`} {
+			if target == "/bucket/key?retention" && body != "" {
+				continue // an empty retention, accepted like S3 by TestPutObjectRetentionLikeS3
+			}
 			resp := serve(t, &fakeObjectLayer{}, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
 			require.Equal(t, http.StatusBadRequest, resp.StatusCode, target+": "+resp.Body)
 			require.Contains(t, resp.Body, "<Code>MalformedXML</Code>", target)
