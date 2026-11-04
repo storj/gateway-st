@@ -162,11 +162,97 @@ func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
 
 	// Part numbers out of range are rejected before they're compared.
 	resp = serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
-		`<Part><PartNumber>9223372036854775807</PartNumber><ETag>a</ETag></Part>`+
+		`<Part><PartNumber>10000</PartNumber><ETag>a</ETag></Part>`+
 		`<Part><PartNumber>-1</PartNumber><ETag>b</ETag></Part>`+
 		`</CompleteMultipartUpload>`))
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code>")
+	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>PartNumber must be &gt;= 1</Message>")
+}
+
+// TestCompleteMultipartUploadLikeS3 checks the responses that S3 returned for the same requests.
+func TestCompleteMultipartUploadLikeS3(t *testing.T) {
+	var got []cmd.CompletePart
+	objectAPI := &fakeObjectLayer{completeMultipartUpload: func(_ context.Context, _, _, _ string, parts []cmd.CompletePart, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		got = parts
+		return cmd.ObjectInfo{ETag: "etag"}, nil
+	}}
+	complete := func(query, body string) response {
+		return serve(t, objectAPI, http.MethodPost, "/bucket/key?"+query, nil, []byte(body))
+	}
+	part := func(inner string) string {
+		return "<CompleteMultipartUpload><Part>" + inner + "</Part></CompleteMultipartUpload>"
+	}
+
+	for _, tt := range []struct{ name, query, body, code string }{
+		{"empty body", "uploadId=id", "", "InvalidRequest"},
+		{"empty upload ID", "uploadId=", part("<PartNumber>1</PartNumber><ETag>a</ETag>"), "NoSuchUpload"},
+		{"no PartNumber", "uploadId=id", part("<ETag>a</ETag>"), "MalformedXML"},
+		{"two PartNumbers", "uploadId=id", part("<PartNumber>1</PartNumber><PartNumber>1</PartNumber><ETag>a</ETag>"), "MalformedXML"},
+		{"two ETags", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ETag>a</ETag>"), "MalformedXML"},
+		{"PartNumber not an integer", "uploadId=id", part("<PartNumber>abc</PartNumber><ETag>a</ETag>"), "MalformedXML"},
+		{"PartNumber 2^31", "uploadId=id", part("<PartNumber>2147483648</PartNumber><ETag>a</ETag>"), "MalformedXML"},
+		{"PartNumber 2^31-1", "uploadId=id", part("<PartNumber>2147483647</PartNumber><ETag>a</ETag>"), "InvalidPart"},
+		{"empty ETag", "uploadId=id", part("<PartNumber>1</PartNumber><ETag></ETag>"), "InvalidPart"},
+		{"unknown element in Part", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><Foo/>"), "MalformedXML"},
+		{"unknown checksum", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumBogus>x</ChecksumBogus>"), "MalformedXML"},
+		{"two checksums of one algorithm", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AAAAAA==</ChecksumCRC32><ChecksumCRC32>AAAAAA==</ChecksumCRC32>"), "MalformedXML"},
+		{"unknown element in root", "uploadId=id", "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part><Foo/></CompleteMultipartUpload>", "MalformedXML"},
+		{"text in root", "uploadId=id", "<CompleteMultipartUpload>hi<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>", "MalformedXML"},
+		{"text after the parts", "uploadId=id", "<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part>hi</CompleteMultipartUpload>", "MalformedXML"},
+		{"entity in root", "uploadId=id", "<CompleteMultipartUpload>&amp;<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>", "MalformedXML"},
+		{"non-breaking space in root", "uploadId=id", "<CompleteMultipartUpload>\u00a0<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>", "MalformedXML"},
+		{"text in Part", "uploadId=id", part("x<PartNumber>1</PartNumber><ETag>a</ETag>"), "MalformedXML"},
+		{"PartNumber sign only", "uploadId=id", part("<PartNumber>+</PartNumber><ETag>a</ETag>"), "MalformedXML"},
+		// S3 reads an empty part number as 0, and checks every number for being too small first.
+		{"empty PartNumber", "uploadId=id", part("<PartNumber></PartNumber><ETag>a</ETag>"), "InvalidArgument"},
+		{"blank PartNumber", "uploadId=id", part("<PartNumber> </PartNumber><ETag>a</ETag>"), "InvalidArgument"},
+		{"PartNumber +0", "uploadId=id", part("<PartNumber>+0</PartNumber><ETag>a</ETag>"), "InvalidArgument"},
+		{"PartNumber too large then too small", "uploadId=id", part("<PartNumber>10001</PartNumber><ETag>a</ETag></Part><Part><PartNumber>-1</PartNumber><ETag>a</ETag>"), "InvalidArgument"},
+		{"PartNumber too large", "uploadId=id", part("<PartNumber>10001</PartNumber><ETag>a</ETag>"), "InvalidPart"},
+		// S3 validates the checksums before the parts, even with a wrong ETag.
+		{"checksum that isn't base64", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>!!!</ChecksumCRC32>"), "InvalidArgument"},
+		{"checksum without padding", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQ</ChecksumCRC32>"), "InvalidArgument"},
+		{"checksum with a newline", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQ==\n</ChecksumCRC32>"), "InvalidArgument"},
+		{"checksum with spaces", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32> AQEBAQ== </ChecksumCRC32>"), "InvalidArgument"},
+		{"checksum of the wrong size", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumSHA256>AAAA</ChecksumSHA256>"), "InvalidArgument"},
+		{"CRC32 of 5 bytes", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQE=</ChecksumCRC32>"), "InvalidArgument"},
+		{"two checksums", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQ==</ChecksumCRC32><ChecksumSHA1>AQEBAQEBAQEBAQEBAQEBAQEBAQE=</ChecksumSHA1>"), "InvalidArgument"},
+		{"checksum before a too small part number", "uploadId=id", part("<PartNumber>0</PartNumber><ETag>a</ETag><ChecksumCRC32>AAAA</ChecksumCRC32>"), "InvalidArgument"},
+	} {
+		got = nil
+		resp := complete(tt.query, tt.body)
+		require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>", tt.name)
+		require.Nil(t, got, tt.name)
+	}
+
+	resp := complete("uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>!!!</ChecksumCRC32>"))
+	require.Contains(t, resp.Body, "<Message>Invalid Base64 or multiple checksums present in request</Message>")
+	require.Contains(t, resp.Body, "<ArgumentName>Checksum</ArgumentName><ArgumentValue>CRC32:!!!;</ArgumentValue>")
+	resp = complete("uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQ==</ChecksumCRC32><ChecksumSHA1>AAAA</ChecksumSHA1>"))
+	require.Contains(t, resp.Body, "<ArgumentValue>CRC32:AQEBAQ==;SHA1:AAAA;</ArgumentValue>")
+	resp = complete("uploadId=id", part("<PartNumber></PartNumber><ETag>a</ETag>"))
+	require.Contains(t, resp.Body, "<Message>PartNumber must be &gt;= 1</Message>")
+	require.Contains(t, resp.Body, "<ArgumentValue>0</ArgumentValue>")
+
+	resp = complete("uploadId=id", part("<PartNumber>2</PartNumber><ETag>a</ETag></Part><Part><PartNumber>1</PartNumber><ETag>a</ETag>"))
+	require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code><Message>The list of parts was not in ascending order. Parts must be ordered by part number.</Message>")
+	resp = complete("uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag></Part><Part><PartNumber>1</PartNumber><ETag>a</ETag>"))
+	require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code><Message>The list of parts was not in ascending order. Parts must be ordered by part number.</Message>")
+	resp = complete("uploadId=", part("<PartNumber>1</PartNumber><ETag>a</ETag>"))
+	require.Contains(t, resp.Body, "<Code>NoSuchUpload</Code><Message>The specified upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.</Message>")
+
+	// Whitespace between the elements, an empty checksum and a checksum of each size are accepted.
+	got = nil
+	resp = complete("uploadId=id", "<CompleteMultipartUpload>\n <Part> <PartNumber>1</PartNumber> <ETag>a</ETag> <ChecksumCRC32/> </Part>\n</CompleteMultipartUpload>")
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
+
+	// Any root element, part number whitespace and leading zeros, and the checksum elements are
+	// accepted.
+	resp = complete("uploadId=id", "<Complete><Part><PartNumber> 01 </PartNumber><ETag>a</ETag>"+
+		"<ChecksumCRC32>AAAAAA==</ChecksumCRC32></Part></Complete>")
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
 }
 
 func TestCopyObjectStorageClass(t *testing.T) {

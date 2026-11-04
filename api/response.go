@@ -298,6 +298,11 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		return apierr.Response{}, false
 	}
 
+	// MinIO's NoSuchUpload message differs from S3's.
+	if errors.As(err, new(objectlayer.InvalidUploadID)) {
+		return apierr.CodeNoSuchUpload.ToResponse()
+	}
+
 	if code, ok := minioErrToAPIErrorCode(err); ok {
 		apiErr := cmd.GetAPIError(code)
 		resp := apierr.Response{

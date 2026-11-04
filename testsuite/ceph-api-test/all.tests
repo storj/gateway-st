@@ -445,7 +445,7 @@ s3tests/functional/test_s3.py::test_object_copy_key_not_found
 s3tests/functional/test_s3.py::test_object_copy_versioned_bucket
 s3tests/functional/test_s3.py::test_object_copy_versioned_url_encoding
 s3tests/functional/test_s3.py::test_object_copy_versioning_multipart_upload
-s3tests/functional/test_s3.py::test_multipart_upload_empty
+#(matches S3) s3tests/functional/test_s3.py::test_multipart_upload_empty
 s3tests/functional/test_s3.py::test_multipart_upload_complete_without_create
 #(todo: NoSuchUpload on complete) s3tests/functional/test_s3.py::test_multipart_upload_small
 s3tests/functional/test_s3.py::test_multipart_copy_small

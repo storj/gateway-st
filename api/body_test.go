@@ -230,7 +230,7 @@ func TestXMLBodyLimits(t *testing.T) {
 			header       http.Header
 			code         string
 		}{
-			{"CompleteMultipartUpload", "/bucket/key?uploadId=upload-id", nil, "MalformedXML"},
+			{"CompleteMultipartUpload", "/bucket/key?uploadId=upload-id", nil, "InvalidRequest"},
 			{"DeleteObjects", "/bucket?delete", http.Header{"Content-Md5": {base64MD5(nil)}}, "MissingRequestBodyError"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {

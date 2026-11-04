@@ -220,7 +220,12 @@
 
 - name: InvalidPartOrder
   code: InvalidPartOrder
-  description: The list of parts was not in ascending order. The parts list must be specified in order by part number.
+  description: The list of parts was not in ascending order. Parts must be ordered by part number.
+  http_status: 400
+
+- name: InvalidPartChecksum
+  code: InvalidArgument
+  description: Invalid Base64 or multiple checksums present in request
   http_status: 400
 
 - name: InvalidPartNumberMarker
@@ -232,6 +237,11 @@
   code: InvalidPartNumber
   description: The requested partnumber is not satisfiable
   http_status: 416
+
+- name: InvalidPartNumberTooSmall
+  code: InvalidArgument
+  description: PartNumber must be >= 1
+  http_status: 400
 
 - name: InvalidPartNumberArgument
   code: InvalidArgument
@@ -363,6 +373,11 @@
   description: DefaultRetention must specify a fixed retention (Days or Years) or a DefaultEventHold.
   http_status: 400
 
+- name: MissingParts
+  code: InvalidRequest
+  description: You must specify at least one part
+  http_status: 400
+
 - name: MissingRequestBody
   code: MissingRequestBodyError
   description: Request Body is empty
@@ -395,7 +410,7 @@
 
 - name: NoSuchUpload
   code: NoSuchUpload
-  description: The specified multipart upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.
+  description: The specified upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.
   http_status: 404
 
 - name: NoSuchVersion

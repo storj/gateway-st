@@ -23,6 +23,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -1780,6 +1781,94 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 // a multipart upload is being completed, preventing the connection from timing out.
 var completeMultipartUploadKeepAliveInterval = 10 * time.Second
 
+// completePartChecksumSizes are the sizes in bytes of the checksums that S3 allows in a
+// CompleteMultipartUpload part, by element name.
+var completePartChecksumSizes = map[string]int{
+	"ChecksumCRC32": 4, "ChecksumCRC32C": 4, "ChecksumCRC64NVME": 8, "ChecksumMD5": 16,
+	"ChecksumSHA1": 20, "ChecksumSHA256": 32, "ChecksumSHA512": 64,
+	"ChecksumXXHASH3": 8, "ChecksumXXHASH64": 8, "ChecksumXXHASH128": 16,
+}
+
+// decodeCompleteMultipartUpload decodes a CompleteMultipartUpload body. Like S3, any root element is
+// accepted, but unknown and repeated elements, text, part numbers that aren't integers and invalid
+// checksums are refused. The checksums are otherwise ignored, because the object layer doesn't
+// store them.
+func decodeCompleteMultipartUpload(body awsig.Reader) (cmd.CompleteMultipartUpload, error) {
+	var doc struct {
+		Text  string `xml:",chardata"`
+		Parts []struct {
+			Text       string `xml:",chardata"`
+			PartNumber []string
+			ETag       []string
+			Others     []struct {
+				XMLName xml.Name
+				Value   string `xml:",chardata"`
+			} `xml:",any"`
+		} `xml:"Part"`
+		Unknown unknownElements `xml:",any"`
+	}
+	if err := decodeVerifiedXML(body, &doc, maxCompleteMultipartUploadBodySize); err != nil {
+		return cmd.CompleteMultipartUpload{}, err
+	}
+	if len(doc.Parts) == 0 || len(doc.Unknown) > 0 || hasText(doc.Text) {
+		return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+	}
+
+	// The checksums are validated after the whole document, because S3 refuses a document that
+	// isn't well-formed first.
+	var invalidChecksums string
+	var complete cmd.CompleteMultipartUpload
+	for _, part := range doc.Parts {
+		if len(part.PartNumber) != 1 || len(part.ETag) != 1 || hasText(part.Text) {
+			return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+		}
+		seen := make(map[string]bool, len(part.Others))
+		var checksums int
+		var checksumValues strings.Builder
+		var invalidChecksum bool
+		for _, element := range part.Others {
+			size, ok := completePartChecksumSizes[element.XMLName.Local]
+			if !ok || seen[element.XMLName.Local] {
+				return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+			}
+			seen[element.XMLName.Local] = true
+			if strings.TrimSpace(element.Value) == "" {
+				continue
+			}
+			// Go's decoder skips newlines, which S3 refuses.
+			decoded, err := base64.StdEncoding.DecodeString(element.Value)
+			checksums++
+			checksumValues.WriteString(strings.TrimPrefix(element.XMLName.Local, "Checksum"))
+			checksumValues.WriteString(":")
+			checksumValues.WriteString(element.Value)
+			checksumValues.WriteString(";")
+			if err != nil || len(decoded) != size || strings.ContainsAny(element.Value, "\r\n") || checksums > 1 {
+				invalidChecksum = true
+			}
+		}
+		if invalidChecksum && invalidChecksums == "" {
+			invalidChecksums = checksumValues.String()
+		}
+		// S3 reads an empty part number as 0.
+		var number int64
+		if value := strings.TrimSpace(part.PartNumber[0]); value != "" {
+			var err error
+			number, err = strconv.ParseInt(value, 10, 32)
+			if err != nil {
+				return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+			}
+		}
+		complete.Parts = append(complete.Parts, cmd.CompletePart{PartNumber: int(number), ETag: part.ETag[0]})
+	}
+	if invalidChecksums != "" {
+		errResp, _ := apierr.CodeInvalidPartChecksum.ToResponse()
+		errResp.ArgumentName = "Checksum"
+		errResp.ArgumentValue = invalidChecksums
+		return cmd.CompleteMultipartUpload{}, errResp
+	}
+	return complete, nil
+}
+
 // CompleteMultipartUploadHandler is the HTTP handler for the CompleteMultipartUpload operation,
 // which completes a multipart upload by assembling its parts.
 func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -1825,34 +1914,43 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	uploadID := r.URL.Query().Get(xhttp.UploadID)
+	// S3 looks up the upload before the body, and an empty upload ID can't exist.
+	if uploadID == "" {
+		api.writeErrorResponse(w, r, objectlayer.InvalidUploadID{Bucket: bucketName, Object: objectKey})
+		return
+	}
+
 	if r.ContentLength < 0 {
 		api.writeErrorResponse(w, r, apierr.CodeMissingContentLength)
 		return
 	}
 	if r.ContentLength == 0 {
-		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+		api.writeErrorResponse(w, r, apierr.CodeMissingParts)
 		return
 	}
 
-	uploadID := r.URL.Query().Get(xhttp.UploadID)
-
-	var completeUpload cmd.CompleteMultipartUpload
-	if err := decodeVerifiedXML(body, &completeUpload, maxCompleteMultipartUploadBodySize); err != nil {
+	completeUpload, err := decodeCompleteMultipartUpload(body)
+	if err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
 	}
 
-	if len(completeUpload.Parts) == 0 {
-		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
-		return
-	}
-
+	// Like S3, every part number is checked for being too small before any is checked for being too
+	// large.
 	for _, part := range completeUpload.Parts {
-		if part.PartNumber < 1 || part.PartNumber > maxPartNumber {
-			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
+		if part.PartNumber < 1 {
+			errResp, _ := apierr.CodeInvalidPartNumberTooSmall.ToResponse()
 			errResp.ArgumentName = "PartNumber"
 			errResp.ArgumentValue = strconv.Itoa(part.PartNumber)
 			api.writeErrorResponse(w, r, errResp)
+			return
+		}
+	}
+	for _, part := range completeUpload.Parts {
+		if part.PartNumber > maxPartNumber {
+			// S3 reports a part that can't exist rather than an invalid argument.
+			api.writeErrorResponse(w, r, objectlayer.InvalidPart{PartNumber: part.PartNumber})
 			return
 		}
 	}
@@ -1868,7 +1966,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	for i, part := range completeUpload.Parts {
 		completeUpload.Parts[i].ETag = strings.Trim(part.ETag, `"`)
 		if completeUpload.Parts[i].ETag == "" {
-			api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+			api.writeErrorResponse(w, r, objectlayer.InvalidPart{PartNumber: part.PartNumber, GotETag: part.ETag})
 			return
 		}
 	}

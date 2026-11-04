@@ -46,9 +46,11 @@ const (
 	CodeInvalidMaxParts
 	CodeInvalidMaxUploads
 	CodeInvalidMetadataDirective
+	CodeInvalidPartChecksum
 	CodeInvalidPartNumber
 	CodeInvalidPartNumberArgument
 	CodeInvalidPartNumberMarker
+	CodeInvalidPartNumberTooSmall
 	CodeInvalidPartOrder
 	CodeInvalidRange
 	CodeInvalidRangePartNumber
@@ -78,6 +80,7 @@ const (
 	CodeMissingDefaultRetentionPeriod
 	CodeMissingObjectAttributes
 	CodeMissingPOSTPolicy
+	CodeMissingParts
 	CodeMissingRequestBody
 	CodeMissingSecurityHeader
 	CodeMultipleChecksums
@@ -318,6 +321,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Unknown metadata directive.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidPartChecksum: {
+		Code:           "InvalidArgument",
+		Description:    "Invalid Base64 or multiple checksums present in request",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidPartNumber: {
 		Code:           "InvalidPartNumber",
 		Description:    "The requested partnumber is not satisfiable",
@@ -333,9 +341,14 @@ var codeToResponse = map[Code]Response{
 		Description:    "Argument partNumberMarker must be an integer.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidPartNumberTooSmall: {
+		Code:           "InvalidArgument",
+		Description:    "PartNumber must be >= 1",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidPartOrder: {
 		Code:           "InvalidPartOrder",
-		Description:    "The list of parts was not in ascending order. The parts list must be specified in order by part number.",
+		Description:    "The list of parts was not in ascending order. Parts must be ordered by part number.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidRange: {
@@ -478,6 +491,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "Bucket POST must contain a field named 'policy'.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeMissingParts: {
+		Code:           "InvalidRequest",
+		Description:    "You must specify at least one part",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeMissingRequestBody: {
 		Code:           "MissingRequestBodyError",
 		Description:    "Request Body is empty",
@@ -515,7 +533,7 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeNoSuchUpload: {
 		Code:           "NoSuchUpload",
-		Description:    "The specified multipart upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.",
+		Description:    "The specified upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.",
 		HTTPStatusCode: http.StatusNotFound,
 	},
 	CodeNoSuchVersion: {

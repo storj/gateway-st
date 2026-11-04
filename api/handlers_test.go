@@ -1464,7 +1464,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		{
 			name:      "parts out of order",
 			uploadID:  "upload-id",
-			body:      `<CompleteMultipartUpload><Part><PartNumber>2</PartNumber></Part><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`,
+			body:      `<CompleteMultipartUpload><Part><PartNumber>2</PartNumber><ETag>a</ETag></Part><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,
 			expStatus: http.StatusBadRequest,
 			expCode:   "InvalidPartOrder",
 		},
@@ -1489,8 +1489,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			uploadID:  "upload-id",
 			body:      `<CompleteMultipartUpload><Part><PartNumber>10001</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`,
 			expStatus: http.StatusBadRequest,
-			expCode:   "InvalidArgument",
-			expBody:   "<ArgumentName>PartNumber</ArgumentName><ArgumentValue>10001</ArgumentValue>",
+			expCode:   "InvalidPart",
 		},
 		{
 			name:      "missing ETag",
@@ -1504,7 +1503,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 			uploadID:  "upload-id",
 			body:      `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>""</ETag></Part></CompleteMultipartUpload>`,
 			expStatus: http.StatusBadRequest,
-			expCode:   "MalformedXML",
+			expCode:   "InvalidPart",
 		},
 		{
 			name:      "no parts",
@@ -1751,7 +1750,7 @@ func TestServeHTTP(t *testing.T) {
 
 	t.Run("rejected before storage", func(t *testing.T) {
 		objectAPI := newLayer()
-		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>2</PartNumber></Part><Part><PartNumber>1</PartNumber></Part></CompleteMultipartUpload>`)
+		body := []byte(`<CompleteMultipartUpload><Part><PartNumber>2</PartNumber><ETag>a</ETag></Part><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
 		resp := serveHTTP(t, objectAPI, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, body)
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 		require.Contains(t, resp.Body, "<Code>InvalidPartOrder</Code>")
