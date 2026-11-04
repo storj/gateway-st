@@ -1353,29 +1353,50 @@ func etagMatchesList(etag, list string) bool {
 	return false
 }
 
-// rejectUnsupportedConditions writes a NotImplemented error and returns true if r has an If-Match,
+// rejectUnsupportedConditions writes an error and returns true if r has an If-Match,
 // x-amz-if-match-size or x-amz-if-match-last-modified-time header, which the object layer can't
 // check atomically because objectlayer.ObjectOptions has no fields for them, so writes and deletes
-// refuse them rather than ignore them.
+// refuse them with NotImplemented rather than ignore them.
 //
 // Like S3, it also refuses an If-Modified-Since or If-Unmodified-Since header, even an empty one,
-// and an If-None-Match header unless allowIfNoneMatch is set.
+// and an If-None-Match header unless allowIfNoneMatch is set. It also refuses repeated If-Match and
+// If-None-Match headers, and an empty If-Match.
 //
 // TODO: S3 supports If-Match on PutObject, CopyObject, CompleteMultipartUpload and DeleteObject
 // (ceph's test_put_object_ifmatch_* and test_atomic_conditional_write_1mb). Supporting it needs
 // an IfMatch option in objectlayer.ObjectOptions that miniogw, uplink and the satellite check
 // atomically, like IfNoneMatch.
 func (api *API) rejectUnsupportedConditions(w http.ResponseWriter, r *http.Request, allowIfNoneMatch bool) bool {
-	unsupported := r.Header.Get(xhttp.IfMatch) != "" ||
+	// Like S3, repeated If-Match and If-None-Match lines are refused first.
+	for _, name := range []string{xhttp.IfMatch, xhttp.IfNoneMatch} {
+		if len(r.Header.Values(name)) > 1 {
+			api.writeErrorResponse(w, r, apierr.Response{
+				Code:           "InvalidRequest",
+				Description:    "Duplicate header name found: " + name,
+				HTTPStatusCode: http.StatusBadRequest,
+			})
+			return true
+		}
+	}
+
+	hasIfMatch := len(r.Header.Values(xhttp.IfMatch)) > 0
+	hasIfNoneMatch := len(r.Header.Values(xhttp.IfNoneMatch)) > 0
+	// S3 also refuses an If-None-Match that is allowed alone together with an If-Match.
+	unsupported := strings.TrimSpace(r.Header.Get(xhttp.IfMatch)) != "" ||
 		r.Header.Get("X-Amz-If-Match-Size") != "" ||
 		r.Header.Get("X-Amz-If-Match-Last-Modified-Time") != "" ||
 		len(r.Header.Values(xhttp.IfModifiedSince)) > 0 ||
 		len(r.Header.Values(xhttp.IfUnmodifiedSince)) > 0 ||
-		!allowIfNoneMatch && len(r.Header.Values(xhttp.IfNoneMatch)) > 0
-	if !unsupported {
+		hasIfNoneMatch && (!allowIfNoneMatch || hasIfMatch)
+	switch {
+	case unsupported:
+		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+	case hasIfMatch:
+		// An empty If-Match, which S3 refuses unless it refuses another condition first.
+		api.writeErrorResponse(w, r, apierr.CodeEmptyIfMatch)
+	default:
 		return false
 	}
-	api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 	return true
 }
 
@@ -1411,13 +1432,14 @@ func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if api.rejectUnsupportedConditions(w, r, false) {
-		return
-	}
-
+	// Like S3, an invalid version ID is reported before the conditions.
 	versionID, err := extractVersionID(r.URL.Query())
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if api.rejectUnsupportedConditions(w, r, false) {
 		return
 	}
 
@@ -1504,13 +1526,14 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
+	// Like S3, the conditions are checked before the copy source.
+	if api.rejectUnsupportedConditions(w, r, true) {
 		return
 	}
 
-	if api.rejectUnsupportedConditions(w, r, true) {
+	srcBucket, srcObject, srcVersionID, err := parseCopySource(r.Header.Get(xhttp.AmzCopySource))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 

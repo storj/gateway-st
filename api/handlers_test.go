@@ -1768,6 +1768,65 @@ func TestServeHTTP(t *testing.T) {
 	}
 }
 
+// TestIfMatchOnWritesLikeS3 checks the responses that S3 returned for the same If-Match headers on
+// PutObject, CopyObject, CompleteMultipartUpload and DeleteObject.
+func TestIfMatchOnWritesLikeS3(t *testing.T) {
+	completeBody := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
+	const (
+		empty     = "<Code>InvalidArgument</Code><Message>The value provided for the If-Match query parameter cannot be empty for this API.</Message>"
+		notImpl   = "<Code>NotImplemented</Code>"
+		duplicate = "<Code>InvalidRequest</Code><Message>Duplicate header name found: If-Match</Message>"
+	)
+	etag := `"5eb63bbbe01eeed093cb22bb8f5acdc3"`
+
+	for _, op := range []struct {
+		name, method, target string
+		header               http.Header
+		body                 []byte
+	}{
+		{"PutObject", http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"1"}}, []byte("x")},
+		{"CopyObject", http.MethodPut, "/bucket/key", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}, nil},
+		{"CompleteMultipartUpload", http.MethodPost, "/bucket/key?uploadId=id", nil, completeBody},
+		{"DeleteObject", http.MethodDelete, "/bucket/key", nil, nil},
+	} {
+		for _, tt := range []struct {
+			name   string
+			header http.Header
+			want   string
+		}{
+			{"empty", http.Header{"If-Match": {""}}, empty},
+			{"blank", http.Header{"If-Match": {" "}}, empty},
+			{"two lines", http.Header{"If-Match": {"", etag}}, duplicate},
+			{"two equal lines", http.Header{"If-Match": {etag, etag}}, duplicate},
+			{"two empty lines", http.Header{"If-Match": {"", ""}}, duplicate},
+			{"two lines and If-Modified-Since", http.Header{"If-Match": {"", etag}, "If-Modified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, duplicate},
+			{"empty and If-Modified-Since", http.Header{"If-Match": {""}, "If-Modified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, notImpl},
+			{"empty and If-Unmodified-Since", http.Header{"If-Match": {""}, "If-Unmodified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, notImpl},
+			{"empty and If-None-Match", http.Header{"If-Match": {""}, "If-None-Match": {"*"}}, notImpl},
+			{"empty and empty If-None-Match", http.Header{"If-Match": {""}, "If-None-Match": {""}}, notImpl},
+			{"If-Match and If-None-Match", http.Header{"If-Match": {etag}, "If-None-Match": {""}}, notImpl},
+			{"empty and x-amz-if-match-size", http.Header{"If-Match": {""}, "X-Amz-If-Match-Size": {"1"}}, notImpl},
+			{"two If-None-Match lines", http.Header{"If-None-Match": {"*", "*"}}, "<Code>InvalidRequest</Code><Message>Duplicate header name found: If-None-Match</Message>"},
+		} {
+			t.Run(op.name+" "+tt.name, func(t *testing.T) {
+				header := op.header.Clone()
+				if header == nil {
+					header = http.Header{}
+				}
+				maps.Copy(header, tt.header)
+				objectAPI := &fakeObjectLayer{}
+				resp := serve(t, objectAPI, op.method, op.target, header, op.body)
+				require.Contains(t, resp.Body, tt.want)
+				require.Empty(t, objectAPI.Calls())
+			})
+		}
+	}
+
+	// A single If-Match with a value is still not implemented.
+	resp := serve(t, &fakeObjectLayer{}, http.MethodDelete, "/bucket/key", http.Header{"If-Match": {etag}}, nil)
+	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
+}
+
 func TestGetObjectAttributes(t *testing.T) {
 	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
 

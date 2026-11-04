@@ -26,6 +26,7 @@ const (
 	CodeDefaultRetentionPeriodTooLarge
 	CodeDirectiveRepeated
 	CodeEmptyDeleteETag
+	CodeEmptyIfMatch
 	CodeEmptyVersionID
 	CodeEmptyVersionIDMarker
 	CodeEntityTooLarge
@@ -253,6 +254,11 @@ var codeToResponse = map[Code]Response{
 	CodeEmptyDeleteETag: {
 		Code:           "InvalidArgument",
 		Description:    "The value provided for the ETag field cannot be empty for this API.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeEmptyIfMatch: {
+		Code:           "InvalidArgument",
+		Description:    "The value provided for the If-Match query parameter cannot be empty for this API.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeEmptyVersionID: {

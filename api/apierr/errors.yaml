@@ -103,6 +103,11 @@
   description: The value provided for the ETag field cannot be empty for this API.
   http_status: 400
 
+- name: EmptyIfMatch
+  code: InvalidArgument
+  description: The value provided for the If-Match query parameter cannot be empty for this API.
+  http_status: 400
+
 - name: EmptyVersionID
   code: InvalidArgument
   description: Version id cannot be the empty string
