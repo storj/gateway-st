@@ -463,6 +463,16 @@
   description: The retain until date must be provided in ISO 8601 format
   http_status: 400
 
+- name: ListObjectsContinuationToken
+  code: InvalidArgument
+  description: continuation-token only supported in REST.GET.BUCKET with list-type=2
+  http_status: 400
+
+- name: ListObjectsStartAfter
+  code: InvalidArgument
+  description: startAfter only supported in REST.GET.BUCKET with list-type=2
+  http_status: 400
+
 - name: MFAAuthenticationRequired
   code: AccessDenied
   description: Mfa Authentication must be used for this request

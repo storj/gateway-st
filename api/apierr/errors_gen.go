@@ -75,6 +75,8 @@ const (
 	CodeInvalidURI
 	CodeInvalidVersionID
 	CodeKeyMustBeSpecified
+	CodeListObjectsContinuationToken
+	CodeListObjectsStartAfter
 	CodeMFAAuthenticationRequired
 	CodeMalformedCopySourceRange
 	CodeMalformedExpires
@@ -489,6 +491,16 @@ var codeToResponse = map[Code]Response{
 	CodeKeyMustBeSpecified: {
 		Code:           "InvalidRequest",
 		Description:    "A key must be specified",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeListObjectsContinuationToken: {
+		Code:           "InvalidArgument",
+		Description:    "continuation-token only supported in REST.GET.BUCKET with list-type=2",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeListObjectsStartAfter: {
+		Code:           "InvalidArgument",
+		Description:    "startAfter only supported in REST.GET.BUCKET with list-type=2",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMFAAuthenticationRequired: {

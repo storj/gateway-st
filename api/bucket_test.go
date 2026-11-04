@@ -649,6 +649,40 @@ func TestListEmptyEncodingTypeLikeS3(t *testing.T) {
 	}
 }
 
+// TestListObjectsLikeS3 checks the responses that S3 returned for the same ListObjects requests.
+func TestListObjectsLikeS3(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		listObjects: func(context.Context, string, string, string, string, int) (cmd.ListObjectsInfo, error) {
+			return cmd.ListObjectsInfo{IsTruncated: true, NextMarker: "a/1", Objects: []cmd.ObjectInfo{{Name: "a/1"}}}, nil
+		},
+	}
+
+	for target, message := range map[string]string{
+		"/bucket?start-after=a":         "startAfter only supported in REST.GET.BUCKET with list-type=2",
+		"/bucket?continuation-token=":   "continuation-token only supported in REST.GET.BUCKET with list-type=2",
+		"/bucket?continuation-token=YQ": "continuation-token only supported in REST.GET.BUCKET with list-type=2",
+		// The continuation-token is reported before start-after, and max-keys is parsed before both.
+		"/bucket?continuation-token=&start-after=":    "continuation-token only supported in REST.GET.BUCKET with list-type=2",
+		"/bucket?start-after=&continuation-token=":    "continuation-token only supported in REST.GET.BUCKET with list-type=2",
+		"/bucket?continuation-token=a&encoding-type=": "continuation-token only supported in REST.GET.BUCKET with list-type=2",
+		"/bucket?start-after=a&encoding-type=foo":     "startAfter only supported in REST.GET.BUCKET with list-type=2",
+		"/bucket?continuation-token=a&max-keys=abc":   "Provided max-keys not an integer or within integer range",
+		"/bucket?start-after=a&max-keys=abc":          "Provided max-keys not an integer or within integer range",
+	} {
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+message+"</Message>", target)
+	}
+
+	// NextMarker is only sent with a delimiter.
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?max-keys=1", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.NotContains(t, resp.Body, "<NextMarker>")
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket?max-keys=1&delimiter=/", nil, nil)
+	require.Contains(t, resp.Body, "<NextMarker>a/1</NextMarker>")
+}
+
 // TestListParameterOrderLikeS3 checks the order in which S3 reported the problems of the same list
 // requests, and their messages.
 func TestListParameterOrderLikeS3(t *testing.T) {

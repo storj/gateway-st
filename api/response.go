@@ -440,9 +440,13 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 		Marker:         s3EncodeName(params.marker, params.encodingType),
 		Delimiter:      s3EncodeName(params.delimiter, params.encodingType),
 		MaxKeys:        params.maxKeys,
-		NextMarker:     s3EncodeName(listInfo.NextMarker, params.encodingType),
 		IsTruncated:    listInfo.IsTruncated,
 		CommonPrefixes: make([]cmd.CommonPrefix, 0, len(listInfo.Prefixes)),
+	}
+
+	// Like S3, NextMarker is only sent with a delimiter. Without one, the last key is the marker.
+	if params.delimiter != "" {
+		data.NextMarker = s3EncodeName(listInfo.NextMarker, params.encodingType)
 	}
 
 	for _, object := range listInfo.Objects {

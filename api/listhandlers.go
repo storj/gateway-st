@@ -88,9 +88,17 @@ type listObjectsParams struct {
 }
 
 func getListObjectsParams(values url.Values) (params listObjectsParams, err error) {
+	// S3 parses max-keys first, then refuses the ListObjectsV2 parameters, even empty ones, the
+	// continuation-token before start-after.
 	maxKeys, err := getMaxKeys(values)
 	if err != nil {
 		return listObjectsParams{}, err
+	}
+	if values.Has("continuation-token") {
+		return listObjectsParams{}, apierr.CodeListObjectsContinuationToken
+	}
+	if values.Has("start-after") {
+		return listObjectsParams{}, apierr.CodeListObjectsStartAfter
 	}
 	encodingType, err := getEncodingType(values)
 	if err != nil {
