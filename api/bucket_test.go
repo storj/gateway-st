@@ -637,6 +637,112 @@ func TestListMultipartUploads(t *testing.T) {
 
 }
 
+func TestListEmptyEncodingTypeLikeS3(t *testing.T) {
+	for _, target := range []string{"/bucket?encoding-type=", "/bucket?list-type=2&encoding-type=", "/bucket?versions&encoding-type=", "/bucket?uploads&encoding-type="} {
+		objectAPI := &fakeObjectLayer{}
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>Invalid Encoding Method specified in Request</Message>", target)
+		require.Empty(t, objectAPI.Calls(), target)
+	}
+}
+
+// TestListParameterOrderLikeS3 checks the order in which S3 reported the problems of the same list
+// requests, and their messages.
+func TestListParameterOrderLikeS3(t *testing.T) {
+	const (
+		maxKeysValue     = "Provided max-keys not an integer or within integer range"
+		maxKeysNegative  = "Argument maxKeys must be an integer between 0 and 2147483647"
+		encoding         = "Invalid Encoding Method specified in Request"
+		noKeyMarker      = "A version-id marker cannot be specified without a key marker."
+		emptyVersionID   = "A version-id marker cannot be empty."
+		invalidVersionID = "Invalid version id specified"
+		maxUploadsValue  = "Provided max-uploads not an integer or within integer range"
+		maxUploadsNeg    = "Argument max-uploads must be an integer between 0 and 2147483647"
+		maxPartsValue    = "Provided max-parts not an integer or within integer range"
+		maxPartsNeg      = "Argument max-parts must be an integer between 0 and 2147483647"
+		markerValue      = "Provided part-number-marker not an integer or within integer range"
+		markerNegative   = "Argument part-number-marker must be an integer between 0 and 2147483647"
+	)
+
+	for target, message := range map[string]string{
+		// The encoding-type is checked before a negative max-keys, but after one that isn't an integer.
+		"/bucket?max-keys=-1":                                maxKeysNegative,
+		"/bucket?list-type=2&max-keys=-1":                    maxKeysNegative,
+		"/bucket?versions&max-keys=-1":                       "max-keys cannot be negative",
+		"/bucket?encoding-type=&max-keys=-1":                 encoding,
+		"/bucket?encoding-type=foo&max-keys=-1":              encoding,
+		"/bucket?max-keys=-1&encoding-type=":                 encoding,
+		"/bucket?list-type=2&encoding-type=foo&max-keys=-1":  encoding,
+		"/bucket?versions&encoding-type=foo&max-keys=-1":     encoding,
+		"/bucket?encoding-type=&max-keys=abc":                maxKeysValue,
+		"/bucket?max-keys=2147483648&encoding-type=foo":      maxKeysValue,
+		"/bucket?versions&max-keys=abc&encoding-type=foo":    maxKeysValue,
+		"/bucket?list-type=2&max-keys=abc&encoding-type=foo": maxKeysValue,
+		"/bucket?uploads&max-uploads=-1":                     maxUploadsNeg,
+		"/bucket?uploads&encoding-type=&max-uploads=-1":      encoding,
+		"/bucket?uploads&encoding-type=&max-uploads=abc":     maxUploadsValue,
+		"/bucket?uploads&max-uploads=2147483648":             maxUploadsValue,
+		"/bucket?uploads&max-uploads=1.5":                    maxUploadsValue,
+		// The version-id-marker is checked before the encoding-type and a negative max-keys, and
+		// an empty key-marker counts.
+		"/bucket?versions&encoding-type=&version-id-marker=!!":                            noKeyMarker,
+		"/bucket?versions&version-id-marker=":                                             noKeyMarker,
+		"/bucket?versions&version-id-marker=00000000000000000000000000000001&max-keys=-1": noKeyMarker,
+		"/bucket?versions&version-id-marker=abc&max-keys=abc":                             maxKeysValue,
+		"/bucket?versions&key-marker=&version-id-marker=":                                 emptyVersionID,
+		"/bucket?versions&key-marker=a&version-id-marker=&encoding-type=foo":              emptyVersionID,
+		"/bucket?versions&key-marker=&version-id-marker=!!":                               invalidVersionID,
+		"/bucket?versions&key-marker=a&version-id-marker=!!&max-keys=-1":                  invalidVersionID,
+	} {
+		objectAPI := &fakeObjectLayer{}
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, target)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+message+"</Message>", target)
+		require.Empty(t, objectAPI.Calls(), target)
+	}
+
+	// Only the parameters of ListParts that aren't integers are checked before the upload is looked
+	// up. Its encoding-type and negative limits are checked after.
+	listParts := &fakeObjectLayer{
+		listObjectParts: func(_ context.Context, _, _, _ string, marker, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+			require.GreaterOrEqual(t, marker, 0)
+			require.GreaterOrEqual(t, maxParts, 0)
+			return cmd.ListPartsInfo{}, nil
+		},
+	}
+	for query, message := range map[string]string{
+		"max-parts=abc&encoding-type=foo":          maxPartsValue,
+		"max-parts=2147483648&encoding-type=foo":   maxPartsValue,
+		"max-parts=-1&encoding-type=foo":           encoding,
+		"max-parts=-1":                             maxPartsNeg,
+		"part-number-marker=abc":                   markerValue,
+		"part-number-marker=2147483648":            markerValue,
+		"part-number-marker=abc&encoding-type=foo": markerValue,
+		"part-number-marker=abc&max-parts=abc":     maxPartsValue,
+		"part-number-marker=-1&max-parts=-1":       maxPartsNeg,
+		"part-number-marker=-1":                    markerNegative,
+		"encoding-type=":                           encoding,
+		"encoding-type=foo&part-number-marker=-1":  encoding,
+	} {
+		resp := serve(t, listParts, http.MethodGet, "/bucket/key?uploadId=id&"+query, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+message+"</Message>", query)
+	}
+	missing := &fakeObjectLayer{listObjectParts: func(context.Context, string, string, string, int, int, cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+		return cmd.ListPartsInfo{}, cmd.InvalidUploadID{}
+	}}
+	resp := serve(t, missing, http.MethodGet, "/bucket/key?uploadId=id&encoding-type=foo", nil, nil)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>NoSuchUpload</Code>")
+	resp = serve(t, missing, http.MethodGet, "/bucket/key?uploadId=id&max-parts=abc", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+
+	// The limits that fit in an int32 are accepted as before, and an empty one is missing.
+	resp = serve(t, listParts, http.MethodGet, "/bucket/key?uploadId=id&max-parts=2147483647&part-number-marker=2147483647", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+}
+
 func TestListPartsLimits(t *testing.T) {
 	var gotMaxParts int
 	parts := []cmd.PartInfo{{PartNumber: 1, ETag: "a", Size: 1}, {PartNumber: 2, ETag: "b", Size: 1}}

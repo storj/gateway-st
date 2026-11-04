@@ -24,6 +24,7 @@ const (
 	CodeCopySourceTooLarge
 	CodeDirectiveRepeated
 	CodeEmptyVersionID
+	CodeEmptyVersionIDMarker
 	CodeEntityTooLarge
 	CodeEntityTooSmall
 	CodeExpiredPresignedRequest
@@ -51,13 +52,16 @@ const (
 	CodeInvalidMaxKeys
 	CodeInvalidMaxParts
 	CodeInvalidMaxPartsHeader
+	CodeInvalidMaxPartsValue
 	CodeInvalidMaxUploads
+	CodeInvalidMaxUploadsValue
 	CodeInvalidMetadataDirective
 	CodeInvalidPartChecksum
 	CodeInvalidPartNumber
 	CodeInvalidPartNumberArgument
 	CodeInvalidPartNumberMarker
 	CodeInvalidPartNumberMarkerHeader
+	CodeInvalidPartNumberMarkerValue
 	CodeInvalidPartNumberTooSmall
 	CodeInvalidPartOrder
 	CodeInvalidRange
@@ -79,6 +83,8 @@ const (
 	CodeMalformedPresignedDate
 	CodeMalformedTrailer
 	CodeMalformedXML
+	CodeMaxKeysNegative
+	CodeMaxKeysNegativeInVersions
 	CodeMaxPostPreDataLengthExceeded
 	CodeMaximumExpires
 	CodeMetadataNotValidForPart
@@ -135,6 +141,7 @@ const (
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
 	CodeUserKeyMustBeSpecified
+	CodeVersionIDMarkerWithoutKeyMarker
 	CodeWebsiteRedirectNotValidForPart
 )
 
@@ -227,6 +234,11 @@ var codeToResponse = map[Code]Response{
 	CodeEmptyVersionID: {
 		Code:           "InvalidArgument",
 		Description:    "Version id cannot be the empty string",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeEmptyVersionIDMarker: {
+		Code:           "InvalidArgument",
+		Description:    "A version-id marker cannot be empty.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeEntityTooLarge: {
@@ -364,9 +376,19 @@ var codeToResponse = map[Code]Response{
 		Description:    "Provided x-amz-max-parts not an integer or within integer range",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidMaxPartsValue: {
+		Code:           "InvalidArgument",
+		Description:    "Provided max-parts not an integer or within integer range",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidMaxUploads: {
 		Code:           "InvalidArgument",
 		Description:    "Argument max-uploads must be an integer between 0 and 2147483647",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidMaxUploadsValue: {
+		Code:           "InvalidArgument",
+		Description:    "Provided max-uploads not an integer or within integer range",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidMetadataDirective: {
@@ -391,12 +413,17 @@ var codeToResponse = map[Code]Response{
 	},
 	CodeInvalidPartNumberMarker: {
 		Code:           "InvalidArgument",
-		Description:    "Argument partNumberMarker must be an integer.",
+		Description:    "Argument part-number-marker must be an integer between 0 and 2147483647",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidPartNumberMarkerHeader: {
 		Code:           "InvalidArgument",
 		Description:    "Provided x-amz-part-number-marker not an integer or within integer range",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidPartNumberMarkerValue: {
+		Code:           "InvalidArgument",
+		Description:    "Provided part-number-marker not an integer or within integer range",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidPartNumberTooSmall: {
@@ -502,6 +529,16 @@ var codeToResponse = map[Code]Response{
 	CodeMalformedXML: {
 		Code:           "MalformedXML",
 		Description:    "The XML you provided was not well-formed or did not validate against our published schema.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMaxKeysNegative: {
+		Code:           "InvalidArgument",
+		Description:    "Argument maxKeys must be an integer between 0 and 2147483647",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMaxKeysNegativeInVersions: {
+		Code:           "InvalidArgument",
+		Description:    "max-keys cannot be negative",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeMaxPostPreDataLengthExceeded: {
@@ -782,6 +819,11 @@ var codeToResponse = map[Code]Response{
 	CodeUserKeyMustBeSpecified: {
 		Code:           "UserKeyMustBeSpecified",
 		Description:    "User key must be specified.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeVersionIDMarkerWithoutKeyMarker: {
+		Code:           "InvalidArgument",
+		Description:    "A version-id marker cannot be specified without a key marker.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeWebsiteRedirectNotValidForPart: {

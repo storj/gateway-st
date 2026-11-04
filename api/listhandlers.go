@@ -59,7 +59,7 @@ func (api *API) ListObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateListObjectsParams(params.maxKeys, params.encodingType); err != nil {
+	if err := validateListObjectsParams(params.maxKeys, params.encodingType, apierr.CodeMaxKeysNegative); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -92,12 +92,16 @@ func getListObjectsParams(values url.Values) (params listObjectsParams, err erro
 	if err != nil {
 		return listObjectsParams{}, err
 	}
+	encodingType, err := getEncodingType(values)
+	if err != nil {
+		return listObjectsParams{}, err
+	}
 	return listObjectsParams{
 		prefix:       values.Get("prefix"),
 		marker:       values.Get("marker"),
 		delimiter:    values.Get("delimiter"),
 		maxKeys:      maxKeys,
-		encodingType: values.Get("encoding-type"),
+		encodingType: encodingType,
 	}, nil
 }
 
@@ -114,15 +118,38 @@ func getMaxKeys(values url.Values) (int, error) {
 	return min(maxKeys, maxObjectList), nil
 }
 
-// parseListInt parses a list limit or marker, accepting 0..math.MaxInt32 as S3 does.
+// parseListInt parses a list limit or marker, accepting any integer that fits in an int32 like S3.
+// A negative one is refused later, after the encoding-type, with an error of its own.
 func parseListInt(s string) (int, bool) {
 	n, err := strconv.ParseInt(s, 10, 32)
-	return int(n), err == nil && n >= 0
+	return int(n), err == nil
 }
 
-func validateListObjectsParams(maxKeys int, encodingType string) error {
+// validateListObjectsParams validates the encoding-type and then max-keys, which S3 reports in this
+// order, with the error for a negative max-keys.
+func validateListObjectsParams(maxKeys int, encodingType string, negative apierr.Code) error {
+	if err := validateEncodingType(encodingType); err != nil {
+		return err
+	}
 	if maxKeys < 0 {
-		return apierr.CodeInvalidMaxKeys
+		return negative
+	}
+	return nil
+}
+
+// getEncodingType returns the encoding-type parameter. Like S3, an empty one is invalid.
+func getEncodingType(values url.Values) (string, error) {
+	if values.Has("encoding-type") && values.Get("encoding-type") == "" {
+		return "", apierr.CodeInvalidEncodingMethod
+	}
+	return values.Get("encoding-type"), nil
+}
+
+// validateEncodingTypeParam returns the error for an empty or unknown encoding-type parameter.
+func validateEncodingTypeParam(values url.Values) error {
+	encodingType, err := getEncodingType(values)
+	if err != nil {
+		return err
 	}
 	return validateEncodingType(encodingType)
 }
@@ -151,7 +178,7 @@ func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateListObjectsParams(params.maxKeys, params.encodingType); err != nil {
+	if err := validateListObjectsParams(params.maxKeys, params.encodingType, apierr.CodeMaxKeysNegative); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -198,6 +225,10 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 	if err != nil {
 		return listObjectsV2Params{}, err
 	}
+	encodingType, err := getEncodingType(values)
+	if err != nil {
+		return listObjectsV2Params{}, err
+	}
 
 	return listObjectsV2Params{
 		prefix:       values.Get("prefix"),
@@ -206,7 +237,7 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 		maxKeys:      maxKeys,
 		fetchOwner:   values.Get("fetch-owner") == "true",
 		startAfter:   values.Get("start-after"),
-		encodingType: values.Get("encoding-type"),
+		encodingType: encodingType,
 	}, nil
 }
 
@@ -228,7 +259,7 @@ func (api *API) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := validateListObjectsParams(params.maxKeys, params.encodingType); err != nil {
+	if err := validateListObjectsParams(params.maxKeys, params.encodingType, apierr.CodeMaxKeysNegativeInVersions); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -264,8 +295,22 @@ func getListObjectVersionsParams(values url.Values) (params listObjectVersionsPa
 		return listObjectVersionsParams{}, err
 	}
 
-	if marker := values.Get("version-id-marker"); marker != "" && validateVersionID(marker) != nil {
-		return listObjectVersionsParams{}, apierr.CodeInvalidVersionID
+	// Like S3, the version-id-marker is checked before the encoding-type, and a key-marker counts
+	// even if it's empty.
+	if values.Has("version-id-marker") {
+		marker := values.Get("version-id-marker")
+		switch {
+		case !values.Has("key-marker"):
+			return listObjectVersionsParams{}, apierr.CodeVersionIDMarkerWithoutKeyMarker
+		case marker == "":
+			return listObjectVersionsParams{}, apierr.CodeEmptyVersionIDMarker
+		case validateVersionID(marker) != nil:
+			return listObjectVersionsParams{}, apierr.CodeInvalidVersionID
+		}
+	}
+	encodingType, err := getEncodingType(values)
+	if err != nil {
+		return listObjectVersionsParams{}, err
 	}
 
 	return listObjectVersionsParams{
@@ -274,7 +319,7 @@ func getListObjectVersionsParams(values url.Values) (params listObjectVersionsPa
 		versionIDMarker: values.Get("version-id-marker"),
 		delimiter:       values.Get("delimiter"),
 		maxKeys:         maxKeys,
-		encodingType:    values.Get("encoding-type"),
+		encodingType:    encodingType,
 	}, nil
 }
 
@@ -296,13 +341,13 @@ func (api *API) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if params.maxUploads < 0 {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidMaxUploads)
+	if err := validateEncodingType(params.encodingType); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	if err := validateEncodingType(params.encodingType); err != nil {
-		api.writeErrorResponse(w, r, err)
+	if params.maxUploads < 0 {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidMaxUploads)
 		return
 	}
 
@@ -353,11 +398,15 @@ func getListMultipartUploadsParams(values url.Values) (params listMultipartUploa
 	if maxUploadsStr := values.Get("max-uploads"); maxUploadsStr != "" {
 		var ok bool
 		if maxUploads, ok = parseListInt(maxUploadsStr); !ok {
-			return listMultipartUploadsParams{}, apierr.CodeInvalidMaxUploads
+			return listMultipartUploadsParams{}, apierr.CodeInvalidMaxUploadsValue
 		}
 		maxUploads = min(maxUploads, maxObjectList)
 	} else {
 		maxUploads = maxObjectList
+	}
+	encodingType, err := getEncodingType(values)
+	if err != nil {
+		return listMultipartUploadsParams{}, err
 	}
 
 	return listMultipartUploadsParams{
@@ -366,7 +415,7 @@ func getListMultipartUploadsParams(values url.Values) (params listMultipartUploa
 		uploadIDMarker: values.Get("upload-id-marker"),
 		delimiter:      values.Get("delimiter"),
 		maxUploads:     maxUploads,
-		encodingType:   values.Get("encoding-type"),
+		encodingType:   encodingType,
 	}, nil
 }
 
@@ -460,10 +509,25 @@ func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// S3 looks up the upload before it checks the encoding-type and the sign of the limits, so
+	// those are checked after the object layer is called, which isn't given a negative limit.
 	listPartsInfo, err := api.objectAPI.ListObjectParts(ctx, bucketName, objectKey, params.uploadID,
-		params.partNumberMarker, params.maxParts, objectlayer.ObjectOptions{})
+		max(params.partNumberMarker, 0), max(params.maxParts, 0), objectlayer.ObjectOptions{})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if err := validateEncodingTypeParam(r.URL.Query()); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if params.maxParts < 0 {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidMaxParts)
+		return
+	}
+	if params.partNumberMarker < 0 {
+		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberMarker)
 		return
 	}
 
@@ -483,19 +547,20 @@ type listPartsParams struct {
 	maxParts         int
 }
 
+// getListPartsParams parses the query. Like S3, max-parts is parsed before part-number-marker.
 func getListPartsParams(values url.Values) (params listPartsParams, err error) {
 	var ok bool
 	params.maxParts = maxPartsList
 	if maxPartsStr := values.Get("max-parts"); maxPartsStr != "" {
 		if params.maxParts, ok = parseListInt(maxPartsStr); !ok {
-			return listPartsParams{}, apierr.CodeInvalidMaxParts
+			return listPartsParams{}, apierr.CodeInvalidMaxPartsValue
 		}
 		params.maxParts = min(params.maxParts, maxPartsList)
 	}
 
 	if markerStr := values.Get("part-number-marker"); markerStr != "" {
 		if params.partNumberMarker, ok = parseListInt(markerStr); !ok {
-			return listPartsParams{}, apierr.CodeInvalidPartNumberMarker
+			return listPartsParams{}, apierr.CodeInvalidPartNumberMarkerValue
 		}
 	}
 

@@ -1689,11 +1689,12 @@ func TestListParts(t *testing.T) {
 	require.Contains(t, resp.Body, "Argument max-parts must be an integer")
 
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&part-number-marker=x", nil, nil)
-	require.Contains(t, resp.Body, "Argument partNumberMarker must be an integer.")
+	require.Contains(t, resp.Body, "Provided part-number-marker not an integer or within integer range")
 
-	// ListParts has no encoding-type parameter, so it's ignored.
+	// Like S3, ListParts refuses an unknown encoding-type, after it looked up the upload.
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket/key?uploadId=upload-id&encoding-type=bogus", nil, nil)
-	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "Invalid Encoding Method specified in Request")
 }
 
 func TestListPartsEmptyETag(t *testing.T) {

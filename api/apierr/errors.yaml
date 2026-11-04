@@ -218,6 +218,41 @@
   description: Provided max-keys not an integer or within integer range
   http_status: 400
 
+- name: MaxKeysNegative
+  code: InvalidArgument
+  description: Argument maxKeys must be an integer between 0 and 2147483647
+  http_status: 400
+
+- name: MaxKeysNegativeInVersions
+  code: InvalidArgument
+  description: max-keys cannot be negative
+  http_status: 400
+
+- name: InvalidMaxPartsValue
+  code: InvalidArgument
+  description: Provided max-parts not an integer or within integer range
+  http_status: 400
+
+- name: InvalidMaxUploadsValue
+  code: InvalidArgument
+  description: Provided max-uploads not an integer or within integer range
+  http_status: 400
+
+- name: InvalidPartNumberMarkerValue
+  code: InvalidArgument
+  description: Provided part-number-marker not an integer or within integer range
+  http_status: 400
+
+- name: VersionIDMarkerWithoutKeyMarker
+  code: InvalidArgument
+  description: A version-id marker cannot be specified without a key marker.
+  http_status: 400
+
+- name: EmptyVersionIDMarker
+  code: InvalidArgument
+  description: A version-id marker cannot be empty.
+  http_status: 400
+
 - name: InvalidMaxParts
   code: InvalidArgument
   description: Argument max-parts must be an integer between 0 and 2147483647
@@ -250,7 +285,7 @@
 
 - name: InvalidPartNumberMarker
   code: InvalidArgument
-  description: Argument partNumberMarker must be an integer.
+  description: Argument part-number-marker must be an integer between 0 and 2147483647
   http_status: 400
 
 - name: InvalidPartNumberMarkerHeader
