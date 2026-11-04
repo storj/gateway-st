@@ -307,6 +307,16 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 		return apierr.CodeMalformedXML.ToResponse()
 	}
 
+	// MinIO's messages for these object lock errors differ from S3's.
+	switch {
+	case errors.Is(err, objectlock.ErrInvalidRetentionPeriod):
+		return apierr.CodeDefaultRetentionPeriodNotPositive.ToResponse()
+	case errors.Is(err, objectlock.ErrRetentionPeriodTooLarge):
+		return apierr.CodeDefaultRetentionPeriodTooLarge.ToResponse()
+	case errors.Is(err, objectlock.ErrPastObjectLockRetainDate):
+		return apierr.CodeRetainUntilDateInPast.ToResponse()
+	}
+
 	// MinIO's NoSuchUpload message differs from S3's.
 	if errors.As(err, new(objectlayer.InvalidUploadID)) {
 		return apierr.CodeNoSuchUpload.ToResponse()

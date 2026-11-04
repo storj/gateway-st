@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
+	"storj.io/gateway/api/apierr"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -322,11 +323,12 @@ func TestPutTaggingLikeS3(t *testing.T) {
 type lockConfigObjectLayer struct {
 	*fakeObjectLayer
 	got *objectlock.Config
+	err error
 }
 
 func (l *lockConfigObjectLayer) SetObjectLockConfig(_ context.Context, _ string, config *objectlock.Config) error {
 	l.got = config
-	return nil
+	return l.err
 }
 
 // TestPutObjectLockConfigurationLikeS3 checks the responses that S3 returned for the same requests.
@@ -434,11 +436,12 @@ func TestBucketConfigurationErrors(t *testing.T) {
 type versioningObjectLayer struct {
 	*fakeObjectLayer
 	set func(*versioning.Versioning)
+	err error
 }
 
 func (l *versioningObjectLayer) SetBucketVersioning(_ context.Context, _ string, v *versioning.Versioning) error {
 	l.set(v)
-	return nil
+	return l.err
 }
 
 func TestPutBucketVersioning(t *testing.T) {
@@ -1074,5 +1077,53 @@ func TestHeadBucketRegion(t *testing.T) {
 		resp := serve(t, objectAPI, http.MethodHead, "/bucket", nil, nil)
 		require.Equal(t, tt.status, resp.StatusCode, tt.err)
 		require.Equal(t, tt.region, resp.Header.Get("X-Amz-Bucket-Region"), tt.err)
+	}
+}
+
+// TestObjectLockMessagesLikeS3 checks the messages that S3 returned for the same object lock errors.
+func TestObjectLockMessagesLikeS3(t *testing.T) {
+	put := func(objectAPI cmd.ObjectLayer, target, body string) response {
+		return serve(t, objectAPI, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
+	}
+	rule := func(retention string) string {
+		return "<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention>" + retention + "</DefaultRetention></Rule></ObjectLockConfiguration>"
+	}
+
+	for retention, message := range map[string]string{
+		"<Mode>GOVERNANCE</Mode><Days>0</Days>":     "Default retention period must be a positive integer value.",
+		"<Mode>GOVERNANCE</Mode><Days>-1</Days>":    "Default retention period must be a positive integer value.",
+		"<Mode>GOVERNANCE</Mode><Years>0</Years>":   "Default retention period must be a positive integer value.",
+		"<Mode>GOVERNANCE</Mode><Days></Days>":      "Default retention period must be a positive integer value.",
+		"<Mode>GOVERNANCE</Mode><Days>36501</Days>": "Default retention period too large.",
+		"<Mode>GOVERNANCE</Mode><Years>101</Years>": "Default retention period too large.",
+	} {
+		resp := put(&lockConfigObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket?object-lock", rule(retention))
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, retention)
+		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+message+"</Message>", retention)
+	}
+
+	date := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	resp := put(&retentionObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket/key?retention", "<Retention><Mode>GOVERNANCE</Mode><RetainUntilDate>"+date+"</RetainUntilDate></Retention>")
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>The retain until date must be in the future!</Message>")
+	resp = serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket/key", http.Header{
+		"X-Amz-Object-Lock-Mode": {"GOVERNANCE"}, "X-Amz-Object-Lock-Retain-Until-Date": {date}, "Content-Length": {"0"},
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>The retain until date must be in the future!</Message>")
+
+	// The object layers answer these two with the same generic message.
+	for _, layerErr := range []error{
+		apierr.Response{Code: "InvalidBucketState", Description: "Object lock requires bucket versioning to be enabled", HTTPStatusCode: http.StatusConflict},
+		miniogw.ErrBucketInvalidStateObjectLock,
+	} {
+		resp = put(&lockConfigObjectLayer{fakeObjectLayer: &fakeObjectLayer{}, err: layerErr}, "/bucket?object-lock", rule("<Mode>GOVERNANCE</Mode><Days>1</Days>"))
+		require.Equal(t, http.StatusConflict, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>InvalidBucketState</Code><Message>Versioning must be &#39;Enabled&#39; on the bucket to apply a Object Lock configuration</Message>")
+
+		resp = put(&versioningObjectLayer{fakeObjectLayer: &fakeObjectLayer{}, set: func(*versioning.Versioning) {}, err: layerErr}, "/bucket?versioning",
+			"<VersioningConfiguration><Status>Suspended</Status></VersioningConfiguration>")
+		require.Equal(t, http.StatusConflict, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Code>InvalidBucketState</Code><Message>An Object Lock configuration is present on this bucket, so the versioning state cannot be changed.</Message>")
 	}
 }

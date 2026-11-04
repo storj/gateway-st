@@ -22,6 +22,8 @@ const (
 	CodeContentSHA256Mismatch
 	CodeCopySourceDeleteMarker
 	CodeCopySourceTooLarge
+	CodeDefaultRetentionPeriodNotPositive
+	CodeDefaultRetentionPeriodTooLarge
 	CodeDirectiveRepeated
 	CodeEmptyDeleteETag
 	CodeEmptyVersionID
@@ -114,6 +116,7 @@ const (
 	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
+	CodeObjectLockConfigurationPresent
 	CodeObjectLockHeadersRequiredTogether
 	CodeOperationNotSupported
 	CodePartNumberWithoutUploadID
@@ -138,6 +141,7 @@ const (
 	CodePreconditionFailed
 	CodeRequestNotReadyYet
 	CodeRequestTimeTooSkewed
+	CodeRetainUntilDateInPast
 	CodeServerSideEncryptionNotValidForPart
 	CodeSignatureDoesNotMatch
 	CodeUnknownWORMModeDirective
@@ -146,6 +150,7 @@ const (
 	CodeUnsupportedSignature
 	CodeUserKeyMustBeSpecified
 	CodeVersionIDMarkerWithoutKeyMarker
+	CodeVersioningRequiredForObjectLock
 	CodeWebsiteRedirectNotValidForPart
 )
 
@@ -228,6 +233,16 @@ var codeToResponse = map[Code]Response{
 	CodeCopySourceTooLarge: {
 		Code:           "InvalidRequest",
 		Description:    "The specified copy source is larger than the maximum allowable size for a copy source: 5368709120",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeDefaultRetentionPeriodNotPositive: {
+		Code:           "InvalidArgument",
+		Description:    "Default retention period must be a positive integer value.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeDefaultRetentionPeriodTooLarge: {
+		Code:           "InvalidArgument",
+		Description:    "Default retention period too large.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeDirectiveRepeated: {
@@ -690,6 +705,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "A header that you provided implies functionality that is not implemented.",
 		HTTPStatusCode: http.StatusNotImplemented,
 	},
+	CodeObjectLockConfigurationPresent: {
+		Code:           "InvalidBucketState",
+		Description:    "An Object Lock configuration is present on this bucket, so the versioning state cannot be changed.",
+		HTTPStatusCode: 409,
+	},
 	CodeObjectLockHeadersRequiredTogether: {
 		Code:           "InvalidArgument",
 		Description:    "x-amz-object-lock-retain-until-date and x-amz-object-lock-mode must both be supplied",
@@ -810,6 +830,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The difference between the request time and the server's time is too large.",
 		HTTPStatusCode: http.StatusForbidden,
 	},
+	CodeRetainUntilDateInPast: {
+		Code:           "InvalidArgument",
+		Description:    "The retain until date must be in the future!",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeServerSideEncryptionNotValidForPart: {
 		Code:           "InvalidArgument",
 		Description:    "x-amz-server-side-encryption header is not supported for this operation.",
@@ -849,6 +874,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidArgument",
 		Description:    "A version-id marker cannot be specified without a key marker.",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeVersioningRequiredForObjectLock: {
+		Code:           "InvalidBucketState",
+		Description:    "Versioning must be 'Enabled' on the bucket to apply a Object Lock configuration",
+		HTTPStatusCode: 409,
 	},
 	CodeWebsiteRedirectNotValidForPart: {
 		Code:           "InvalidArgument",

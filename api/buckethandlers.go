@@ -251,6 +251,10 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 	}
 
 	if err = api.objectAPI.SetObjectLockConfig(ctx, bucketName, config); err != nil {
+		// The object layers answer a bucket without versioning with a generic message.
+		if resp, ok := errToResponse(err); ok && resp.Code == "InvalidBucketState" {
+			err = apierr.CodeVersioningRequiredForObjectLock
+		}
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -352,6 +356,11 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err = api.objectAPI.SetBucketVersioning(ctx, bucketName, &versioning.Versioning{Status: versioning.State(status)}); err != nil {
+		// The object layers answer suspending versioning of a bucket with object lock with a
+		// generic message.
+		if resp, ok := errToResponse(err); ok && resp.Code == "InvalidBucketState" {
+			err = apierr.CodeObjectLockConfigurationPresent
+		}
 		api.writeErrorResponse(w, r, err)
 		return
 	}

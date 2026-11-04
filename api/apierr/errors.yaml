@@ -548,6 +548,31 @@
   description: The specified key does not exist.
   http_status: 404
 
+- name: DefaultRetentionPeriodNotPositive
+  code: InvalidArgument
+  description: Default retention period must be a positive integer value.
+  http_status: 400
+
+- name: DefaultRetentionPeriodTooLarge
+  code: InvalidArgument
+  description: Default retention period too large.
+  http_status: 400
+
+- name: RetainUntilDateInPast
+  code: InvalidArgument
+  description: The retain until date must be in the future!
+  http_status: 400
+
+- name: VersioningRequiredForObjectLock
+  code: InvalidBucketState
+  description: Versioning must be 'Enabled' on the bucket to apply a Object Lock configuration
+  http_status: 409
+
+- name: ObjectLockConfigurationPresent
+  code: InvalidBucketState
+  description: An Object Lock configuration is present on this bucket, so the versioning state cannot be changed.
+  http_status: 409
+
 - name: NoSuchObjectLockConfiguration
   code: NoSuchObjectLockConfiguration
   description: The specified object does not have an ObjectLock configuration
