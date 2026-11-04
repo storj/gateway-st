@@ -102,8 +102,20 @@ func (e incompleteBodyError) Unwrap() error { return e.error }
 // longer than limit. awsig verifies Content-MD5, x-amz-checksum-* and the signed payload
 // hash only at EOF, which parsers that stop at the XML root element never reach.
 func readVerifiedBody(body awsig.Reader, limit int64) ([]byte, error) {
-	return io.ReadAll(NewLimitedAwsigReader(body, limit))
+	data, err := io.ReadAll(NewLimitedAwsigReader(body, limit))
+	if errors.As(err, new(awsig.ChecksumMismatchError)) {
+		err = xmlBodyChecksumError{err}
+	}
+	return data, err
 }
+
+// xmlBodyChecksumError is a checksum mismatch of an XML request body. Unlike PutObject and
+// UploadPart, S3 reports a Content-MD5 mismatch of these before an X-Amz-Content-Sha256 one.
+type xmlBodyChecksumError struct {
+	error
+}
+
+func (e xmlBodyChecksumError) Unwrap() error { return e.error }
 
 // decodeVerifiedXML reads the entire bounded body before decoding it so that checksum
 // and signature errors are reported even when they occur after the XML root element.

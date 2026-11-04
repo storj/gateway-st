@@ -39,6 +39,24 @@ func TestGetChecksumMismatchFromErrorPriority(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, tt.want, mismatch)
 	}
+
+	// Unlike PutObject and UploadPart, the operations with an XML body, which readVerifiedBody
+	// reads, report Content-MD5 before X-Amz-Content-Sha256.
+	for _, tt := range []struct {
+		mismatches []awsig.ChecksumMismatch
+		want       awsig.ChecksumMismatch
+	}{
+		{[]awsig.ChecksumMismatch{crc32, md5, sha256}, md5},
+		{[]awsig.ChecksumMismatch{sha256, md5}, md5},
+		{[]awsig.ChecksumMismatch{md5, sha256}, md5},
+		{[]awsig.ChecksumMismatch{crc32, sha256}, sha256},
+		{[]awsig.ChecksumMismatch{crc32, md5}, md5},
+	} {
+		err := xmlBodyChecksumError{awsig.ChecksumMismatchError{Mismatches: tt.mismatches}}
+		mismatch, ok := getChecksumMismatchFromError(err)
+		require.True(t, ok)
+		require.Equal(t, tt.want, mismatch)
+	}
 }
 
 func TestObjectLayerErrorMessages(t *testing.T) {

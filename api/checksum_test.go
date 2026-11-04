@@ -5,9 +5,12 @@ package api_test
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -388,4 +391,63 @@ func TestPutObjectIntegrityErrorPriority(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		require.True(t, objectAPI.stored)
 	}
+}
+
+// TestXMLBodyChecksumPriorityLikeS3 checks that S3 reports Content-MD5 before X-Amz-Content-Sha256
+// for operations with an XML body, but not for PutObject.
+func TestXMLBodyChecksumPriorityLikeS3(t *testing.T) {
+	sha256Hex := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}
+	other := []byte("other")
+
+	for _, tt := range []struct{ name, method, target, body string }{
+		{"PutBucketTagging", http.MethodPut, "/bucket?tagging", `<Tagging><TagSet></TagSet></Tagging>`},
+		{"PutObjectTagging", http.MethodPut, "/bucket/key?tagging", `<Tagging><TagSet></TagSet></Tagging>`},
+		{"PutBucketVersioning", http.MethodPut, "/bucket?versioning", `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`},
+		{"DeleteObjects", http.MethodPost, "/bucket?delete", `<Delete><Object><Key>key</Key></Object></Delete>`},
+		{"CompleteMultipartUpload", http.MethodPost, "/bucket/key?uploadId=id", `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(tt.body)
+			md5Of := func(b []byte) string {
+				sum := md5.Sum(b)
+				return base64.StdEncoding.EncodeToString(sum[:])
+			}
+			for _, c := range []struct {
+				name           string
+				badMD5, badSHA bool
+				code           string
+			}{
+				{"bad MD5 and bad SHA-256", true, true, "BadDigest"},
+				{"bad MD5", true, false, "BadDigest"},
+				{"bad SHA-256", false, true, "XAmzContentSHA256Mismatch"},
+			} {
+				md5Body, shaBody := body, body
+				if c.badMD5 {
+					md5Body = other
+				}
+				if c.badSHA {
+					shaBody = other
+				}
+				resp := serveHTTP(t, &fakeObjectLayer{}, tt.method, tt.target, http.Header{
+					"Content-Md5":          {md5Of(md5Body)},
+					"X-Amz-Content-Sha256": {sha256Hex(shaBody)},
+				}, body)
+				require.Equal(t, http.StatusBadRequest, resp.StatusCode, c.name+": "+resp.Body)
+				require.Contains(t, resp.Body, "<Code>"+c.code+"</Code>", c.name)
+			}
+		})
+	}
+
+	// PutObject reports X-Amz-Content-Sha256 first.
+	sum := md5.Sum(other)
+	resp := serveHTTP(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, http.MethodPut, "/bucket/key", http.Header{
+		"Content-Md5":          {base64.StdEncoding.EncodeToString(sum[:])},
+		"X-Amz-Content-Sha256": {sha256Hex(other)},
+		"Content-Length":       {"5"},
+	}, []byte("hello"))
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>XAmzContentSHA256Mismatch</Code>")
 }
