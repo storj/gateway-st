@@ -129,6 +129,10 @@ func TestTagValidation(t *testing.T) {
 		code, message string
 	}{
 		{"duplicate", "a=1&a=2", nil, "InvalidArgument", "The header &#39;x-amz-tagging&#39; shall be encoded"},
+		// S3 refuses these as an invalid header rather than an invalid tag.
+		{"second equals sign", "a=b=c", nil, "InvalidArgument", "The header &#39;x-amz-tagging&#39; shall be encoded"},
+		{"empty key", "=b", nil, "InvalidArgument", "The header &#39;x-amz-tagging&#39; shall be encoded"},
+		{"only an equals sign", "=", nil, "InvalidArgument", "The header &#39;x-amz-tagging&#39; shall be encoded"},
 		{"aws prefix", "aws%3Akey=1", [][2]string{{"aws:key", "1"}}, "InvalidTag", "Your TagKey cannot be prefixed with aws:"},
 		{"invalid key", "a%3F=1", [][2]string{{"a?", "1"}}, "InvalidTag", "The TagKey you have provided is invalid"},
 		{"invalid value", "a=%2A", [][2]string{{"a", "*"}}, "InvalidTag", "The TagValue you have provided is invalid"},

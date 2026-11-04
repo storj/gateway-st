@@ -577,7 +577,8 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {
-		if err := validateTaggingHeader(objTags); err != nil {
+		objTags, err := validateTaggingHeader(objTags)
+		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
 		}
@@ -1551,8 +1552,8 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	objTags := srcInfo.UserTags
 	if tagDirective == replaceDirective {
-		objTags = r.Header.Get(xhttp.AmzObjectTagging)
-		if err := validateTaggingHeader(objTags); err != nil {
+		objTags, err = validateTaggingHeader(r.Header.Get(xhttp.AmzObjectTagging))
+		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
 		}
@@ -1772,7 +1773,8 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if objTags := r.Header.Get(xhttp.AmzObjectTagging); objTags != "" {
-		if err := validateTaggingHeader(objTags); err != nil {
+		objTags, err := validateTaggingHeader(objTags)
+		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
 		}

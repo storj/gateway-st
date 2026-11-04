@@ -13,6 +13,7 @@ import (
 	"github.com/amwolff/awsig"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 )
 
@@ -67,5 +68,58 @@ func TestAwsigErrToCode(t *testing.T) {
 		resp, ok := errToResponse(tt.err)
 		require.True(t, ok, tt.err)
 		require.Equal(t, tt.code, resp.Code, tt.err)
+	}
+}
+
+// TestValidateTaggingHeaderLikeS3 checks the answers that S3 gave for the same x-amz-tagging
+// headers, including the tags it stored.
+func TestValidateTaggingHeaderLikeS3(t *testing.T) {
+	for _, tt := range []struct {
+		header string
+		err    error
+	}{
+		{"a=1", nil},
+		// S3 drops trailing equals signs.
+		{"a==", nil},
+		{"a===", nil},
+		{"a=b=", nil},
+		{"a==&c=d", nil},
+		{"&a==&", nil},
+		{"a=%3D", nil},
+		{"a=%3D=", nil},
+		{"a=1&b=2&c=3=", nil},
+		{"a==b", apierr.CodeInvalidTaggingHeader},
+		{"a=b=c", apierr.CodeInvalidTaggingHeader},
+		{"a=1&b=2=3", apierr.CodeInvalidTaggingHeader},
+		{"=", apierr.CodeInvalidTaggingHeader},
+		{"==", apierr.CodeInvalidTaggingHeader},
+		{"===", apierr.CodeInvalidTaggingHeader},
+		{"=a=", apierr.CodeInvalidTaggingHeader},
+		{"a=1&=", apierr.CodeInvalidTaggingHeader},
+		// A semicolon is part of a tag, not a separator.
+		{";", errInvalidTagKey},
+		{"a;b=1", errInvalidTagKey},
+		{"a=1;", errInvalidTagValue},
+		{"a=1;b", errInvalidTagValue},
+		{"a=1;b=2", apierr.CodeInvalidTaggingHeader},
+	} {
+		_, err := validateTaggingHeader(tt.header)
+		require.Equal(t, tt.err, err, tt.header)
+	}
+}
+
+// TestValidateTaggingHeaderNormalizes checks that the stored header holds the tags that S3
+// stored, which dropped the trailing equals signs.
+func TestValidateTaggingHeaderNormalizes(t *testing.T) {
+	for header, want := range map[string]string{
+		"a==&c=d":   "a&c=d",
+		"&a=b=&":    "a=b",
+		"a=%3D&b==": "a=%3D&b",
+		"a=1&&b=2":  "a=1&b=2",
+		"a+b=c%20d": "a+b=c%20d",
+	} {
+		got, err := validateTaggingHeader(header)
+		require.NoError(t, err, header)
+		require.Equal(t, want, got, header)
 	}
 }

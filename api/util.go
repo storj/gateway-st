@@ -197,29 +197,39 @@ func (t createBucketTags) validate() error {
 	return nil
 }
 
-// validateTaggingHeader validates the value of the x-amz-tagging header.
-func validateTaggingHeader(header string) error {
+// validateTaggingHeader validates the value of the x-amz-tagging header and returns it without the
+// empty pairs and trailing equals signs that S3 ignores, so that it can be stored and parsed as a
+// query string.
+func validateTaggingHeader(header string) (string, error) {
 	// url.ParseQuery merges duplicate keys, so the pairs are split manually.
 	tagMap := make(map[string]string)
+	var pairs []string
 	for _, pair := range strings.Split(header, "&") {
 		if pair == "" {
 			continue
 		}
+		// Like S3, trailing equals signs are dropped, then an empty key or a second unescaped "="
+		// makes the header invalid. A ";" isn't a separator, so it's validated as part of a tag.
+		pair = strings.TrimRight(pair, "=")
 		rawKey, rawValue, _ := strings.Cut(pair, "=")
 		key, keyErr := url.QueryUnescape(rawKey)
 		value, valueErr := url.QueryUnescape(rawValue)
-		if _, dup := tagMap[key]; dup || keyErr != nil || valueErr != nil || strings.Contains(pair, ";") {
-			return apierr.CodeInvalidTaggingHeader
+		if _, dup := tagMap[key]; dup || keyErr != nil || valueErr != nil || key == "" || strings.Contains(rawValue, "=") {
+			return "", apierr.CodeInvalidTaggingHeader
 		}
 		tagMap[key] = value
+		pairs = append(pairs, pair)
 	}
 	if len(tagMap) > 10 {
-		return errTooManyObjectTags
+		return "", errTooManyObjectTags
 	}
 	if _, err := tags.MapToObjectTags(tagMap); err != nil {
-		return err
+		return "", err
 	}
-	return validateTags(tagMap, true)
+	if err := validateTags(tagMap, true); err != nil {
+		return "", err
+	}
+	return strings.Join(pairs, "&"), nil
 }
 
 // parseTaggingXML parses a Tagging XML document and validates its tags. Like S3, any root element is
