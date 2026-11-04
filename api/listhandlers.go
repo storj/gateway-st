@@ -64,7 +64,7 @@ func (api *API) ListObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	listObjectsInfo, err := api.objectAPI.ListObjects(ctx, bucketName, params.prefix, params.marker, params.delimiter, params.maxKeys)
+	listObjectsInfo, err := api.objectAPI.ListObjects(ctx, bucketName, params.prefix, params.marker, params.delimiter, min(params.maxKeys, maxObjectList))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -105,7 +105,8 @@ func getListObjectsParams(values url.Values) (params listObjectsParams, err erro
 	}, nil
 }
 
-// getMaxKeys returns the max-keys parameter, defaulting to and capped at maxObjectList.
+// getMaxKeys returns the max-keys parameter, defaulting to maxObjectList. Like S3, a larger value is
+// echoed in the response, but at most maxObjectList entries are listed.
 func getMaxKeys(values url.Values) (int, error) {
 	maxKeysStr := values.Get("max-keys")
 	if maxKeysStr == "" {
@@ -115,7 +116,7 @@ func getMaxKeys(values url.Values) (int, error) {
 	if !ok {
 		return 0, apierr.CodeInvalidMaxKeys
 	}
-	return min(maxKeys, maxObjectList), nil
+	return maxKeys, nil
 }
 
 // parseListInt parses a list limit or marker, accepting any integer that fits in an int32 like S3.
@@ -184,7 +185,7 @@ func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	listObjectsV2Info, err := api.objectAPI.ListObjectsV2(ctx, bucketName, params.prefix, params.token, params.delimiter,
-		params.maxKeys, params.fetchOwner, params.startAfter)
+		min(params.maxKeys, maxObjectList), params.fetchOwner, params.startAfter)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -265,7 +266,7 @@ func (api *API) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	listObjectVersionsInfo, err := api.objectAPI.ListObjectVersions(ctx, bucketName, params.prefix, params.marker,
-		params.versionIDMarker, params.delimiter, params.maxKeys)
+		params.versionIDMarker, params.delimiter, min(params.maxKeys, maxObjectList))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

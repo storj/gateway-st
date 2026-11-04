@@ -567,6 +567,8 @@ func TestGetBucketAcl(t *testing.T) {
 	require.Contains(t, resp.Body, "<ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Grantee>")
 }
 
+// TestListMaxKeysClamped checks that at most 1000 entries are listed, while the requested max-keys
+// is echoed like S3.
 func TestListMaxKeysClamped(t *testing.T) {
 	var got int
 	objectAPI := &bucketObjectLayer{
@@ -590,7 +592,7 @@ func TestListMaxKeysClamped(t *testing.T) {
 		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		require.Equal(t, 1000, got, target)
-		require.Contains(t, resp.Body, "<MaxKeys>1000</MaxKeys>", target)
+		require.Contains(t, resp.Body, "<MaxKeys>5000</MaxKeys>", target)
 	}
 }
 
