@@ -55,6 +55,17 @@ func nopCharsetConverter(_ string, input io.Reader) (io.Reader, error) {
 	return input, nil
 }
 
+// unknownElements collects the child elements that no other field of a struct decodes, so that
+// they can be refused like S3 does. It must be tagged `xml:",any"`.
+type unknownElements []struct{ XMLName xml.Name }
+
+// hasText returns whether the character data of an element that only has child elements holds
+// anything other than the whitespace that S3 allows between them. Like S3, it doesn't count a
+// non-breaking space as whitespace.
+func hasText(chardata string) bool {
+	return strings.Trim(chardata, " \t\r\n") != ""
+}
+
 func xmlDecoder(body io.Reader, v any) error {
 	d := xml.NewDecoder(body)
 	d.CharsetReader = nopCharsetConverter

@@ -123,6 +123,11 @@
   description: Illegal copy header
   http_status: 400
 
+- name: IllegalVersioningConfiguration
+  code: IllegalVersioningConfigurationException
+  description: The Versioning element must be specified
+  http_status: 400
+
 - name: Internal
   code: InternalError
   description: We encountered an internal error. Please try again.
@@ -347,6 +352,11 @@
   code: InvalidArgument
   description: Bucket POST must contain a field named 'policy'.
   http_status: 400
+
+- name: MFAAuthenticationRequired
+  code: AccessDenied
+  description: Mfa Authentication must be used for this request
+  http_status: 403
 
 - name: MissingRequestBody
   code: MissingRequestBodyError

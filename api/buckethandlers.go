@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -286,15 +287,44 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 		api.writeErrorResponse(w, r, err)
 		return
 	}
-
-	v, err := versioning.ParseConfig(bytes.NewReader(data))
-	if err != nil {
-		// The parsers also return plain errors, such as for an unsupported XML encoding.
-		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
+	if len(data) == 0 {
+		api.writeErrorResponse(w, r, apierr.CodeMissingRequestBody)
 		return
 	}
 
-	if err = api.objectAPI.SetBucketVersioning(ctx, bucketName, v); err != nil {
+	// Like S3, any root element is accepted, but unknown or repeated children and values outside
+	// the schema are MalformedXML.
+	var config struct {
+		Text      string `xml:",chardata"`
+		Status    []string
+		MfaDelete []string
+		Unknown   unknownElements `xml:",any"`
+	}
+	if err := xmlDecoder(bytes.NewReader(data), &config); err != nil {
+		// The decoder also returns plain errors, such as for an unsupported XML encoding.
+		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
+		return
+	}
+	if len(config.Status) > 1 || len(config.MfaDelete) > 1 || len(config.Unknown) > 0 || hasText(config.Text) {
+		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+		return
+	}
+	status, mfaDelete := strings.Join(config.Status, ""), strings.Join(config.MfaDelete, "")
+	if !slices.Contains([]string{"", "Enabled", "Suspended"}, status) || !slices.Contains([]string{"", "Enabled", "Disabled"}, mfaDelete) {
+		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
+		return
+	}
+	if status == "" {
+		api.writeErrorResponse(w, r, apierr.CodeIllegalVersioningConfiguration)
+		return
+	}
+	// MFA delete can't be enabled, because MFA isn't supported.
+	if mfaDelete == "Enabled" {
+		api.writeErrorResponse(w, r, apierr.CodeMFAAuthenticationRequired)
+		return
+	}
+
+	if err = api.objectAPI.SetBucketVersioning(ctx, bucketName, &versioning.Versioning{Status: versioning.State(status)}); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -871,9 +901,9 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 			ETag             string
 			Size             string
 			LastModifiedTime string
-			Unknown          []struct{ XMLName xml.Name } `xml:",any"`
+			Unknown          unknownElements `xml:",any"`
 		} `xml:"Object"`
-		Unknown []struct{ XMLName xml.Name } `xml:",any"`
+		Unknown unknownElements `xml:",any"`
 	}
 	if err := decodeVerifiedXML(body, &req, maxDeleteObjectsBodySize); err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)

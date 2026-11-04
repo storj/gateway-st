@@ -143,14 +143,26 @@ func TestBucketConfigurationErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name, target, body, code string
 	}{
-		{"versioning status", "/bucket?versioning", `<VersioningConfiguration><Status>Bogus</Status></VersioningConfiguration>`, "IllegalVersioningConfigurationException"},
-		{"versioning element", "/bucket?versioning", `<Bogus/>`, "MalformedXML"},
-		{"versioning empty", "/bucket?versioning", ``, "MalformedXML"},
+		// The PutBucketVersioning cases are S3's answers.
+		{"versioning status", "/bucket?versioning", `<VersioningConfiguration><Status>Bogus</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning lowercase status", "/bucket?versioning", `<VersioningConfiguration><Status>enabled</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning wrong root", "/bucket?versioning", `<Bogus/>`, "IllegalVersioningConfigurationException"},
+		{"versioning empty status", "/bucket?versioning", `<VersioningConfiguration><Status></Status></VersioningConfiguration>`, "IllegalVersioningConfigurationException"},
+		{"versioning empty", "/bucket?versioning", ``, "MissingRequestBodyError"},
+		{"versioning unknown element", "/bucket?versioning", `<VersioningConfiguration><Status>Enabled</Status><Foo/></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning two statuses", "/bucket?versioning", `<VersioningConfiguration><Status>Enabled</Status><Status>Enabled</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning bogus MFA delete", "/bucket?versioning", `<VersioningConfiguration><Status>Enabled</Status><MfaDelete>Maybe</MfaDelete></VersioningConfiguration>`, "MalformedXML"},
+		// S3 refuses text in the elements that only hold elements, but allows whitespace.
+		{"versioning text", "/bucket?versioning", `<VersioningConfiguration>hi<Status>Enabled</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning text after", "/bucket?versioning", `<VersioningConfiguration><Status>Enabled</Status>hi</VersioningConfiguration>`, "MalformedXML"},
+		{"versioning cdata", "/bucket?versioning", `<VersioningConfiguration><![CDATA[hi]]><Status>Enabled</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning entity", "/bucket?versioning", `<VersioningConfiguration>&amp;<Status>Enabled</Status></VersioningConfiguration>`, "MalformedXML"},
+		{"versioning non-breaking space", "/bucket?versioning", "<VersioningConfiguration>\u00a0<Status>Enabled</Status></VersioningConfiguration>", "MalformedXML"},
+		{"versioning MFA delete without status", "/bucket?versioning", `<VersioningConfiguration><MfaDelete>Enabled</MfaDelete></VersioningConfiguration>`, "IllegalVersioningConfigurationException"},
 		{"object lock", "/bucket?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Bogus</ObjectLockEnabled></ObjectLockConfiguration>`, "MalformedXML"},
 		{"object lock period", "/bucket?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>-1</Days></DefaultRetention></Rule></ObjectLockConfiguration>`, "InvalidArgument"},
 		{"notification", "/bucket?notification", `<NotificationConfiguration><QueueConfiguration><Queue>arn:minio:sqs::1:webhook</Queue><Event>s3:Bogus</Event></QueueConfiguration></NotificationConfiguration>`, "InvalidArgument"},
 		{"notification without event", "/bucket?notification", `<NotificationConfiguration><QueueConfiguration><Queue>arn:gcp:pubsub::project:topic</Queue></QueueConfiguration></NotificationConfiguration>`, "MalformedXML"},
-		{"versioning encoding", "/bucket?versioning", `<?xml version="1.0" encoding="bogus"?><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`, "MalformedXML"},
 		{"object lock encoding", "/bucket?object-lock", `<?xml version="1.0" encoding="bogus"?><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`, "MalformedXML"},
 		{"notification encoding", "/bucket?notification", `<?xml version="1.0" encoding="bogus"?><NotificationConfiguration></NotificationConfiguration>`, "MalformedXML"},
 	} {
@@ -160,6 +172,48 @@ func TestBucketConfigurationErrors(t *testing.T) {
 			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
 		})
 	}
+}
+
+type versioningObjectLayer struct {
+	*fakeObjectLayer
+	set func(*versioning.Versioning)
+}
+
+func (l *versioningObjectLayer) SetBucketVersioning(_ context.Context, _ string, v *versioning.Versioning) error {
+	l.set(v)
+	return nil
+}
+
+func TestPutBucketVersioning(t *testing.T) {
+	var got []*versioning.Versioning
+	objectAPI := &versioningObjectLayer{fakeObjectLayer: &fakeObjectLayer{}, set: func(v *versioning.Versioning) { got = append(got, v) }}
+	put := func(mfaDelete string) response {
+		body := "<VersioningConfiguration><Status>Enabled</Status>" + mfaDelete + "</VersioningConfiguration>"
+		return serve(t, objectAPI, http.MethodPut, "/bucket?versioning", nil, []byte(body))
+	}
+
+	// Like S3, enabling MFA delete is refused, but disabling it is accepted.
+	resp := put("<MfaDelete>Enabled</MfaDelete>")
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>AccessDenied</Code><Message>Mfa Authentication must be used for this request</Message>")
+	require.Empty(t, got)
+
+	for _, mfaDelete := range []string{"<MfaDelete>Disabled</MfaDelete>", "<MfaDelete></MfaDelete>", ""} {
+		resp = put(mfaDelete)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	}
+	require.Len(t, got, 3)
+	require.Equal(t, versioning.Enabled, got[0].Status)
+
+	// S3 ignores the declared encoding.
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket?versioning", nil, []byte(`<?xml version="1.0" encoding="bogus"?><VersioningConfiguration><Status>Suspended</Status></VersioningConfiguration>`))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, versioning.Suspended, got[3].Status)
+
+	// Whitespace, tabs and comments between the elements are accepted.
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket?versioning", nil, []byte("<VersioningConfiguration>\n\t <!-- c --><![CDATA[ ]]><Status>Enabled</Status>\r\n</VersioningConfiguration>"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, versioning.Enabled, got[4].Status)
 }
 
 func TestBackendEOFIsInternalError(t *testing.T) {

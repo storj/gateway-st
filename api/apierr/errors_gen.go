@@ -24,6 +24,7 @@ const (
 	CodeEntityTooSmall
 	CodeExpiredPresignedRequest
 	CodeIllegalCopyHeader
+	CodeIllegalVersioningConfiguration
 	CodeIncorrectContinuationToken
 	CodeInternal
 	CodeInvalidAccessKeyID
@@ -59,6 +60,7 @@ const (
 	CodeInvalidURI
 	CodeInvalidVersionID
 	CodeKeyMustBeSpecified
+	CodeMFAAuthenticationRequired
 	CodeMalformedCopySourceRange
 	CodeMalformedExpires
 	CodeMalformedPOSTDate
@@ -203,6 +205,11 @@ var codeToResponse = map[Code]Response{
 	CodeIllegalCopyHeader: {
 		Code:           "InvalidArgument",
 		Description:    "Illegal copy header",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeIllegalVersioningConfiguration: {
+		Code:           "IllegalVersioningConfigurationException",
+		Description:    "The Versioning element must be specified",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeIncorrectContinuationToken: {
@@ -379,6 +386,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "InvalidRequest",
 		Description:    "A key must be specified",
 		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMFAAuthenticationRequired: {
+		Code:           "AccessDenied",
+		Description:    "Mfa Authentication must be used for this request",
+		HTTPStatusCode: http.StatusForbidden,
 	},
 	CodeMalformedCopySourceRange: {
 		Code:           "InvalidArgument",
