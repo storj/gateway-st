@@ -20,6 +20,7 @@ const (
 	CodeContentLengthWithTransferEncoding
 	CodeContentMD5Mismatch
 	CodeContentSHA256Mismatch
+	CodeCopyRangeInvalidForSize
 	CodeCopySourceDeleteMarker
 	CodeCopySourceTooLarge
 	CodeDefaultRetentionPeriodNotPositive
@@ -224,6 +225,11 @@ var codeToResponse = map[Code]Response{
 	CodeContentSHA256Mismatch: {
 		Code:           "XAmzContentSHA256Mismatch",
 		Description:    "The provided 'x-amz-content-sha256' header does not match what was computed.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeCopyRangeInvalidForSize: {
+		Code:           "InvalidRequest",
+		Description:    "The specified copy range is invalid for the source object size",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeCopySourceDeleteMarker: {

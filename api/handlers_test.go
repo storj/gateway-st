@@ -1316,6 +1316,84 @@ func TestCopyObject(t *testing.T) {
 	}
 }
 
+// TestUploadPartCopyRangeLikeS3 checks the responses that S3 returned for the same copy source ranges
+// of a 10 byte object.
+func TestUploadPartCopyRangeLikeS3(t *testing.T) {
+	const (
+		form = "<Code>InvalidArgument</Code><Message>The x-amz-copy-source-range value must be of the form bytes=first-last where first and last are the zero-based offsets of the first and last bytes to copy</Message>"
+		size = "<Code>InvalidArgument</Code><Message>Range specified is not valid for source object of size: 10</Message>"
+		past = "<Code>InvalidRequest</Code><Message>The specified copy range is invalid for the source object size</Message>"
+	)
+
+	for _, tt := range []struct {
+		rangeStr string
+		want     string // empty if S3 accepted it
+	}{
+		{"", form},
+		{"abc", form},
+		{"0-1", form},
+		{"bytes", form},
+		{"bytes=", form},
+		{"bytes=-", form},
+		{"bytes=-5", form},
+		{"bytes=0-", form},
+		{"bytes=0-1,3-4", form},
+		{"bytes=5-1", form},
+		{"bytes=1-0", form},
+		{"BYTES=0-1", form},
+		{"bytes= 0-1", form},
+		{"bytes=+0-1", form},
+		{"bytes=0-+1", form},
+		{"bytes=0x1-2", form},
+		{"bytes=0-9223372036854775808", form},
+		{"bytes=0-18446744073709551616", form},
+		{"bytes=0-9", ""},
+		{"bytes=00-01", ""},
+		{"bytes=9-9", ""},
+		{"bytes=0-10", size},
+		{"bytes=1-5368709120", size},
+		{"bytes=0-9223372036854775807", size},
+		{"bytes=10-10", size},
+		{"bytes=11-11", past},
+		{"bytes=11-12", past},
+		{"bytes=11-5368709121", past},
+		{"bytes=4294967296-4294967297", past},
+		{"bytes=5368709120-6442450944", past},
+		{"bytes=9223372036854775807-9223372036854775807", past},
+	} {
+		t.Run(tt.rangeStr, func(t *testing.T) {
+			objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: 10, ETag: "etag"}, "")
+			objectAPI.copyObjectPart = func(context.Context, string, string, string, string, string, int, int64, int64, cmd.ObjectInfo, cmd.ObjectOptions, cmd.ObjectOptions) (cmd.PartInfo, error) {
+				return cmd.PartInfo{ETag: "part-etag"}, nil
+			}
+			header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {tt.rangeStr}}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload-id", header, nil)
+			if tt.want == "" {
+				require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+				return
+			}
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, tt.want)
+			require.NotContains(t, objectAPI.Calls(), "CopyObjectPart")
+		})
+	}
+
+	t.Run("a malformed range is refused before the source is looked up", func(t *testing.T) {
+		objectAPI := &fakeObjectLayer{}
+		header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {"abc"}}
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload-id", header, nil)
+		require.Contains(t, resp.Body, form)
+		require.Empty(t, objectAPI.Calls())
+	})
+
+	t.Run("an empty source", func(t *testing.T) {
+		objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", ETag: "etag"}, "")
+		header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {"bytes=0-0"}}
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload-id", header, nil)
+		require.Contains(t, resp.Body, "<Message>Range specified is not valid for source object of size: 0</Message>")
+	})
+}
+
 func TestUploadPartCopy(t *testing.T) {
 	const gib = int64(1) << 30
 
@@ -1332,9 +1410,9 @@ func TestUploadPartCopy(t *testing.T) {
 		{name: "range", size: 10, rangeStr: "bytes=2-5", expStatus: http.StatusOK, expOffset: 2, expLength: 4},
 		{name: "range to last byte", size: 10, rangeStr: "bytes=0-9", expStatus: http.StatusOK, expLength: 10},
 		{name: "first after last", size: 10, rangeStr: "bytes=5-3", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
-		{name: "end past source", size: 10, rangeStr: "bytes=0-10", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
-		{name: "end overflows length", size: 10, rangeStr: "bytes=0-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
-		{name: "huge start", size: 10, rangeStr: "bytes=9223372036854775806-9223372036854775807", expStatus: http.StatusRequestedRangeNotSatisfiable, expCode: "InvalidRange"},
+		{name: "end past source", size: 10, rangeStr: "bytes=0-10", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+		{name: "end overflows length", size: 10, rangeStr: "bytes=0-9223372036854775807", expStatus: http.StatusBadRequest, expCode: "InvalidArgument"},
+		{name: "huge start", size: 10, rangeStr: "bytes=9223372036854775806-9223372036854775807", expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 		{name: "source too large", size: 6 * gib, expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 		{name: "range too large", size: 6 * gib, rangeStr: fmt.Sprintf("bytes=0-%d", 5*gib), expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 	} {

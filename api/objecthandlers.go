@@ -26,6 +26,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -444,9 +445,11 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Like S3, an empty range is malformed, and a malformed one is refused before the source is
+	// looked up.
 	var rangeSpec *objectlayer.HTTPRangeSpec
-	if rangeHeader := r.Header.Get(xhttp.AmzCopySourceRange); rangeHeader != "" {
-		rangeSpec, err = parseRangeForCopy(rangeHeader)
+	if len(r.Header.Values(xhttp.AmzCopySourceRange)) > 0 {
+		rangeSpec, err = parseRangeForCopy(r.Header.Get(xhttp.AmzCopySourceRange))
 		if err != nil {
 			api.writeErrorResponse(w, r, err)
 			return
@@ -467,8 +470,16 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 	startOffset, length := int64(0), srcInfo.Size
 	if rangeSpec != nil {
 		// Check the bounds before computing the length, so that it can't overflow.
-		if rangeSpec.Start >= srcInfo.Size || rangeSpec.End >= srcInfo.Size {
-			api.writeErrorResponse(w, r, apierr.CodeInvalidRange)
+		switch {
+		case rangeSpec.Start > srcInfo.Size:
+			api.writeErrorResponse(w, r, apierr.CodeCopyRangeInvalidForSize)
+			return
+		case rangeSpec.End >= srcInfo.Size:
+			api.writeErrorResponse(w, r, apierr.Response{
+				Code:           "InvalidArgument",
+				Description:    fmt.Sprintf("Range specified is not valid for source object of size: %d", srcInfo.Size),
+				HTTPStatusCode: http.StatusBadRequest,
+			})
 			return
 		}
 		startOffset, length = rangeSpec.Start, rangeSpec.End-rangeSpec.Start+1
