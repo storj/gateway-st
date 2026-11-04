@@ -44,6 +44,7 @@ import (
 	"github.com/amwolff/awsig"
 
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/tags"
@@ -433,6 +434,15 @@ func parseLegalHoldXML(data []byte) (*objectlock.ObjectLegalHold, error) {
 		return nil, err
 	}
 	return objectlock.ParseObjectLegalHold(bytes.NewReader(data))
+}
+
+// versionNotFound returns err as objectlayer.VersionNotFound if it reports a missing object although
+// a version was requested, because S3 then reports the version as missing.
+func versionNotFound(err error, bucket, object, versionID string) error {
+	if versionID != "" && errors.As(err, new(objectlayer.ObjectNotFound)) {
+		return objectlayer.VersionNotFound{Bucket: bucket, Object: object, VersionID: versionID}
+	}
+	return err
 }
 
 // checkUploadPartHeaders refuses the headers that S3 doesn't accept on UploadPart and UploadPartCopy.

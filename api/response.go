@@ -777,6 +777,10 @@ func setObjectHeaders(w http.ResponseWriter, objInfo objectlayer.ObjectInfo, ran
 			h[lowerK] = []string{encodeHeaderValue(v)}
 			continue
 		}
+		// Like S3, the default storage class isn't reported.
+		if strings.EqualFold(k, xhttp.AmzStorageClass) && v == defaultStorageClass {
+			continue
+		}
 		if strings.HasPrefix(lowerK, objectLockMetadataPrefix) || slices.ContainsFunc(objectMetadataHeaders, func(header string) bool {
 			return strings.EqualFold(k, header)
 		}) {

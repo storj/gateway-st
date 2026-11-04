@@ -935,7 +935,7 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts, err := getObjectReadOptions(r.URL.Query())
+	opts, err := getObjectReadOptions(r)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -944,11 +944,6 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	rangeSpec, err := parseRangeForGet(r.Header.Get(xhttp.Range))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	if rangeSpec != nil && opts.PartNumber > 0 {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidRangePartNumber)
 		return
 	}
 
@@ -992,7 +987,7 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if !preconditionFailed {
 			setDeleteMarkerHeaders(w, err, opts.VersionID)
-			api.writeErrorResponse(w, r, err)
+			api.writeErrorResponse(w, r, versionNotFound(err, bucketName, objectKey, opts.VersionID))
 		}
 		return
 	}
@@ -1097,7 +1092,7 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts, err := getObjectReadOptions(r.URL.Query())
+	opts, err := getObjectReadOptions(r)
 	if err != nil {
 		api.writeErrorResponseHeadersOnly(r, w, err)
 		return
@@ -1109,15 +1104,10 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rangeSpec != nil && opts.PartNumber > 0 {
-		api.writeErrorResponseHeadersOnly(r, w, apierr.CodeInvalidRangePartNumber)
-		return
-	}
-
 	objInfo, err := api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, opts)
 	if err != nil {
 		setDeleteMarkerHeaders(w, err, opts.VersionID)
-		api.writeErrorResponseHeadersOnly(r, w, err)
+		api.writeErrorResponseHeadersOnly(r, w, versionNotFound(err, bucketName, objectKey, opts.VersionID))
 		return
 	}
 
@@ -1149,8 +1139,17 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 // getObjectReadOptions returns the object options specified by the query parameters of a
 // GetObject or HeadObject request.
-func getObjectReadOptions(query url.Values) (opts objectlayer.ObjectOptions, err error) {
-	if partNumberStr := query.Get(xhttp.PartNumber); partNumberStr != "" {
+func getObjectReadOptions(r *http.Request) (opts objectlayer.ObjectOptions, err error) {
+	query := r.URL.Query()
+
+	// Like S3, a part number is refused with any Range header, even one that isn't valid, before
+	// the part number is validated.
+	if _, hasRange := r.Header[xhttp.Range]; hasRange && query.Has(xhttp.PartNumber) {
+		return objectlayer.ObjectOptions{}, apierr.CodeInvalidRangePartNumber
+	}
+
+	if query.Has(xhttp.PartNumber) {
+		partNumberStr := query.Get(xhttp.PartNumber)
 		opts.PartNumber, err = strconv.Atoi(partNumberStr)
 		if err != nil || opts.PartNumber < minPartNumber || opts.PartNumber > maxPartNumber {
 			errResp, _ := apierr.CodeInvalidPartNumberArgument.ToResponse()
@@ -1179,15 +1178,6 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 		}
 	}
 
-	// TODO: part numbers aren't mapped to byte ranges because our object layer doesn't report
-	// the parts of an object, so only part 1, which returns the entire object, is accepted, and
-	// x-amz-mp-parts-count isn't sent (ceph's test_multipart_get_part and
-	// test_multipart_single_get_part). Add the mapping if the object layer starts reporting parts.
-	if opts.PartNumber > 1 {
-		writeError(apierr.CodeInvalidPartNumber)
-		return true
-	}
-
 	writeHeaders := func() {
 		setCommonHeaders(w)
 		if validModTime(objInfo.ModTime) {
@@ -1213,6 +1203,17 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 	case http.StatusNotModified:
 		writeHeaders()
 		w.WriteHeader(http.StatusNotModified)
+		return true
+	}
+
+	// Like S3, the conditions are evaluated before the part number.
+	//
+	// TODO: part numbers aren't mapped to byte ranges because our object layer doesn't report
+	// the parts of an object, so only part 1, which returns the entire object, is accepted, and
+	// x-amz-mp-parts-count isn't sent (ceph's test_multipart_get_part and
+	// test_multipart_single_get_part). Add the mapping if the object layer starts reporting parts.
+	if opts.PartNumber > 1 {
+		writeError(apierr.CodeInvalidPartNumber)
 		return true
 	}
 

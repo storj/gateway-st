@@ -268,6 +268,64 @@ func TestPreconditionsLikeS3(t *testing.T) {
 	}
 }
 
+// TestGetAndHeadObjectLikeS3 checks the responses that S3 returned for the same requests.
+func TestGetAndHeadObjectLikeS3(t *testing.T) {
+	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ModTime: modTime, Size: 10, ETag: "etag",
+		UserDefined: map[string]string{"X-Amz-Storage-Class": "STANDARD"}}
+	objectAPI := singleObjectLayer(objInfo, "0123456789")
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, target := range []string{"/bucket/key?partNumber=", "/bucket/key?partNumber=abc"} {
+			resp := serve(t, objectAPI, method, target, nil, nil)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, "%s %s", method, target)
+		}
+
+		// S3 reports the Range and partNumber conflict before it validates the part number.
+		for _, partNumber := range []string{"", "abc", "0", "1", "2"} {
+			for _, rng := range []string{"bytes=abc", "bytes=0-1", "", "bytes=999999-"} {
+				resp := serve(t, objectAPI, method, "/bucket/key?partNumber="+partNumber, http.Header{"Range": {rng}}, nil)
+				require.Equal(t, http.StatusBadRequest, resp.StatusCode, "%s partNumber=%q Range=%q", method, partNumber, rng)
+				if method == http.MethodGet {
+					require.Contains(t, resp.Body, "<Code>InvalidRequest</Code>", "partNumber=%q Range=%q", partNumber, rng)
+					require.Contains(t, resp.Body, "Cannot specify both Range header and partNumber query parameter")
+				}
+			}
+		}
+
+		// The default storage class isn't reported.
+		resp := serve(t, objectAPI, method, "/bucket/key", nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, method)
+		require.Empty(t, resp.Header.Get("X-Amz-Storage-Class"), method)
+	}
+
+	// The conditions are evaluated before the part number.
+	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key?partNumber=2", http.Header{"If-Match": {`"other"`}}, nil)
+	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode)
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/key?partNumber=2", http.Header{"If-None-Match": {`"etag"`}}, nil)
+	require.Equal(t, http.StatusNotModified, resp.StatusCode)
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/key?partNumber=2", nil, nil)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode)
+
+	objInfo.UserDefined = map[string]string{"X-Amz-Storage-Class": "GLACIER_IR"}
+	resp = serve(t, singleObjectLayer(objInfo, "0123456789"), http.MethodHead, "/bucket/key", nil, nil)
+	require.Equal(t, "GLACIER_IR", resp.Header.Get("X-Amz-Storage-Class"))
+
+	// A missing version is reported as such, even when the key doesn't exist.
+	missing := &fakeObjectLayer{getObjectInfo: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		return cmd.ObjectInfo{}, cmd.ObjectNotFound{Bucket: bucket, Object: object}
+	}}
+	missing.getObjectNInfo = func(ctx context.Context, bucket, object string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+		_, err := missing.getObjectInfo(ctx, bucket, object, opts)
+		return nil, err
+	}
+	resp = serve(t, missing, http.MethodGet, "/bucket/key?versionId=00000000000000000000000000000001", nil, nil)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	require.Contains(t, resp.Body, "<Code>NoSuchVersion</Code>")
+	resp = serve(t, missing, http.MethodGet, "/bucket/key", nil, nil)
+	require.Contains(t, resp.Body, "<Code>NoSuchKey</Code>")
+}
+
 func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
 	resp := serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
 		`<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part>`+
