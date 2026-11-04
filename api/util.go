@@ -742,9 +742,44 @@ func parseObjectLockHeaders(h http.Header) (retMode objectlock.RetMode, retDate 
 	retentionRequested := objectlock.IsObjectLockRetentionRequested(h)
 	legalHoldRequested := objectlock.IsObjectLockLegalHoldRequested(h)
 
+	// The headers are checked like S3, in its order, which unlike minio's parsers doesn't accept
+	// lower case values and answers InvalidArgument.
+	fail := func(err error) (objectlock.RetMode, objectlock.RetentionDate, objectlock.ObjectLegalHold, error) {
+		return "", objectlock.RetentionDate{}, objectlock.ObjectLegalHold{}, err
+	}
+	switch {
+	case len(h.Values(objectlock.AmzObjectLockMode)) > 1:
+		return fail(apierr.CodeMultipleWORMModes)
+	case len(h.Values(objectlock.AmzObjectLockLegalHold)) > 1:
+		return fail(apierr.CodeMultipleWORMLegalHolds)
+	case len(h.Values(objectlock.AmzObjectLockRetainUntilDate)) > 1:
+		return fail(apierr.CodeMultipleWORMRetentionDates)
+	}
+
+	if retentionRequested && (len(h.Values(objectlock.AmzObjectLockMode)) == 0 || len(h.Values(objectlock.AmzObjectLockRetainUntilDate)) == 0) {
+		return fail(apierr.CodeObjectLockHeadersRequiredTogether)
+	}
+
+	if legalHoldRequested {
+		if status := h.Get(objectlock.AmzObjectLockLegalHold); status != string(objectlock.LegalHoldOn) && status != string(objectlock.LegalHoldOff) {
+			return fail(apierr.CodeInvalidLegalHoldHeader)
+		}
+	}
+
 	if retentionRequested {
+		date, err := time.Parse(time.RFC3339, h.Get(objectlock.AmzObjectLockRetainUntilDate))
+		if err != nil {
+			return fail(apierr.CodeInvalidRetainUntilDateHeader)
+		}
+		// minio's parser would report the mode first.
+		if date.Before(time.Now()) {
+			return fail(objectlock.ErrPastObjectLockRetainDate)
+		}
+		if !slices.Contains([]string{string(objectlock.RetGovernance), string(objectlock.RetCompliance)}, h.Get(objectlock.AmzObjectLockMode)) {
+			return fail(apierr.CodeUnknownWORMModeDirective)
+		}
 		if retMode, retDate, err = objectlock.ParseObjectLockRetentionHeaders(h); err != nil {
-			return objectlock.RetMode(""), objectlock.RetentionDate{}, objectlock.ObjectLegalHold{}, err
+			return fail(err)
 		}
 		// S3 keeps the date in milliseconds.
 		retDate.Time = retDate.Truncate(time.Millisecond)
@@ -752,7 +787,7 @@ func parseObjectLockHeaders(h http.Header) (retMode objectlock.RetMode, retDate 
 
 	if legalHoldRequested {
 		if legalHold, err = objectlock.ParseObjectLockLegalHoldHeaders(h); err != nil {
-			return objectlock.RetMode(""), objectlock.RetentionDate{}, objectlock.ObjectLegalHold{}, err
+			return fail(err)
 		}
 	}
 

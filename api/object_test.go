@@ -382,6 +382,70 @@ func TestCopyObjectLikeS3(t *testing.T) {
 	}
 }
 
+// TestObjectLockHeadersLikeS3 checks the responses that S3 returned for the same headers.
+func TestObjectLockHeadersLikeS3(t *testing.T) {
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	const (
+		both     = "x-amz-object-lock-retain-until-date and x-amz-object-lock-mode must both be supplied"
+		mode     = "Unknown wormMode directive."
+		date     = "The retain until date must be provided in ISO 8601 format"
+		hold     = "Legal Hold must be either of &#39;ON&#39; or &#39;OFF&#39;"
+		lockMode = "X-Amz-Object-Lock-Mode"
+		lockDate = "X-Amz-Object-Lock-Retain-Until-Date"
+		lockHold = "X-Amz-Object-Lock-Legal-Hold"
+	)
+	for _, tt := range []struct {
+		header  http.Header
+		message string
+	}{
+		{http.Header{lockMode: {"governance"}, lockDate: {until}}, mode},
+		{http.Header{lockMode: {""}, lockDate: {until}}, mode},
+		{http.Header{lockMode: {"GOVERNANCE"}}, both},
+		{http.Header{lockDate: {until}}, both},
+		{http.Header{lockMode: {"GOVERNANCE"}, lockDate: {"soon"}}, date},
+		{http.Header{lockHold: {"off"}}, hold},
+		{http.Header{lockHold: {""}}, hold},
+		{http.Header{lockHold: {"MAYBE"}}, hold},
+		// S3 refuses repeated lines first, then reports in this order: both headers required, legal
+		// hold, date format, a date in the past, mode.
+		{http.Header{lockMode: {"GOVERNANCE", "GOVERNANCE"}, lockDate: {until}}, "Multiple WORM retention modes are not allowed"},
+		{http.Header{lockMode: {"GOVERNANCE", "COMPLIANCE"}}, "Multiple WORM retention modes are not allowed"},
+		{http.Header{lockMode: {"BOGUS", "BOGUS"}, lockDate: {"soon"}, lockHold: {"MAYBE"}}, "Multiple WORM retention modes are not allowed"},
+		{http.Header{lockHold: {"ON", "OFF"}}, "Multiple WORM legal hold values are not allowed"},
+		{http.Header{lockHold: {"MAYBE", "ON"}}, "Multiple WORM legal hold values are not allowed"},
+		{http.Header{lockMode: {"GOVERNANCE"}, lockHold: {"ON", "OFF"}}, "Multiple WORM legal hold values are not allowed"},
+		{http.Header{lockMode: {"GOVERNANCE", "COMPLIANCE"}, lockDate: {until}, lockHold: {"ON", "OFF"}}, "Multiple WORM retention modes are not allowed"},
+		{http.Header{lockMode: {"GOVERNANCE"}, lockDate: {until, "soon"}}, "Multiple WORM retention dates are not allowed"},
+		{http.Header{lockMode: {"BOGUS"}, lockDate: {"soon"}}, date},
+		{http.Header{lockMode: {"BOGUS"}, lockDate: {"2001-01-01T00:00:00Z"}}, "The retain until date must be in the future"},
+		{http.Header{lockMode: {"BOGUS"}, lockDate: {until}, lockHold: {"MAYBE"}}, hold},
+		{http.Header{lockMode: {"GOVERNANCE"}, lockDate: {"soon"}, lockHold: {"MAYBE"}}, hold},
+		{http.Header{lockMode: {"GOVERNANCE"}, lockDate: {"2001-01-01T00:00:00Z"}, lockHold: {"MAYBE"}}, hold},
+		{http.Header{lockMode: {"GOVERNANCE"}, lockHold: {"MAYBE"}}, both},
+		{http.Header{lockDate: {"soon"}, lockHold: {"MAYBE"}}, both},
+	} {
+		copyAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			return cmd.ObjectInfo{}, nil
+		}}
+		for _, target := range []string{"/bucket/key", "/bucket/key?uploads", "/bucket/dst"} {
+			method, header := http.MethodPut, tt.header.Clone()
+			objectAPI := &fakeObjectLayer{}
+			switch target {
+			case "/bucket/key?uploads":
+				method = http.MethodPost
+			case "/bucket/dst":
+				header.Set("X-Amz-Copy-Source", "/bucket/src")
+				objectAPI = copyAPI
+			default:
+				header.Set("Content-Length", "0")
+			}
+			resp := serve(t, objectAPI, method, target, header, nil)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, "%v: %s", tt.header, resp.Body)
+			require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+tt.message, "%s %v", target, tt.header)
+		}
+	}
+}
+
 func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
 	resp := serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploadId=upload-id", nil, []byte(`<CompleteMultipartUpload>`+
 		`<Part><PartNumber>1</PartNumber><ETag>a</ETag></Part>`+

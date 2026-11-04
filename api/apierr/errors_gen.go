@@ -43,6 +43,7 @@ const (
 	CodeInvalidDateHeader
 	CodeInvalidEncodingMethod
 	CodeInvalidForceDelete
+	CodeInvalidLegalHoldHeader
 	CodeInvalidListType
 	CodeInvalidMaxBuckets
 	CodeInvalidMaxKeys
@@ -58,6 +59,7 @@ const (
 	CodeInvalidRange
 	CodeInvalidRangePartNumber
 	CodeInvalidRequest
+	CodeInvalidRetainUntilDateHeader
 	CodeInvalidSdkChecksumAlgorithm
 	CodeInvalidStorageClass
 	CodeInvalidTagDirective
@@ -88,6 +90,9 @@ const (
 	CodeMissingRequestBody
 	CodeMissingSecurityHeader
 	CodeMultipleChecksums
+	CodeMultipleWORMLegalHolds
+	CodeMultipleWORMModes
+	CodeMultipleWORMRetentionDates
 	CodeNegativeExpires
 	CodeNoSuchCORSConfiguration
 	CodeNoSuchKey
@@ -96,6 +101,7 @@ const (
 	CodeNoSuchVersion
 	CodeNoSuchWebsiteConfiguration
 	CodeNotImplemented
+	CodeObjectLockHeadersRequiredTogether
 	CodeOperationNotSupported
 	CodePartNumberWithoutUploadID
 	CodePostFormInvalidFileCount
@@ -120,6 +126,7 @@ const (
 	CodeRequestTimeTooSkewed
 	CodeServerSideEncryptionNotValidForPart
 	CodeSignatureDoesNotMatch
+	CodeUnknownWORMModeDirective
 	CodeUnsignedHeaders
 	CodeUnsupportedECDSAP256SHA256
 	CodeUnsupportedSignature
@@ -313,6 +320,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "X-Minio-Force-Delete must be a valid boolean.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeInvalidLegalHoldHeader: {
+		Code:           "InvalidArgument",
+		Description:    "Legal Hold must be either of 'ON' or 'OFF'",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeInvalidListType: {
 		Code:           "InvalidArgument",
 		Description:    "Invalid List Type specified in Request",
@@ -386,6 +398,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidRequest: {
 		Code:           "InvalidRequest",
 		Description:    "The request is invalid.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidRetainUntilDateHeader: {
+		Code:           "InvalidArgument",
+		Description:    "The retain until date must be provided in ISO 8601 format",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidSdkChecksumAlgorithm: {
@@ -538,6 +555,21 @@ var codeToResponse = map[Code]Response{
 		Description:    "Expecting a single x-amz-checksum- header. Multiple checksum Types are not allowed.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeMultipleWORMLegalHolds: {
+		Code:           "InvalidArgument",
+		Description:    "Multiple WORM legal hold values are not allowed",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMultipleWORMModes: {
+		Code:           "InvalidArgument",
+		Description:    "Multiple WORM retention modes are not allowed",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeMultipleWORMRetentionDates: {
+		Code:           "InvalidArgument",
+		Description:    "Multiple WORM retention dates are not allowed",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeNegativeExpires: {
 		Code:           "AuthorizationQueryParametersError",
 		Description:    "X-Amz-Expires must be non-negative",
@@ -577,6 +609,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "NotImplemented",
 		Description:    "A header that you provided implies functionality that is not implemented.",
 		HTTPStatusCode: http.StatusNotImplemented,
+	},
+	CodeObjectLockHeadersRequiredTogether: {
+		Code:           "InvalidArgument",
+		Description:    "x-amz-object-lock-retain-until-date and x-amz-object-lock-mode must both be supplied",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeOperationNotSupported: {
 		Code:           "NotImplemented",
@@ -697,6 +734,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "SignatureDoesNotMatch",
 		Description:    "The request signature we calculated does not match the signature you provided. Check your key and signing method.",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeUnknownWORMModeDirective: {
+		Code:           "InvalidArgument",
+		Description:    "Unknown wormMode directive.",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeUnsignedHeaders: {
 		Code:           "AccessDenied",
