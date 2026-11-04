@@ -20,15 +20,35 @@ import (
 // storj/awsig's credentials branch, which adds it. Otherwise a request carrying a session token
 // gets InternalError.
 //
-// TODO: awsig rejects these malformed requests with different errors than S3 (checked against S3
-// in October 2026):
+// TODO: awsig answers some malformed Authorization headers differently from S3. Below, "the date
+// error" is 403 AccessDenied "AWS authentication requires a valid Date or x-amz-date header".
+// S3's answers were checked in October and November 2026.
 //
-//   - SignedHeaders doesn't list host (test_sigv4_host_bad), or a header that it lists is missing
-//     (test_sigv4_missing_header): awsig returns MissingSecurityHeader (400), ceph's tests expect
-//     403 (S3 returns AccessDenied and SignatureDoesNotMatch respectively);
-//   - the Authorization header has an unsupported scheme, such as "AWS4 HAHAHA" or "Bearer x":
-//     awsig checks the date first, returning AccessDenied (403) without a valid Date or X-Amz-Date
-//     and UnsupportedSignature (400) with one, while S3 returns InvalidArgument (400) either way.
+//   - SignedHeaders leaves out host (ceph's test_sigv4_host_bad), or lists a header that the
+//     request doesn't have (test_sigv4_missing_header).
+//     S3: 403 AccessDenied for the first, 403 SignatureDoesNotMatch for the second.
+//     awsig: 400 MissingSecurityHeader for both.
+//   - The scheme is unknown, such as "AWS4 HAHAHA", "AWS4-HMAC-SHA1 ...", "Bearer x" or "Basic ...".
+//     S3: 400 InvalidArgument "Unsupported Authorization Type", except that an AWS4-style scheme
+//     with an invalid date gets the date error.
+//     awsig: 400 UnsupportedSignature with a Date header, otherwise the date error.
+//   - There's no space after the scheme, as in a bare "AWS4-HMAC-SHA256" or a single word.
+//     S3: 400 InvalidArgument "Authorization header is invalid -- one and only one ' ' (space)
+//     required", even with an invalid date. Only a bare "AWS4-HMAC-SHA256" without any date gets
+//     the date error.
+//     awsig: 400 AuthorizationHeaderMalformed, or the date error when it finds no date.
+//   - The scheme is in lower case, as in "aws4-hmac-sha256 ...".
+//     S3: treats it as SigV4, so it's 403 AccessDenied or SignatureDoesNotMatch depending on the
+//     signed headers, or the date error.
+//     awsig: 400 UnsupportedSignature with a Date header, otherwise the date error.
+//   - The Credential is malformed and the date is valid. Without a valid date, both answer the date
+//     error first.
+//     S3: 400 AuthorizationHeaderMalformed with a message that says what's wrong, after "The
+//     authorization header is malformed;". For example "the region 'eu-west-1' is wrong;
+//     expecting 'us-east-1'", or "the Credential is mal-formed; expecting
+//     \"<YOUR-AKID>/YYYYMMDD/REGION/SERVICE/aws4_request\"" for a missing or extra part.
+//     awsig: the same code with a generic message, except a wrong region, which is 403
+//     SignatureDoesNotMatch.
 var awsigErrToCodes = []struct {
 	err  error
 	code apierr.Code
