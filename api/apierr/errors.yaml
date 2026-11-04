@@ -98,6 +98,11 @@
   description: "The specified copy source is larger than the maximum allowable size for a copy source: 5368709120"
   http_status: 400
 
+- name: EmptyDeleteETag
+  code: InvalidArgument
+  description: The value provided for the ETag field cannot be empty for this API.
+  http_status: 400
+
 - name: EmptyVersionID
   code: InvalidArgument
   description: Version id cannot be the empty string

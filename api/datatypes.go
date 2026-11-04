@@ -184,10 +184,12 @@ type postResponse struct {
 	cmd.PostResponse
 }
 
-// deleteError is cmd.DeleteError without an empty VersionId, in S3's element order.
+// deleteError is cmd.DeleteError in S3's element order. Like S3, it reports the VersionId of a
+// request that had one, even an empty one, so a nil VersionID is omitted but a pointer to an
+// empty string isn't.
 type deleteError struct {
 	Key       string
-	VersionID string `xml:"VersionId,omitempty"`
+	VersionID *string `xml:"VersionId,omitempty"`
 	Code      string
 	Message   string
 }

@@ -1913,10 +1913,6 @@ func TestGetObjectAttributesHeadersLikeS3(t *testing.T) {
 func TestConditionsNotImplemented(t *testing.T) {
 	deleteBody := []byte(`<Delete><Object><Key>key</Key><ETag>"etag"</ETag></Object></Delete>`)
 	deleteSum := md5.Sum(deleteBody)
-	deleteSizeBody := []byte(`<Delete><Object><Key>key</Key><Size>5</Size></Object></Delete>`)
-	deleteSizeSum := md5.Sum(deleteSizeBody)
-	deleteTimeBody := []byte(`<Delete><Object><Key>key</Key><LastModifiedTime>2025-01-01T00:00:00.000Z</LastModifiedTime></Object></Delete>`)
-	deleteTimeSum := md5.Sum(deleteTimeBody)
 	completeBody := []byte(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>a</ETag></Part></CompleteMultipartUpload>`)
 
 	for _, tt := range []struct {
@@ -1941,8 +1937,6 @@ func TestConditionsNotImplemented(t *testing.T) {
 		{"DeleteObject If-Modified-Since", http.MethodDelete, "/bucket/key", http.Header{"If-Modified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, nil},
 		{"DeleteObject If-Unmodified-Since", http.MethodDelete, "/bucket/key", http.Header{"If-Unmodified-Since": {"Thu, 01 Jan 1970 00:00:00 GMT"}}, nil},
 		{"DeleteObjects", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteSum[:])}}, deleteBody},
-		{"DeleteObjects size", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteSizeSum[:])}}, deleteSizeBody},
-		{"DeleteObjects last modified", http.MethodPost, "/bucket?delete", http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(deleteTimeSum[:])}}, deleteTimeBody},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			objectAPI := &fakeObjectLayer{}
@@ -2071,8 +2065,9 @@ func TestDeleteObjectsVersionIDs(t *testing.T) {
 	// S3 reports an empty or malformed version ID as a version that doesn't exist.
 	require.Contains(t, resp.Body, "<Error><Key>dashed</Key><VersionId>00000000-0000-0000-0000-000000000001</VersionId><Code>NoSuchVersion</Code><Message>The specified version does not exist.</Message></Error>")
 	require.Contains(t, resp.Body, "<Error><Key>garbage</Key><VersionId>garbage</VersionId><Code>NoSuchVersion</Code>")
-	require.Contains(t, resp.Body, "<Error><Key>empty</Key><Code>NoSuchVersion</Code>")
-	require.Contains(t, resp.Body, "<Error><Key>both</Key><Code>NoSuchVersion</Code>")
+	// An empty VersionId is reported as an empty element, like S3 does.
+	require.Contains(t, resp.Body, "<Error><Key>empty</Key><VersionId></VersionId><Code>NoSuchVersion</Code>")
+	require.Contains(t, resp.Body, "<Error><Key>both</Key><VersionId></VersionId><Code>NoSuchVersion</Code>")
 }
 
 func TestDeleteObjectsOnlyFiltered(t *testing.T) {
@@ -2140,6 +2135,21 @@ func TestDeleteObjectsLikeS3(t *testing.T) {
 			// S3 checks the whole document's structure before the entries.
 			{"empty Key, then no Key", "<Delete><Object><Key></Key></Object><Object></Object></Delete>", "MalformedXML"},
 			{"ETag condition, then unknown element", "<Delete><Object><Key>a</Key><ETag>x</ETag></Object><Object><Key>b</Key><Foo>x</Foo></Object></Delete>", "MalformedXML"},
+			{"two ETags", "<Delete><Object><Key>a</Key><ETag>x</ETag><ETag>y</ETag></Object></Delete>", "MalformedXML"},
+			// Text in the elements that only hold elements, but not whitespace.
+			{"text in Delete", "<Delete>hi<Object><Key>a</Key></Object></Delete>", "MalformedXML"},
+			{"text after the objects", "<Delete><Object><Key>a</Key></Object>hi</Delete>", "MalformedXML"},
+			{"text in Object", "<Delete><Object>hi<Key>a</Key></Object></Delete>", "MalformedXML"},
+			{"cdata in Delete", "<Delete><![CDATA[hi]]><Object><Key>a</Key></Object></Delete>", "MalformedXML"},
+			{"entity in Delete", "<Delete>&amp;<Object><Key>a</Key></Object></Delete>", "MalformedXML"},
+			{"non-breaking space in Delete", "<Delete>\u00a0<Object><Key>a</Key></Object></Delete>", "MalformedXML"},
+			// Size and LastModifiedTime are only allowed in directory buckets.
+			{"Size", "<Delete><Object><Key>a</Key><Size>1</Size></Object></Delete>", "MalformedXML"},
+			{"empty Size", "<Delete><Object><Key>a</Key><Size></Size></Object></Delete>", "MalformedXML"},
+			{"LastModifiedTime", "<Delete><Object><Key>a</Key><LastModifiedTime>2020-01-01T00:00:00Z</LastModifiedTime></Object></Delete>", "MalformedXML"},
+			{"Size, then empty Key", "<Delete><Object><Key>a</Key><Size>1</Size></Object><Object><Key></Key></Object></Delete>", "MalformedXML"},
+			{"empty Key, then Size", "<Delete><Object><Key></Key></Object><Object><Key>a</Key><Size>1</Size></Object></Delete>", "MalformedXML"},
+			{"ETag condition, then empty Key", "<Delete><Object><Key>a</Key><ETag>x</ETag></Object><Object><Key></Key></Object></Delete>", "UserKeyMustBeSpecified"},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				objectAPI := newDeleteObjectsLayer()
@@ -2165,6 +2175,50 @@ func TestDeleteObjectsLikeS3(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 			require.Equal(t, !quiet, strings.Contains(resp.Body, "<Deleted>"), value)
 		}
+	})
+
+	// S3 reports an empty or blank ETag as an error of the entry, before the version ID is checked
+	// and with the version ID that was requested, even an empty one. Only the first of the entries
+	// for the same key and version is evaluated.
+	t.Run("empty ETag", func(t *testing.T) {
+		const message = "<Code>InvalidArgument</Code><Message>The value provided for the ETag field cannot be empty for this API.</Message></Error>"
+		for _, tt := range []struct{ name, object, want string }{
+			{"empty", "<Key>a</Key><ETag></ETag>", "<Error><Key>a</Key>" + message},
+			{"self-closed", "<Key>a</Key><ETag/>", "<Error><Key>a</Key>" + message},
+			{"blank", "<Key>a</Key><ETag> </ETag>", "<Error><Key>a</Key>" + message},
+			{"empty version", "<Key>a</Key><ETag></ETag><VersionId></VersionId>", "<Error><Key>a</Key><VersionId></VersionId>" + message},
+			{"malformed version", "<Key>a</Key><VersionId>garbage</VersionId><ETag></ETag>", "<Error><Key>a</Key><VersionId>garbage</VersionId>" + message},
+			{"null version", "<Key>a</Key><ETag></ETag><VersionId>null</VersionId>", "<Error><Key>a</Key><VersionId>null</VersionId>" + message},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				objectAPI := newDeleteObjectsLayer()
+				resp := deleteObjects(objectAPI, "<Delete><Object>"+tt.object+"</Object></Delete>", nil)
+				require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+				require.Contains(t, resp.Body, tt.want)
+				require.Empty(t, objectAPI.Calls())
+			})
+		}
+
+		resp := deleteObjects(newDeleteObjectsLayer(), "<Delete><Quiet>true</Quiet><Object><Key>a</Key><ETag></ETag></Object><Object><Key>b</Key></Object></Delete>", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Error><Key>a</Key>"+message)
+		require.NotContains(t, resp.Body, "<Deleted>")
+
+		resp = deleteObjects(newDeleteObjectsLayer(), "<Delete><Object><Key>a</Key><ETag></ETag></Object><Object><Key>a</Key></Object></Delete>", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Error><Key>a</Key>"+message)
+		require.NotContains(t, resp.Body, "<Deleted>")
+
+		resp = deleteObjects(newDeleteObjectsLayer(), "<Delete><Object><Key>a</Key></Object><Object><Key>a</Key><ETag></ETag></Object></Delete>", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Deleted><Key>a</Key>")
+		require.NotContains(t, resp.Body, "<Error>")
+	})
+
+	t.Run("whitespace between the elements", func(t *testing.T) {
+		resp := deleteObjects(newDeleteObjectsLayer(), "<Delete>\n\t <!-- c --><Object> <Key>a</Key>\r\n<![CDATA[ ]]></Object>\n</Delete>", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<Deleted><Key>a</Key>")
 	})
 
 	t.Run("version IDs and element order", func(t *testing.T) {

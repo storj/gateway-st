@@ -925,16 +925,17 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// The elements that S3 allows once are slices, and unknown ones are collected, so that the
 	// request can be refused as MalformedXML like S3 does instead of decoded leniently. An empty
-	// VersionId element is then also told apart from a missing one.
+	// VersionId or ETag element is then also told apart from a missing one. Like S3, Size and
+	// LastModifiedTime are unknown elements, because they are only allowed in directory buckets.
 	var req struct {
+		Text    string `xml:",chardata"`
 		Quiet   []string
 		Objects []struct {
-			Key              []string
-			VersionID        []string `xml:"VersionId"`
-			ETag             string
-			Size             string
-			LastModifiedTime string
-			Unknown          unknownElements `xml:",any"`
+			Text      string `xml:",chardata"`
+			Key       []string
+			VersionID []string        `xml:"VersionId"`
+			ETag      []string        `xml:"ETag"`
+			Unknown   unknownElements `xml:",any"`
 		} `xml:"Object"`
 		Unknown unknownElements `xml:",any"`
 	}
@@ -943,12 +944,12 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Objects) == 0 || len(req.Objects) > maxDeleteList || len(req.Quiet) > 1 || len(req.Unknown) > 0 {
+	if len(req.Objects) == 0 || len(req.Objects) > maxDeleteList || len(req.Quiet) > 1 || len(req.Unknown) > 0 || hasText(req.Text) {
 		api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 		return
 	}
 	for _, object := range req.Objects {
-		if len(object.Key) != 1 || len(object.VersionID) > 1 || len(object.Unknown) > 0 {
+		if len(object.Key) != 1 || len(object.VersionID) > 1 || len(object.ETag) > 1 || len(object.Unknown) > 0 || hasText(object.Text) {
 			api.writeErrorResponse(w, r, apierr.CodeMalformedXML)
 			return
 		}
@@ -967,20 +968,17 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	objects := make([]objectlayer.ObjectToDelete, 0, len(req.Objects))
 	deleteErrs := make([]deleteError, 0, len(req.Objects))
+	// S3 refuses the whole request for an empty key, before any entry is deleted. Its 1024-byte
+	// limit isn't applied, because the satellite limits the encrypted key and allows longer keys
+	// written through uplink.
 	for _, object := range req.Objects {
-		// Conditional deletes are refused like If-Match on DeleteObject, because the object layer
-		// can't check their conditions.
-		if object.ETag != "" || object.Size != "" || object.LastModifiedTime != "" {
-			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-			return
-		}
-		// S3 refuses the whole request for an empty key. Its 1024-byte limit isn't applied, because
-		// the satellite limits the encrypted key and allows longer keys written through uplink.
 		if object.Key[0] == "" {
 			api.writeErrorResponse(w, r, apierr.CodeUserKeyMustBeSpecified)
 			return
 		}
+	}
 
+	for _, object := range req.Objects {
 		loc := bucketObjectLocation{
 			key:          object.Key[0],
 			hasVersionID: len(object.VersionID) == 1,
@@ -994,6 +992,25 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[loc] = struct{}{}
 
+		if len(object.ETag) == 1 {
+			// S3 reports an empty ETag, even a blank one, as an error of the entry, before its
+			// version ID is checked.
+			if strings.TrimSpace(object.ETag[0]) == "" {
+				resp, _ := apierr.CodeEmptyDeleteETag.ToResponse()
+				deleteErrs = append(deleteErrs, deleteError{
+					Key:       loc.key,
+					VersionID: requestedVersionID(loc.versionID, loc.hasVersionID),
+					Code:      resp.Code,
+					Message:   resp.Description,
+				})
+				continue
+			}
+			// Conditional deletes are refused like If-Match on DeleteObject, because the object
+			// layer can't check their conditions.
+			api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+			return
+		}
+
 		if loc.hasVersionID {
 			err := validateVersionID(loc.versionID)
 			if errors.Is(err, apierr.CodeInvalidVersionID) {
@@ -1005,7 +1022,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 				resp, _ := errToResponse(err)
 				deleteErrs = append(deleteErrs, deleteError{
 					Key:       loc.key,
-					VersionID: loc.versionID,
+					VersionID: requestedVersionID(loc.versionID, loc.hasVersionID),
 					Code:      resp.Code,
 					Message:   resp.Description,
 				})
@@ -1039,7 +1056,7 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		deleteErrs = append(deleteErrs, deleteError{
 			Key:       deleteErr.ObjectName,
-			VersionID: deleteErr.VersionID,
+			VersionID: requestedVersionID(deleteErr.VersionID, deleteErr.VersionID != ""),
 			Code:      resp.Code,
 			Message:   resp.Description,
 		})
@@ -1079,6 +1096,15 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.writeSuccessResponseXML(w, r, encodedSuccessResponse)
+}
+
+// requestedVersionID returns a pointer to versionID if the request had a version ID, so that an empty
+// one is still reported.
+func requestedVersionID(versionID string, requested bool) *string {
+	if !requested {
+		return nil
+	}
+	return &versionID
 }
 
 // DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.

@@ -23,6 +23,7 @@ const (
 	CodeCopySourceDeleteMarker
 	CodeCopySourceTooLarge
 	CodeDirectiveRepeated
+	CodeEmptyDeleteETag
 	CodeEmptyVersionID
 	CodeEmptyVersionIDMarker
 	CodeEntityTooLarge
@@ -233,6 +234,11 @@ var codeToResponse = map[Code]Response{
 	CodeDirectiveRepeated: {
 		Code:           "InvalidArgument",
 		Description:    "only one value should be specified",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeEmptyDeleteETag: {
+		Code:           "InvalidArgument",
+		Description:    "The value provided for the ETag field cannot be empty for this API.",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeEmptyVersionID: {
