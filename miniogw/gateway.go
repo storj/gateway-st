@@ -203,6 +203,13 @@ var (
 		Message:    "A location constraint can't be specified because the project has a default placement.",
 	}
 
+	// ErrTooManyBuckets is returned when the project has reached its bucket limit.
+	ErrTooManyBuckets = miniogo.ErrorResponse{
+		Code:       "TooManyBuckets",
+		StatusCode: http.StatusBadRequest,
+		Message:    "You have attempted to create more buckets than allowed.",
+	}
+
 	// ErrNoUplinkProject is a custom error that indicates there was no
 	// `*uplink.Project` in the context for the gateway to pick up. This error
 	// may signal that passing credentials down to the object layer is working
@@ -1816,6 +1823,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.PrefixAccessDenied{Bucket: bucketName, Object: object}
 	case errors.Is(err, uplink.ErrTooManyRequests):
 		return ErrSlowDown
+	case errors.Is(err, uplink.ErrBucketLimitExceeded):
+		return ErrTooManyBuckets
 	case errors.Is(err, versioned.ErrMethodNotAllowed):
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
 	case errors.Is(err, versioned.ErrMetadataTooLarge):

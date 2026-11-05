@@ -174,6 +174,31 @@ func TestCreateBucketWithCustomPlacement(t *testing.T) {
 	})
 }
 
+func TestMakeBucketTooManyBuckets(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Metainfo.ProjectLimits.MaxBuckets = 1
+			},
+		},
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		project, err := planet.Uplinks[0].OpenProject(tCtx, planet.Satellites[0])
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
+
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		require.NoError(t, layer.MakeBucketWithLocation(ctx, testBucket, minio.BucketOptions{}))
+		err = layer.MakeBucketWithLocation(ctx, testBucketB, minio.BucketOptions{})
+		require.ErrorIs(t, err, miniogw.ErrTooManyBuckets)
+	})
+}
+
 func TestMakeBucketWithLocation(t *testing.T) {
 	t.Parallel()
 
