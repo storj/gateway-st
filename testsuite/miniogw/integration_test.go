@@ -4,7 +4,6 @@
 package miniogw_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/binary"
@@ -16,74 +15,46 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
-	"slices"
-	"sort"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/amwolff/awsig"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/gorilla/mux"
 	minio "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/tags"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
 	"storj.io/common/base58"
+	"storj.io/common/grant"
+	"storj.io/common/macaroon"
 	"storj.io/common/memory"
 	"storj.io/common/processgroup"
-	"storj.io/common/storj"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
+	"storj.io/gateway/api"
 	"storj.io/gateway/internal/minioclient"
+	"storj.io/gateway/miniogw"
 	miniocmd "storj.io/minio/cmd"
-	"storj.io/minio/pkg/bucket/versioning"
+	"storj.io/minio/pkg/auth"
 	"storj.io/storj/private/testplanet"
-	"storj.io/storj/satellite"
-	"storj.io/storj/satellite/buckets"
+	"storj.io/uplink"
 )
 
 func TestUploadDownload(t *testing.T) {
-	var counter int64
-	testplanet.Run(t, testplanet.Config{
+	runIntegrationTest(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		NonParallel: true,
-	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		oldAccess := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
-
-		access, err := oldAccess.Serialize()
-		require.NoError(t, err)
-
-		index := atomic.AddInt64(&counter, 1)
-		// TODO: make address not hardcoded the address selection here
-		// may conflict with some automatically bound address.
-		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
-
-		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
-		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
-
-		gatewayExe := ctx.CompileAt("../..", "storj.io/gateway")
-
-		client, err := minioclient.NewMinio(minioclient.Config{
-			S3Gateway:     gatewayAddr,
-			Satellite:     planet.Satellites[0].Addr(),
-			AccessKey:     gatewayAccessKey,
-			SecretKey:     gatewaySecretKey,
-			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
-			EncryptionKey: "fake-encryption-key",
-			NoSSL:         true,
-		})
-		require.NoError(t, err)
-
-		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
-		require.NoError(t, err)
-		defer func() { processgroup.Kill(gateway) }()
+	}, func(ctx *testcontext.Context, t *testing.T, planet *testplanet.Planet, gw *testGateway) {
+		client := gw.minioClient(t)
+		var err error
 
 		{ // normal upload
 			bucket := "bucket"
@@ -117,38 +88,6 @@ func TestUploadDownload(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
-
-			{ // try to access the content as static website - expect forbidden error
-				response, err := httpGet(ctx, fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusForbidden, response.StatusCode)
-				require.NoError(t, response.Body.Close())
-
-				response, err = httpGet(ctx, fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusForbidden, response.StatusCode)
-				require.NoError(t, response.Body.Close())
-			}
-
-			{ // restart the gateway with the --website flag and try again - expect success
-				err = stopGateway(ctx, gateway, gatewayAddr)
-				require.NoError(t, err)
-				gateway, err = startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey, "--website")
-				require.NoError(t, err)
-
-				response, err := httpGet(ctx, fmt.Sprintf("http://%s/%s", gatewayAddr, bucket))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusOK, response.StatusCode)
-				require.NoError(t, response.Body.Close())
-
-				response, err = httpGet(ctx, fmt.Sprintf("http://%s/%s/%s", gatewayAddr, bucket, objectName))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusOK, response.StatusCode)
-				readData, err := io.ReadAll(response.Body)
-				require.NoError(t, err)
-				require.Equal(t, data, readData)
-				require.NoError(t, response.Body.Close())
-			}
 		}
 
 		{ // multipart upload
@@ -206,14 +145,226 @@ func TestUploadDownload(t *testing.T) {
 
 			require.Equal(t, data, bytes)
 		}
-		{
-			uplink := planet.Uplinks[0]
-			satellite := planet.Satellites[0]
-			info, err := satellite.DB.Buckets().GetBucket(ctx, []byte("bucket"), uplink.Projects[0].ID)
-			require.NoError(t, err)
-			require.Contains(t, string(info.UserAgent), "Zenko")
-		}
 	})
+}
+
+// TestWebsite tests the gateway binary's static website hosting, and that it sets its user agent on
+// the buckets it creates.
+func TestWebsite(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		NonParallel: true,
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		gw := newTestGateway(t, ctx, planet, binaryGateway)
+		defer gw.close(t)
+
+		access := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
+		address, accessKey, secretKey := gw.serve(t, access)
+		websiteAddress := gw.serveBinary(t, access, accessKey, secretKey, "--website")
+
+		client, err := minioclient.NewMinio(minioclient.Config{S3Gateway: address, AccessKey: accessKey, SecretKey: secretKey, NoSSL: true})
+		require.NoError(t, err)
+
+		bucket, objectName := "bucket", "testdata"
+		require.NoError(t, client.MakeBucket(ctx, bucket))
+		// generate enough data for a remote segment
+		data := testrand.BytesInt(5000)
+		require.NoError(t, client.Upload(ctx, bucket, objectName, data, nil))
+
+		// Without --website, the content can't be accessed as a static website.
+		for _, path := range []string{bucket, bucket + "/" + objectName} {
+			response, err := httpGet(ctx, fmt.Sprintf("http://%s/%s", address, path))
+			require.NoError(t, err)
+			require.Equal(t, http.StatusForbidden, response.StatusCode)
+			require.NoError(t, response.Body.Close())
+		}
+
+		response, err := httpGet(ctx, fmt.Sprintf("http://%s/%s", websiteAddress, bucket))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		require.NoError(t, response.Body.Close())
+
+		response, err = httpGet(ctx, fmt.Sprintf("http://%s/%s/%s", websiteAddress, bucket, objectName))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		readData, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, data, readData)
+		require.NoError(t, response.Body.Close())
+
+		info, err := planet.Satellites[0].DB.Buckets().GetBucket(ctx, []byte(bucket), planet.Uplinks[0].Projects[0].ID)
+		require.NoError(t, err)
+		require.Contains(t, string(info.UserAgent), "Zenko")
+	})
+}
+
+// gatewayKind is an S3 gateway implementation that the integration tests run against.
+type gatewayKind string
+
+const (
+	// binaryGateway is the gateway binary: minio's handlers over miniogw.
+	binaryGateway gatewayKind = "binary"
+	// apiGateway is the api package over miniogw.
+	apiGateway gatewayKind = "api"
+)
+
+// testGateway serves a gatewayKind for a testplanet satellite. Some of the tests that use it are
+// ported from storj/edge's testsuite/server. Unlike there, they don't use authservice: each client
+// gets its own gateway for the access grant it uses.
+type testGateway struct {
+	kind   gatewayKind
+	ctx    *testcontext.Context
+	planet *testplanet.Planet
+	exe    string               // binaryGateway
+	layer  miniocmd.ObjectLayer // apiGateway
+
+	stops []func() error
+}
+
+// runIntegrationTest runs test against each gatewayKind, with a planet configured by planetConfig.
+func runIntegrationTest(t *testing.T, planetConfig testplanet.Config, test func(ctx *testcontext.Context, t *testing.T, planet *testplanet.Planet, gw *testGateway)) {
+	for _, kind := range []gatewayKind{binaryGateway, apiGateway} {
+		t.Run(string(kind), func(t *testing.T) {
+			testplanet.Run(t, planetConfig, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+				gw := newTestGateway(t, ctx, planet, kind)
+				defer gw.close(t)
+
+				test(ctx, t, planet, gw)
+			})
+		})
+	}
+}
+
+// newTestGateway returns a testGateway of kind for planet. Its close must be called when the test
+// returns rather than in a cleanup, because testplanet waits for the gateways' goroutines before the
+// test's cleanups would run.
+func newTestGateway(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet, kind gatewayKind) *testGateway {
+	gw := &testGateway{kind: kind, ctx: ctx, planet: planet}
+	switch kind {
+	case binaryGateway:
+		gw.exe = ctx.CompileAt("../..", "storj.io/gateway")
+	case apiGateway:
+		// The gateway binary's defaults, so that both kinds of gateway behave alike.
+		layer, err := miniogw.NewStorjGateway(miniogw.S3CompatibilityConfig{
+			MaxKeysLimit:             1000,
+			MaxKeysExhaustiveLimit:   100000,
+			MaxUploadsLimit:          1000,
+			MinPartSize:              5 << 20,
+			DeleteObjectsConcurrency: 100,
+		}).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+		gw.layer = layer
+	}
+	return gw
+}
+
+// close stops the gateways.
+func (gw *testGateway) close(t *testing.T) {
+	for _, stop := range gw.stops {
+		require.NoError(t, stop())
+	}
+	if gw.layer != nil {
+		require.NoError(t, gw.layer.Shutdown(gw.ctx))
+	}
+}
+
+// serve starts a gateway for access and returns its address with the credentials that sign for it.
+func (gw *testGateway) serve(t *testing.T, access *uplink.Access) (address, accessKey, secretKey string) {
+	accessKey, secretKey = base58.Encode(testrand.BytesInt(20)), base58.Encode(testrand.BytesInt(20))
+	if gw.kind == binaryGateway {
+		return gw.serveBinary(t, access, accessKey, secretKey), accessKey, secretKey
+	}
+
+	project, err := gw.planet.Uplinks[0].Config.OpenProject(gw.ctx, access)
+	require.NoError(t, err)
+
+	router := mux.NewRouter()
+	api.New(gw.layer, credentialsProvider{accessKey: secretKey}, api.Config{},
+		api.WithLogger(api.NewZapLogger(gw.planet.Log().Named("api")))).RegisterHandlers(router)
+	// miniogw finds the project in the request's context, like edge's middleware puts it.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		router.ServeHTTP(w, r.WithContext(miniogw.WithCredentials(r.Context(), project, miniogw.CredentialsInfo{Access: access})))
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &http.Server{Handler: handler}
+	gw.ctx.Go(func() error {
+		if err := server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	gw.stops = append(gw.stops, func() error {
+		return errors.Join(server.Shutdown(context.Background()), project.Close())
+	})
+	return listener.Addr().String(), accessKey, secretKey
+}
+
+// serveBinary starts the gateway binary with flags for access and returns its address.
+func (gw *testGateway) serveBinary(t *testing.T, access *uplink.Access, accessKey, secretKey string, flags ...string) string {
+	serialized, err := access.Serialize()
+	require.NoError(t, err)
+
+	address := freeAddress(t)
+	client, err := minioclient.NewMinio(minioclient.Config{S3Gateway: address, AccessKey: accessKey, SecretKey: secretKey, NoSSL: true})
+	require.NoError(t, err)
+
+	gateway, err := startGateway(t, gw.ctx, client, gw.exe, serialized, address, accessKey, secretKey, flags...)
+	require.NoError(t, err)
+	gw.stops = append(gw.stops, func() error {
+		processgroup.Kill(gateway)
+		return nil
+	})
+	return address
+}
+
+// client returns an S3 client of a gateway for the uplink's access to the satellite.
+func (gw *testGateway) client(t *testing.T) *s3.S3 {
+	return gw.clientFor(t, gw.planet.Uplinks[0].Access[gw.planet.Satellites[0].ID()])
+}
+
+// clientFor returns an S3 client of a gateway for access.
+func (gw *testGateway) clientFor(t *testing.T, access *uplink.Access) *s3.S3 {
+	address, accessKey, secretKey := gw.serve(t, access)
+	return createS3Client(t, address, accessKey, secretKey)
+}
+
+// minioClient returns a minio client of a gateway for the uplink's access to the satellite.
+func (gw *testGateway) minioClient(t *testing.T) minioclient.Client {
+	address, accessKey, secretKey := gw.serve(t, gw.planet.Uplinks[0].Access[gw.planet.Satellites[0].ID()])
+	client, err := minioclient.NewMinio(minioclient.Config{S3Gateway: address, AccessKey: accessKey, SecretKey: secretKey, NoSSL: true})
+	require.NoError(t, err)
+	return client
+}
+
+// freeAddress returns a local address that was free when it was checked.
+func freeAddress(t *testing.T) string {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	return address
+}
+
+// credentialsProvider maps access key IDs to secret access keys.
+type credentialsProvider map[string]string
+
+func (c credentialsProvider) Provide(_ context.Context, accessKeyID string) (string, api.AuthData, error) {
+	secret, ok := c[accessKeyID]
+	if !ok {
+		return "", api.AuthData{}, awsig.ErrInvalidAccessKeyID
+	}
+	return secret, api.AuthData{AccessKeyID: accessKeyID}, nil
+}
+
+// grantAccess returns an access grant for apiKey with encAccess.
+func grantAccess(t *testing.T, satelliteAddr string, apiKey *macaroon.APIKey, encAccess *grant.EncryptionAccess) *uplink.Access {
+	serialized, err := (&grant.Access{SatelliteAddress: satelliteAddr, APIKey: apiKey, EncAccess: encAccess}).Serialize()
+	require.NoError(t, err)
+	access, err := uplink.ParseAccess(serialized)
+	require.NoError(t, err)
+	return access
 }
 
 func httpGet(ctx context.Context, url string) (*http.Response, error) {
@@ -226,7 +377,7 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 
 func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
 	args := append([]string{"run",
-		"--config-dir", ctx.Dir("gateway"),
+		"--config-dir", ctx.Dir("gateway", accessKey),
 		"--access", access,
 		"--server.address", address,
 		"--minio.access-key", accessKey,
@@ -255,28 +406,6 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Cli
 	return gateway, nil
 }
 
-func stopGateway(ctx context.Context, gateway *exec.Cmd, address string) error {
-	err := gateway.Process.Kill()
-	if err != nil {
-		return err
-	}
-
-	start := time.Now()
-	maxStopWait := 5 * time.Second
-	for {
-		if !tryConnect(ctx, address) {
-			return nil
-		}
-
-		// wait a bit before retrying to reduce load
-		time.Sleep(50 * time.Millisecond)
-
-		if time.Since(start) > maxStopWait {
-			return fmt.Errorf("%s did not stop in required time %v", address, maxStopWait)
-		}
-	}
-}
-
 // waitToStart will monitor starting when we are able to start the process.
 func waitToStart(ctx context.Context, client minioclient.Client, address string, maxStartupWait time.Duration) error {
 	start := time.Now()
@@ -295,19 +424,6 @@ func waitToStart(ctx context.Context, client minioclient.Client, address string,
 	}
 }
 
-// tryConnect will try to connect to the process public address.
-func tryConnect(ctx context.Context, address string) bool {
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address)
-	if err != nil {
-		return false
-	}
-	// write empty byte slice to trigger refresh on connection
-	_, _ = conn.Write([]byte{})
-	// ignoring errors, because we only care about being able to connect
-	_ = conn.Close()
-	return true
-}
-
 type logWriter struct{ log *zap.Logger }
 
 func (log logWriter) Write(p []byte) (n int, err error) {
@@ -315,910 +431,88 @@ func (log logWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func TestVersioning(t *testing.T) {
-	var counter int64
-	testplanet.Run(t, testplanet.Config{
-		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
-		Reconfigure: testplanet.Reconfigure{
-			Uplink: func(log *zap.Logger, index int, config *testplanet.UplinkConfig) {
-				config.DefaultPathCipher = storj.EncNull
+func createBucket(ctx context.Context, client *s3.S3, bucket string, versioningEnabled, lockEnabled bool) error {
+	_, err := client.CreateBucketWithContext(ctx, &s3.CreateBucketInput{
+		Bucket:                     new(bucket),
+		ObjectLockEnabledForBucket: new(lockEnabled),
+	})
+	if err != nil {
+		return err
+	}
+
+	if versioningEnabled {
+		_, err = client.PutBucketVersioning(&s3.PutBucketVersioningInput{
+			Bucket: new(bucket),
+			VersioningConfiguration: &s3.VersioningConfiguration{
+				Status: new(s3.BucketVersioningStatusEnabled),
 			},
-		},
-		NonParallel: true,
-	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		oldAccess := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
-
-		access, err := oldAccess.Serialize()
-		require.NoError(t, err)
-
-		index := atomic.AddInt64(&counter, 1)
-		// TODO: make address not hardcoded the address selection here
-		// may conflict with some automatically bound address.
-		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
-
-		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
-		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
-
-		gatewayExe := ctx.CompileAt("../..", "storj.io/gateway")
-
-		client, err := minioclient.NewMinio(minioclient.Config{
-			S3Gateway:     gatewayAddr,
-			Satellite:     planet.Satellites[0].Addr(),
-			AccessKey:     gatewayAccessKey,
-			SecretKey:     gatewaySecretKey,
-			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
-			EncryptionKey: "fake-encryption-key",
-			NoSSL:         true,
 		})
-		require.NoError(t, err)
-
-		gateway, err := startGateway(t, ctx, client, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
-		require.NoError(t, err)
-		defer func() { processgroup.Kill(gateway) }()
-
-		rawClient, ok := client.(*minioclient.Minio)
-		require.True(t, ok)
-
-		t.Run("bucket versioning enabling-disabling", func(t *testing.T) {
-			bucketA := testrand.BucketName()
-			err = client.MakeBucket(ctx, bucketA)
-			require.NoError(t, err)
-
-			v, err := client.GetBucketVersioning(ctx, bucketA)
-			require.NoError(t, err)
-			require.Empty(t, v)
-
-			// try to change bucket state unversioned -> enabled -> suspended
-			require.NoError(t, client.EnableVersioning(ctx, bucketA))
-
-			v, err = client.GetBucketVersioning(ctx, bucketA)
-			require.NoError(t, err)
-			require.EqualValues(t, versioning.Enabled, v)
-
-			require.NoError(t, client.DisableVersioning(ctx, bucketA))
-
-			v, err = client.GetBucketVersioning(ctx, bucketA)
-			require.NoError(t, err)
-			require.EqualValues(t, versioning.Suspended, v)
-
-			bucketB := testrand.BucketName()
-			err = client.MakeBucket(ctx, bucketB)
-			require.NoError(t, err)
-
-			// try to change bucket state unversioned -> suspended
-			require.NoError(t, client.DisableVersioning(ctx, bucketB))
-			v, err = client.GetBucketVersioning(ctx, bucketB)
-			require.NoError(t, err)
-			require.EqualValues(t, versioning.Suspended, v)
-		})
-
-		t.Run("check VersionID support for different methods", func(t *testing.T) {
-			bucket := testrand.BucketName()
-
-			require.NoError(t, client.MakeBucket(ctx, bucket))
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
-
-			// upload first version
-			expectedContentA1 := testrand.Bytes(5 * memory.KiB)
-			uploadInfo, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContentA1), int64(len(expectedContentA1)), minio.PutObjectOptions{})
-			require.NoError(t, err)
-			require.NotEmpty(t, uploadInfo.VersionID)
-
-			objectA1VersionID := uploadInfo.VersionID
-
-			statInfo, err := rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{})
-			require.NoError(t, err)
-			require.Equal(t, objectA1VersionID, statInfo.VersionID)
-
-			// the same request but with VersionID specified
-			statInfo, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{
-				VersionID: objectA1VersionID,
-			})
-			require.NoError(t, err)
-			require.Equal(t, objectA1VersionID, statInfo.VersionID)
-
-			tags, err := tags.NewTags(map[string]string{
-				"key1": "tag1",
-			}, true)
-			require.NoError(t, err)
-			err = rawClient.API.PutObjectTagging(ctx, bucket, "objectA", tags, minio.PutObjectTaggingOptions{})
-			require.NoError(t, err)
-
-			// upload second version
-			expectedContentA2 := testrand.Bytes(5 * memory.KiB)
-			uploadInfo, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContentA2), int64(len(expectedContentA2)), minio.PutObjectOptions{})
-			require.NoError(t, err)
-			require.NotEmpty(t, uploadInfo.VersionID)
-
-			objectA2VersionID := uploadInfo.VersionID
-
-			statInfo, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{})
-			require.NoError(t, err)
-			require.Equal(t, objectA2VersionID, statInfo.VersionID)
-
-			// the same request but with VersionID specified
-			statInfo, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.GetObjectOptions{
-				VersionID: objectA2VersionID,
-			})
-			require.NoError(t, err)
-			require.Equal(t, objectA2VersionID, statInfo.VersionID)
-
-			// // check that we have two different versions
-			object, err := rawClient.API.GetObject(ctx, bucket, "objectA", minio.GetObjectOptions{
-				VersionID: objectA1VersionID,
-			})
-			require.NoError(t, err)
-
-			contentA1, err := io.ReadAll(object)
-			require.NoError(t, err)
-			require.Equal(t, expectedContentA1, contentA1)
-
-			object, err = rawClient.API.GetObject(ctx, bucket, "objectA", minio.GetObjectOptions{
-				VersionID: objectA2VersionID,
-			})
-			require.NoError(t, err)
-
-			contentA2, err := io.ReadAll(object)
-			require.NoError(t, err)
-			require.Equal(t, expectedContentA2, contentA2)
-
-			tagsInfo, err := rawClient.API.GetObjectTagging(ctx, bucket, "objectA", minio.GetObjectTaggingOptions{
-				VersionID: objectA1VersionID,
-			})
-			require.NoError(t, err)
-			require.EqualValues(t, tags.ToMap(), tagsInfo.ToMap())
-
-			// TODO(ver): add test for setting tag for specific version when implemented
-		})
-
-		t.Run("check VersionID while completing multipart upload", func(t *testing.T) {
-			bucket := testrand.BucketName()
-
-			require.NoError(t, client.MakeBucket(ctx, bucket))
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
-
-			expectedContent := testrand.Bytes(500 * memory.KiB)
-			uploadInfo, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), -1, minio.PutObjectOptions{})
-			require.NoError(t, err)
-			require.NotEmpty(t, uploadInfo.VersionID)
-		})
-
-		t.Run("check VersionID with delete object and delete objects", func(t *testing.T) {
-			bucket := testrand.BucketName()
-
-			require.NoError(t, client.MakeBucket(ctx, bucket))
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
-
-			var versionIDs []string
-
-			for range 5 {
-				expectedContent := testrand.Bytes(5 * memory.KiB)
-				uploadInfo, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
-				require.NoError(t, err)
-				require.NotEmpty(t, uploadInfo.VersionID)
-				versionIDs = append(versionIDs, uploadInfo.VersionID)
-			}
-
-			err := rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{
-				VersionID: versionIDs[0],
-			})
-			require.NoError(t, err)
-
-			for listed := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				if listed.VersionID == versionIDs[len(versionIDs)-1] {
-					require.True(t, listed.IsLatest)
-				} else {
-					require.False(t, listed.IsLatest)
-				}
-			}
-
-			removeObjects := func(versionIDs []string) <-chan minio.RemoveObjectResult {
-				objectsCh := make(chan minio.ObjectInfo)
-				ctx.Go(func() error {
-					defer close(objectsCh)
-					for _, versionID := range versionIDs {
-						objectsCh <- minio.ObjectInfo{
-							Key:       "objectA",
-							VersionID: versionID,
-						}
-					}
-					return nil
-				})
-
-				return rawClient.API.RemoveObjectsWithResult(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{})
-			}
-
-			expected := make([]minio.RemoveObjectResult, 0, len(versionIDs)-1)
-			for i := 1; i < len(versionIDs); i++ {
-				expected = append(expected, minio.RemoveObjectResult{
-					ObjectName:      "objectA",
-					ObjectVersionID: versionIDs[i],
-					DeleteMarker:    false,
-				})
-			}
-
-			removed := make([]minio.RemoveObjectResult, 0, len(versionIDs)-1)
-			for result := range removeObjects(versionIDs[1:]) {
-				removed = append(removed, result)
-			}
-
-			require.ElementsMatch(t, expected, removed)
-
-			for range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				require.Fail(t, "no objects to list")
-			}
-
-			// create one object and one delete marker
-			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(testrand.Bytes(5*memory.KiB)), -1, minio.PutObjectOptions{})
-			require.NoError(t, err)
-
-			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
-			require.NoError(t, err)
-
-			removed = nil
-			for result := range removeObjects([]string{""}) {
-				removed = append(removed, result)
-			}
-
-			require.Len(t, removed, 1)
-			require.NoError(t, removed[0].Err)
-			require.Equal(t, "objectA", removed[0].ObjectName)
-			require.Empty(t, removed[0].ObjectVersionID)
-			require.True(t, removed[0].DeleteMarker)
-			require.NotEmpty(t, removed[0].DeleteMarkerVersionID)
-
-			var objects []minio.ObjectInfo
-			versionIDs = nil
-			versionIDOrder := make(map[string]int)
-
-			for obj := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				objects = append(objects, obj)
-				versionIDOrder[obj.VersionID] = len(versionIDs)
-				versionIDs = append(versionIDs, obj.VersionID)
-			}
-
-			require.Len(t, objects, 3)
-			require.Equal(t, removed[0].DeleteMarkerVersionID, objects[0].VersionID)
-			require.True(t, objects[0].IsLatest)
-
-			removed = []minio.RemoveObjectResult{}
-			for result := range removeObjects(versionIDs) {
-				removed = append(removed, result)
-			}
-
-			sort.Slice(removed, func(i, j int) bool {
-				ordi, ordiOk := versionIDOrder[removed[i].ObjectVersionID]
-				ordj, ordjOk := versionIDOrder[removed[j].ObjectVersionID]
-				if ordiOk {
-					if ordjOk {
-						return ordi < ordj
-					}
-					return true
-				}
-				return false
-			})
-
-			require.Len(t, removed, 3)
-
-			for i := range 2 {
-				result := removed[i]
-				require.NoError(t, result.Err)
-				require.Equal(t, "objectA", result.ObjectName)
-				require.True(t, result.DeleteMarker)
-				require.Equal(t, objects[i].VersionID, result.DeleteMarkerVersionID)
-			}
-
-			result := removed[2]
-			require.NoError(t, result.Err)
-			require.Equal(t, "objectA", result.ObjectName)
-			require.False(t, result.DeleteMarker)
-			require.Empty(t, result.DeleteMarkerVersionID)
-		})
-
-		t.Run("ListObjectVersions", func(t *testing.T) {
-			bucketA := testrand.BucketName()
-			bucketB := testrand.BucketName()
-			bucketC := testrand.BucketName()
-
-			require.NoError(t, client.MakeBucket(ctx, bucketA))
-			require.NoError(t, client.EnableVersioning(ctx, bucketA))
-
-			require.NoError(t, client.MakeBucket(ctx, bucketB))
-			require.NoError(t, client.EnableVersioning(ctx, bucketB))
-
-			require.NoError(t, client.MakeBucket(ctx, bucketC))
-			require.NoError(t, client.EnableVersioning(ctx, bucketC))
-
-			for range rawClient.API.ListObjects(ctx, bucketA, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				require.Fail(t, "no objects to list")
-			}
-
-			for range rawClient.API.ListObjects(ctx, bucketB, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				require.Fail(t, "no objects to list")
-			}
-
-			for range rawClient.API.ListObjects(ctx, bucketC, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				require.Fail(t, "no objects to list")
-			}
-
-			expectedContent := testrand.Bytes(5 * memory.KiB)
-
-			type uploadEntry struct {
-				key    string
-				action string
-			}
-
-			type objectVersion struct {
-				key       string
-				versionID string
-			}
-
-			type testCase struct {
-				name      string
-				prefix    string
-				recursive bool
-				versions  []objectVersion
-			}
-
-			upload := func(t *testing.T, bucket string, entries []uploadEntry) map[string][]string {
-				versions := map[string][]string{}
-				for _, upload := range entries {
-					if upload.action == "deletemarker" {
-						err = rawClient.API.RemoveObject(ctx, bucket, upload.key, minio.RemoveObjectOptions{})
-						require.NoError(t, err)
-						// Minio doesn't give easy access to delete marker after RemoveObject so just leave it empty
-						versions[upload.key] = append(versions[upload.key], "deletemarker")
-					} else {
-						uploadInfo, err := rawClient.API.PutObject(ctx, bucket, upload.key, bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
-						require.NoError(t, err)
-						versions[upload.key] = append(versions[upload.key], uploadInfo.VersionID)
-					}
-				}
-				for k := range versions {
-					slices.Reverse(versions[k])
-				}
-				return versions
-			}
-
-			// TODO minio client ListObjects provides limited options list e.g. marker cannot be set
-			// so we cannot test many edge cases, we should figure out how to improve it
-
-			checkListing := func(t *testing.T, bucket string, testCases []testCase) {
-				for _, tc := range testCases {
-					t.Run(tc.name, func(t *testing.T) {
-						for _, maxKeys := range []int{0, 1, 2, 1000} {
-							count := 0
-							for objectInfo := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
-								Prefix:       tc.prefix,
-								Recursive:    tc.recursive,
-								MaxKeys:      maxKeys,
-								WithVersions: true,
-							}) {
-								require.NoError(t, objectInfo.Err)
-
-								// TODO(ver) check IsLatest field when it will be implemented
-
-								version := tc.versions[count]
-								require.Equal(t, version.key, objectInfo.Key)
-								switch {
-								case version.versionID == "prefix":
-									require.True(t, strings.HasSuffix(objectInfo.Key, "/"))
-								case version.versionID == "deletemarker":
-									require.True(t, objectInfo.IsDeleteMarker)
-								default:
-									require.Equal(t, version.versionID, objectInfo.VersionID, "key %s", objectInfo.Key)
-								}
-								count++
-							}
-							require.Equal(t, len(tc.versions), count)
-						}
-					})
-				}
-			}
-
-			t.Run("A", func(t *testing.T) {
-				versions := upload(t, bucketA, []uploadEntry{
-					{key: "objectA"},
-					{key: "objectA", action: "deletemarker"},
-					{key: "objectA"},
-					{key: "objectB"},
-					{key: "objectA", action: "deletemarker"},
-					{key: "xprefix/objectC"},
-					{key: "objectA"},
-				})
-
-				checkListing(t, bucketA, []testCase{
-					{"empty prefix", "", false, []objectVersion{
-						{"objectA", versions["objectA"][0]},
-						{"objectA", versions["objectA"][1]},
-						{"objectA", versions["objectA"][2]},
-						{"objectA", versions["objectA"][3]},
-						{"objectA", versions["objectA"][4]},
-						{"objectB", versions["objectB"][0]},
-						{"xprefix/", "prefix"},
-					}},
-					{"objectA", "objectA", false, []objectVersion{
-						{"objectA", versions["objectA"][0]},
-						{"objectA", versions["objectA"][1]},
-						{"objectA", versions["objectA"][2]},
-						{"objectA", versions["objectA"][3]},
-						{"objectA", versions["objectA"][4]},
-					}},
-					{"objectB", "objectB", false, []objectVersion{
-						{"objectB", versions["objectB"][0]},
-					}},
-					{"xprefix/objectC", "xprefix/", false, []objectVersion{
-						{"xprefix/objectC", versions["xprefix/objectC"][0]},
-					}},
-					{"xprefix/recursive", "xprefix/", true, []objectVersion{
-						{"xprefix/objectC", versions["xprefix/objectC"][0]},
-					}},
-					{"empty-prefix/recursive", "", true, []objectVersion{
-						{"objectA", versions["objectA"][0]},
-						{"objectA", versions["objectA"][1]},
-						{"objectA", versions["objectA"][2]},
-						{"objectA", versions["objectA"][3]},
-						{"objectA", versions["objectA"][4]},
-						{"objectB", versions["objectB"][0]},
-						{"xprefix/objectC", versions["xprefix/objectC"][0]},
-					}},
-				})
-			})
-
-			t.Run("B", func(t *testing.T) {
-				versions := upload(t, bucketB, []uploadEntry{
-					{key: "prefixO/O"},
-					{key: "prefixZ/Z"},
-					{key: "prefixZ/Z"},
-					{key: "prefixD/D"},
-					{key: "prefixD/D"},
-					{key: "prefixD/D", action: "deletemarker"},
-					{key: "prefixC/C"},
-
-					{key: "aprefix/0"},
-					{key: "aprefix/1"},
-					{key: "aprefix/2"},
-				})
-
-				checkListing(t, bucketB, []testCase{
-					{"empty prefix", "", false, []objectVersion{
-						{"aprefix/", "prefix"},
-						{"prefixC/", "prefix"},
-						{"prefixD/", "prefix"},
-						{"prefixO/", "prefix"},
-						{"prefixZ/", "prefix"},
-					}},
-					{"prefixD/D", "prefixD/D", false, []objectVersion{
-						{"prefixD/D", versions["prefixD/D"][0]},
-						{"prefixD/D", versions["prefixD/D"][1]},
-						{"prefixD/D", versions["prefixD/D"][2]},
-					}},
-					{"aprefix/", "aprefix/", false, []objectVersion{
-						{"aprefix/0", versions["aprefix/0"][0]},
-						{"aprefix/1", versions["aprefix/1"][0]},
-						{"aprefix/2", versions["aprefix/2"][0]},
-					}},
-				})
-			})
-
-			t.Run("specific to single object optimization", func(t *testing.T) {
-				versions := upload(t, bucketC, []uploadEntry{
-					{key: "p/a"},
-					{key: "p/b"},
-					{key: "p/b"},
-					{key: "p/aa"},
-					{key: "p/aaa"},
-					{key: "a"},
-					{key: "p/aaa"},
-					{key: "p/aa"},
-					{key: "p/a"},
-					{key: "p/a"},
-					{key: "a"},
-					{key: "p/a", action: "deletemarker"},
-					{key: "p/aaa", action: "deletemarker"},
-				})
-
-				checkListing(t, bucketC, []testCase{
-					{"p/a as a single object", "p/a", true, []objectVersion{
-						{"p/a", versions["p/a"][0]},
-						{"p/a", versions["p/a"][1]},
-						{"p/a", versions["p/a"][2]},
-						{"p/a", versions["p/a"][3]},
-						{"p/aa", versions["p/aa"][0]},
-						{"p/aa", versions["p/aa"][1]},
-						{"p/aaa", versions["p/aaa"][0]},
-						{"p/aaa", versions["p/aaa"][1]},
-						{"p/aaa", versions["p/aaa"][2]},
-					}},
-					{"p/aa as a single object", "p/aa", true, []objectVersion{
-						{"p/aa", versions["p/aa"][0]},
-						{"p/aa", versions["p/aa"][1]},
-						{"p/aaa", versions["p/aaa"][0]},
-						{"p/aaa", versions["p/aaa"][1]},
-						{"p/aaa", versions["p/aaa"][2]},
-					}},
-					{"p/aaa as a single object", "p/aaa", true, []objectVersion{
-						{"p/aaa", versions["p/aaa"][0]},
-						{"p/aaa", versions["p/aaa"][1]},
-						{"p/aaa", versions["p/aaa"][2]},
-					}},
-
-					{"p/aaaa as a single object", "p/aaaa", true, nil},
-
-					{"p/b as a single object", "p/b", true, []objectVersion{
-						{"p/b", versions["p/b"][0]},
-						{"p/b", versions["p/b"][1]},
-					}},
-
-					{"p/bb as a single object", "p/bb", true, nil},
-
-					{"p as a single object", "p", true, []objectVersion{
-						{"p/a", versions["p/a"][0]},
-						{"p/a", versions["p/a"][1]},
-						{"p/a", versions["p/a"][2]},
-						{"p/a", versions["p/a"][3]},
-						{"p/aa", versions["p/aa"][0]},
-						{"p/aa", versions["p/aa"][1]},
-						{"p/aaa", versions["p/aaa"][0]},
-						{"p/aaa", versions["p/aaa"][1]},
-						{"p/aaa", versions["p/aaa"][2]},
-						{"p/b", versions["p/b"][0]},
-						{"p/b", versions["p/b"][1]},
-					}},
-
-					{"a as a single object", "a", true, []objectVersion{
-						{"a", versions["a"][0]},
-						{"a", versions["a"][1]},
-					}},
-
-					{"aa as a single object", "aa", true, nil},
-				})
-			})
-		})
-
-		t.Run("checks MethodNotAllowed error on retrieve (head/download) the object using its delete marker", func(t *testing.T) {
-			bucket := testrand.BucketName()
-
-			require.NoError(t, client.MakeBucket(ctx, bucket))
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
-
-			expectedContent := testrand.Bytes(5 * memory.KiB)
-			_, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), int64(len(expectedContent)), minio.PutObjectOptions{})
-			require.NoError(t, err)
-
-			err = rawClient.API.RemoveObject(ctx, bucket, "objectA", minio.RemoveObjectOptions{})
-			require.NoError(t, err)
-
-			var deleteMarkerVersionID string
-			for objectInfo := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{
-				WithVersions: true,
-			}) {
-				if objectInfo.IsDeleteMarker {
-					deleteMarkerVersionID = objectInfo.VersionID
-				}
-			}
-			require.NotEmpty(t, deleteMarkerVersionID)
-
-			_, err = rawClient.API.StatObject(ctx, bucket, "objectA", minio.StatObjectOptions{
-				VersionID: deleteMarkerVersionID,
-			})
-			require.Error(t, err)
-		})
-
-		t.Run("CopyObject with source VersionID", func(t *testing.T) {
-			bucket := testrand.BucketName()
-
-			require.NoError(t, client.MakeBucket(ctx, bucket))
-			require.NoError(t, client.EnableVersioning(ctx, bucket))
-
-			expectedSize := 5 * memory.KiB
-			expectedContent := testrand.Bytes(expectedSize)
-			info, err := rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(expectedContent), expectedSize.Int64(), minio.PutObjectOptions{})
-			require.NoError(t, err)
-
-			_, err = rawClient.API.PutObject(ctx, bucket, "objectA", bytes.NewReader(testrand.Bytes(expectedSize)), expectedSize.Int64(), minio.PutObjectOptions{})
-			require.NoError(t, err)
-
-			copyInfo, err := rawClient.API.CopyObject(ctx, minio.CopyDestOptions{
-				Bucket: bucket,
-				Object: "objectA-copy",
-			}, minio.CopySrcOptions{
-				Bucket:    bucket,
-				Object:    "objectA",
-				VersionID: info.VersionID,
-			})
-			require.NoError(t, err)
-			require.NotEmpty(t, copyInfo.VersionID)
-			require.NotEqual(t, info.VersionID, copyInfo.VersionID)
-
-			download, err := rawClient.API.GetObject(ctx, bucket, "objectA-copy", minio.GetObjectOptions{})
-			require.NoError(t, err)
-			defer ctx.Check(download.Close)
-
-			data, err := io.ReadAll(download)
-			require.NoError(t, err)
-			require.Equal(t, expectedContent, data)
-
-			nonExistingVersionID := randomVersionID()
-			_, err = rawClient.API.CopyObject(ctx, minio.CopyDestOptions{
-				Bucket: bucket,
-				Object: "objectA-copy",
-			}, minio.CopySrcOptions{
-				Bucket:    bucket,
-				Object:    "objectA",
-				VersionID: nonExistingVersionID,
-			})
-
-			var objNotFound miniocmd.ObjectNotFound
-			require.ErrorAs(t, miniocmd.ErrorRespToObjectError(err, bucket, "objectA-copy"), &objNotFound)
-
-			// copy objectA with VersionID into objectA
-			copyInfo, err = rawClient.API.CopyObject(ctx, minio.CopyDestOptions{
-				Bucket: bucket,
-				Object: "objectA",
-			}, minio.CopySrcOptions{
-				Bucket:    bucket,
-				Object:    "objectA",
-				VersionID: info.VersionID,
-			})
-			require.NoError(t, err)
-			require.NotEmpty(t, copyInfo.VersionID)
-			require.NotEqual(t, info.VersionID, copyInfo.VersionID)
-		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func putObject(ctx context.Context, client *s3.S3, bucket, key string, body io.ReadSeeker) (*s3.PutObjectOutput, error) {
+	return client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+		Bucket: new(bucket),
+		Key:    new(key),
+		Body:   body,
 	})
 }
 
-func TestBucketTagging(t *testing.T) {
-	var counter int64
-	testplanet.Run(t, testplanet.Config{
-		SatelliteCount:   1,
-		StorageNodeCount: 0,
-		UplinkCount:      1,
-		Reconfigure: testplanet.Reconfigure{
-			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
-				config.Metainfo.BucketTaggingEnabled = true
-			},
-		},
-		NonParallel: true,
-	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
-		sat := planet.Satellites[0]
-		upl := planet.Uplinks[0]
-		bucketsDB := sat.DB.Buckets()
-		projectID := upl.Projects[0].ID
+func getObject(ctx context.Context, client *s3.S3, bucket, key, versionID string) (*s3.GetObjectOutput, error) {
+	input := s3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new(key),
+	}
+	if versionID != "" {
+		input.VersionId = new(versionID)
+	}
+	return client.GetObjectWithContext(ctx, &input)
+}
 
-		project, err := upl.OpenProject(ctx, sat)
-		require.NoError(t, err)
+func getObjectAttributes(ctx context.Context, client *s3.S3, bucket, key, versionID string, attributes []*string) (*s3.GetObjectAttributesOutput, error) {
+	input := s3.GetObjectAttributesInput{
+		Bucket:           new(bucket),
+		Key:              new(key),
+		ObjectAttributes: attributes,
+	}
+	if versionID != "" {
+		input.VersionId = new(versionID)
+	}
+	return client.GetObjectAttributesWithContext(ctx, &input)
+}
 
-		defer ctx.Check(project.Close)
+// copySource returns the x-amz-copy-source of a version, or of the latest version if versionID is
+// empty. S3 refuses an empty versionId.
+func copySource(bucket, key, versionID string) string {
+	if versionID == "" {
+		return bucket + "/" + key
+	}
+	return bucket + "/" + key + "?versionId=" + versionID
+}
 
-		access, err := planet.Uplinks[0].Access[planet.Satellites[0].ID()].Serialize()
-		require.NoError(t, err)
-
-		index := atomic.AddInt64(&counter, 1)
-		// TODO: make address not hardcoded the address selection here
-		// may conflict with some automatically bound address.
-		gatewayAddr := fmt.Sprintf("127.0.0.1:1100%d", index)
-
-		gatewayAccessKey := base58.Encode(testrand.BytesInt(20))
-		gatewaySecretKey := base58.Encode(testrand.BytesInt(20))
-
-		gatewayExe := ctx.CompileAt("../..", "storj.io/gateway")
-
-		minioClient, err := minioclient.NewMinio(minioclient.Config{
-			S3Gateway:     gatewayAddr,
-			Satellite:     planet.Satellites[0].Addr(),
-			AccessKey:     gatewayAccessKey,
-			SecretKey:     gatewaySecretKey,
-			APIKey:        planet.Uplinks[0].APIKey[planet.Satellites[0].ID()].Serialize(),
-			EncryptionKey: "fake-encryption-key",
-			NoSSL:         true,
-		})
-		require.NoError(t, err)
-
-		gateway, err := startGateway(t, ctx, minioClient, gatewayExe, access, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
-		require.NoError(t, err)
-		defer func() { processgroup.Kill(gateway) }()
-
-		client := createS3Client(t, gatewayAddr, gatewayAccessKey, gatewaySecretKey)
-
-		bucketName := testrand.BucketName()
-
-		_, err = bucketsDB.CreateBucket(ctx, buckets.Bucket{
-			ProjectID: projectID,
-			Name:      bucketName,
-		})
-		require.NoError(t, err)
-
-		requireTags := func(t *testing.T, bucketName string, expectedTags []*s3.Tag) {
-			tagResp, err := client.GetBucketTaggingWithContext(ctx, &s3.GetBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-			})
-			require.NoError(t, err)
-
-			// sort tags before comparing, as minio uses a map for tags which is not stable in sort.
-			sort.Slice(expectedTags, func(i, j int) bool {
-				return *expectedTags[i].Key < *expectedTags[j].Key
-			})
-			sort.Slice(tagResp.TagSet, func(i, j int) bool {
-				return *tagResp.TagSet[i].Key < *tagResp.TagSet[j].Key
-			})
-
-			require.Equal(t, expectedTags, tagResp.TagSet)
-		}
-
-		t.Run("Non-existent bucket", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String("non-existent-bucket"),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{},
-				},
-			})
-			requireS3Error(t, err, http.StatusNotFound, "NoSuchBucket")
-		})
-
-		t.Run("No tags", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
-						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value1"),
-						},
-					},
-				},
-			})
-			require.NoError(t, err)
-
-			_, err = client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{},
-				},
-			})
-			require.NoError(t, err)
-
-			_, err = client.GetBucketTaggingWithContext(ctx, &s3.GetBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-			})
-			requireS3Error(t, err, http.StatusNotFound, "NoSuchTagSet")
-		})
-
-		t.Run("Delete tags", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
-						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value1"),
-						},
-					},
-				},
-			})
-			require.NoError(t, err)
-
-			_, err = client.DeleteBucketTaggingWithContext(ctx, &s3.DeleteBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-			})
-			require.NoError(t, err)
-
-			_, err = client.GetBucketTaggingWithContext(ctx, &s3.GetBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-			})
-			requireS3Error(t, err, http.StatusNotFound, "NoSuchTagSet")
-
-			_, err = client.DeleteBucketTaggingWithContext(ctx, &s3.DeleteBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-			})
-			require.NoError(t, err) // delete returns success even if there are no tags
-		})
-
-		t.Run("Basic", func(t *testing.T) {
-			expectedTags := []*s3.Tag{
-				{
-					Key:   aws.String("abcdeABCDE01234+-./:=@_"),
-					Value: aws.String("_@=:/.-+fghijFGHIJ56789"),
-				},
-				{
-					Key:   aws.String(string([]rune{'Ա', 'א', 'ء', 'ऄ', 'ঀ', '٠', '०', '০'})),
-					Value: aws.String(string([]rune{'ֆ', 'ת', 'ي', 'ह', 'হ', '٩', '९', '৯'})),
-				},
-				{
-					Key:   aws.String("key"),
-					Value: aws.String("value"),
-				},
-			}
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: expectedTags,
-				},
-			})
-			require.NoError(t, err)
-			requireTags(t, bucketName, expectedTags)
-		})
-
-		t.Run("Tag key too long", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
-						{
-							Key:   aws.String(string(testrand.RandAlphaNumeric(129))),
-							Value: aws.String("value"),
-						},
-					},
-				},
-			})
-			requireS3Error(t, err, http.StatusBadRequest, "InvalidTag")
-		})
-
-		t.Run("Tag value too long", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
-						{
-							Key:   aws.String("key"),
-							Value: aws.String(string(testrand.RandAlphaNumeric(257))),
-						},
-					},
-				},
-			})
-			requireS3Error(t, err, http.StatusBadRequest, "InvalidTag")
-		})
-
-		t.Run("Duplicate tag key", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
-						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value1"),
-						},
-						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value2"),
-						},
-					},
-				},
-			})
-			requireS3Error(t, err, http.StatusBadRequest, "InvalidTag")
-		})
-
-		t.Run("Too many tags", func(t *testing.T) {
-			var tooManyTags []*s3.Tag
-
-			for range 51 {
-				tooManyTags = append(tooManyTags, &s3.Tag{
-					Key:   aws.String(string(testrand.RandAlphaNumeric(32))),
-					Value: aws.String(string(testrand.RandAlphaNumeric(32))),
-				})
-			}
-
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: tooManyTags,
-				},
-			})
-			requireS3Error(t, err, http.StatusBadRequest, "BadRequest")
-		})
+func copyObject(ctx context.Context, client *s3.S3, sourceBucket, sourceKey, sourceVersionID, destBucket, destKey string) (*s3.CopyObjectOutput, error) {
+	return client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+		Bucket:     new(destBucket),
+		Key:        new(destKey),
+		CopySource: new(copySource(sourceBucket, sourceKey, sourceVersionID)),
 	})
+}
+
+func deleteObject(ctx context.Context, client *s3.S3, bucket, key, versionID string) error {
+	input := s3.DeleteObjectInput{
+		Bucket: new(bucket),
+		Key:    new(key),
+	}
+	if versionID != "" {
+		input.VersionId = new(versionID)
+	}
+	_, err := client.DeleteObjectWithContext(ctx, &input)
+	return err
 }
 
 func createS3Client(t *testing.T, gatewayAddr, accessKeyID, secretKey string) *s3.S3 {

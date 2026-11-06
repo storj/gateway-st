@@ -5,7 +5,9 @@ go 1.26.0
 replace storj.io/gateway => ../
 
 require (
-	github.com/aws/aws-sdk-go v1.35.20
+	github.com/amwolff/awsig v0.0.0-20260427205242-5ad7e9e1912b
+	github.com/aws/aws-sdk-go v1.55.6
+	github.com/gorilla/mux v1.8.0
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/stretchr/testify v1.11.1
 	github.com/zeebo/errs v1.4.0
@@ -46,7 +48,6 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/alecthomas/participle v0.2.1 // indirect
 	github.com/alicebob/miniredis/v2 v2.37.0 // indirect
-	github.com/amwolff/awsig v0.0.0-20260427205242-5ad7e9e1912b // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/apache/thrift v0.17.0 // indirect
 	github.com/bcicen/jstream v1.0.1 // indirect
@@ -105,7 +106,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.21.0 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
-	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
