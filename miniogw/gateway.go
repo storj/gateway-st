@@ -345,7 +345,7 @@ func (layer *gatewayLayer) MakeBucketWithLocation(ctx context.Context, name stri
 		return minio.BucketNameInvalid{Bucket: name}
 	}
 
-	project, err := projectFromContext(ctx, name, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 		return minio.BucketInfo{}, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.BucketInfo{}, err
 	}
@@ -385,7 +385,7 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
-	project, err := projectFromContext(ctx, "", "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +411,7 @@ func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forc
 		return minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -453,7 +453,7 @@ func (layer *gatewayLayer) GetObjectLockConfig(ctx context.Context, bucketName s
 		return &objectlock.Config{}, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return &objectlock.Config{}, err
 	}
@@ -481,7 +481,7 @@ func (layer *gatewayLayer) SetObjectLockConfig(ctx context.Context, bucketName s
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -524,7 +524,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 		return nil, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +619,7 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, objectPath)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -671,7 +671,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return minio.ObjectInfo{}, minio.NotImplemented{Message: "PutObject (storage class)"}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -810,7 +810,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: destBucket}
 	}
 
-	project, err := projectFromContext(ctx, srcBucket, srcObject)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -924,7 +924,7 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, objectPath)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -962,7 +962,7 @@ func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, obj
 		return nil, nil, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1142,7 +1142,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, objectPath)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -1184,7 +1184,7 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath
 		return nil, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, objectPath)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1221,7 +1221,7 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, objectPath)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}
@@ -1260,7 +1260,7 @@ func (layer *gatewayLayer) GetBucketVersioning(ctx context.Context, bucketName s
 		return nil, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1290,7 +1290,7 @@ func (layer *gatewayLayer) SetBucketVersioning(ctx context.Context, bucketName s
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -1330,7 +1330,7 @@ func (layer *gatewayLayer) GetObjectLegalHold(ctx context.Context, bucketName, o
 		return nil, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, ConvertError(err, bucketName, object)
 	}
@@ -1360,7 +1360,7 @@ func (layer *gatewayLayer) SetObjectLegalHold(ctx context.Context, bucketName, o
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return ConvertError(err, bucketName, object)
 	}
@@ -1388,7 +1388,7 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 		return nil, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, ConvertError(err, bucketName, object)
 	}
@@ -1421,7 +1421,7 @@ func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, o
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return ConvertError(err, bucketName, object)
 	}
@@ -1456,7 +1456,7 @@ func (layer *gatewayLayer) GetBucketTagging(ctx context.Context, bucketName stri
 		return nil, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, ConvertError(err, bucketName, "")
 	}
@@ -1482,7 +1482,7 @@ func (layer *gatewayLayer) SetBucketTagging(ctx context.Context, bucketName stri
 		return minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return ConvertError(err, bucketName, "")
 	}
@@ -1533,7 +1533,7 @@ func (layer *gatewayLayer) GetBucketNotificationConfig(ctx context.Context, buck
 		return nil, minio.BucketNameInvalid{Bucket: bucketName}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return nil, ConvertError(err, bucketName, "")
 	}
@@ -1576,7 +1576,7 @@ func (layer *gatewayLayer) SetBucketNotificationConfig(ctx context.Context, buck
 		}
 	}
 
-	project, err := projectFromContext(ctx, bucketName, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return ConvertError(err, bucketName, "")
 	}

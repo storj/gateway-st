@@ -42,7 +42,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 		return minio.ListMultipartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ListMultipartsInfo{}, err
 	}
@@ -163,7 +163,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		return "", minio.NotImplemented{Message: "NewMultipartUpload (storage class)"}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -226,7 +226,7 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 		}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.PartInfo{}, err
 	}
@@ -282,7 +282,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		return minio.ListPartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ListPartsInfo{}, err
 	}
@@ -353,7 +353,7 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 		return minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -380,7 +380,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, object)
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ObjectInfo{}, err
 	}

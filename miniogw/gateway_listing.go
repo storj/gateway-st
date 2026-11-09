@@ -598,7 +598,7 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, mark
 		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ListObjectsInfo{}, err
 	}
@@ -624,7 +624,7 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 		return minio.ListObjectsV2Info{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ListObjectsV2Info{}, err
 	}
@@ -650,7 +650,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		return minio.ListObjectVersionsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
-	project, err := projectFromContext(ctx, bucket, "")
+	project, err := projectFromContext(ctx)
 	if err != nil {
 		return minio.ListObjectVersionsInfo{}, err
 	}

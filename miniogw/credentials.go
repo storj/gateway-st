@@ -54,7 +54,7 @@ func credentialsFromContext(ctx context.Context) (Credentials, error) {
 	return c, nil
 }
 
-func projectFromContext(ctx context.Context, bucket, object string) (*uplink.Project, error) {
+func projectFromContext(ctx context.Context) (*uplink.Project, error) {
 	c, err := credentialsFromContext(ctx)
 	if err != nil {
 		return nil, err
