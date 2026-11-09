@@ -467,6 +467,9 @@ func TestSubresourceRouting(t *testing.T) {
 		{method: http.MethodGet, target: "/?attribution", want: "ListBucketsWithAttributionHandler"},
 		{method: http.MethodPut, target: "/?attribution", want: notAllowed},
 		{method: http.MethodGet, target: "/bucket?attribution", want: "ListObjectsHandler"},
+		{method: http.MethodGet, target: "/?licenses", want: "ListLicensesHandler"},
+		{method: http.MethodPut, target: "/?licenses", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket?licenses", want: "ListObjectsHandler"},
 
 		// Bucket paths: multipart parameters need a key.
 		{method: http.MethodPut, target: "/bucket?partNumber=1&uploadId=x", want: keyRequired},

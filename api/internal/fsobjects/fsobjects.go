@@ -581,6 +581,11 @@ func (l *Layer) ListBucketsWithAttribution(ctx context.Context) ([]objectlayer.B
 	return buckets, nil
 }
 
+// ListLicenses returns no licenses, because there are no accounts.
+func (l *Layer) ListLicenses(ctx context.Context, bucket, licenseType string) ([]objectlayer.License, error) {
+	return nil, nil
+}
+
 // DeleteBucket deletes a bucket. Like miniogw, a bucket that only has pending multipart uploads is
 // deleted with them.
 func (l *Layer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error {

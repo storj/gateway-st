@@ -1092,6 +1092,32 @@ func TestListBucketsWithAttribution(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>SlowDown</Code>")
 }
 
+func TestListLicenses(t *testing.T) {
+	var gotBucket, gotType string
+	objectAPI := &fakeObjectLayer{
+		listLicenses: func(_ context.Context, bucket, licenseType string) ([]objectlayer.License, error) {
+			gotBucket, gotType = bucket, licenseType
+			return []objectlayer.License{
+				{Type: "object-mount", ExpiresAt: time.Date(2026, 11, 11, 1, 2, 3, 0, time.UTC), Key: []byte("some key")},
+				{Type: "object-mount", ExpiresAt: time.Date(2026, 11, 12, 1, 2, 3, 0, time.UTC)},
+			}, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/?licenses&bucket=b&licenseType=object-mount", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Equal(t, "b", gotBucket)
+	require.Equal(t, "object-mount", gotType)
+	require.Contains(t, resp.Body, "<ListLicensesResult><Licenses>"+
+		"<License><Type>object-mount</Type><ExpiresAt>2026-11-11T01:02:03Z</ExpiresAt><Key>some key</Key></License>"+
+		"<License><Type>object-mount</Type><ExpiresAt>2026-11-12T01:02:03Z</ExpiresAt></License>"+
+		"</Licenses></ListLicensesResult>")
+
+	resp = serve(t, &fakeObjectLayer{err: cmd.BucketNameInvalid{}}, http.MethodGet, "/?licenses", nil, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidBucketName</Code>")
+}
+
 func TestHeadBucketRegionAndPolicyStatus(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{

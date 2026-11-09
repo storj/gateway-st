@@ -38,6 +38,7 @@ import (
 	"storj.io/minio/pkg/tags"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
+	"storj.io/uplink/private/license"
 	"storj.io/uplink/private/metaclient"
 	versioned "storj.io/uplink/private/object"
 	privateProject "storj.io/uplink/private/project"
@@ -446,6 +447,34 @@ func (layer *gatewayLayer) ListBucketsWithAttribution(ctx context.Context) (item
 		return nil, ConvertError(buckets.Err(), "", "")
 	}
 	return items, nil
+}
+
+// ListLicenses returns the licenses of licenseType that the requester's account has for
+// bucketName.
+func (layer *gatewayLayer) ListLicenses(ctx context.Context, bucketName, licenseType string) (licenses []objectlayer.License, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return nil, minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := license.List(ctx, project, licenseType, bucketName)
+	if err != nil {
+		return nil, ConvertError(err, bucketName, "")
+	}
+	for _, entry := range entries {
+		licenses = append(licenses, objectlayer.License{
+			Type:      entry.Type,
+			ExpiresAt: entry.ExpiresAt,
+			Key:       entry.Key,
+		})
+	}
+	return licenses, nil
 }
 
 func (layer *gatewayLayer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) (err error) {

@@ -62,6 +62,7 @@ type fakeObjectLayer struct {
 
 	listBuckets             func(ctx context.Context) ([]cmd.BucketInfo, error)
 	listBucketsWithAttr     func(ctx context.Context) ([]objectlayer.BucketWithAttributionInfo, error)
+	listLicenses            func(ctx context.Context, bucket, licenseType string) ([]objectlayer.License, error)
 	getBucketLocation       func(ctx context.Context, bucket string) (string, error)
 	getObjectInfo           func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	getObjectNInfo          func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
@@ -108,6 +109,13 @@ func (f *fakeObjectLayer) ListBucketsWithAttribution(ctx context.Context) ([]obj
 		return nil, err
 	}
 	return f.listBucketsWithAttr(ctx)
+}
+
+func (f *fakeObjectLayer) ListLicenses(ctx context.Context, bucket, licenseType string) ([]objectlayer.License, error) {
+	if err := f.record("ListLicenses"); err != nil {
+		return nil, err
+	}
+	return f.listLicenses(ctx, bucket, licenseType)
 }
 
 func (f *fakeObjectLayer) GetBucketLocation(ctx context.Context, bucket string) (string, error) {

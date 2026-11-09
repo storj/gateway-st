@@ -52,6 +52,9 @@ type ObjectLayer interface {
 	// ListBucketsWithAttribution, Storj's extension, is ListBuckets with the attribution that the
 	// satellite has for each bucket.
 	ListBucketsWithAttribution(ctx context.Context) ([]BucketWithAttributionInfo, error)
+	// ListLicenses, Storj's extension, returns the licenses of licenseType that the requester's
+	// account has for bucket.
+	ListLicenses(ctx context.Context, bucket, licenseType string) ([]License, error)
 	DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error
 
 	ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (ListObjectsInfo, error)
@@ -138,6 +141,13 @@ type BucketWithAttributionInfo struct {
 	Name        string
 	Created     time.Time
 	Attribution string
+}
+
+// License is a license that an account has.
+type License struct {
+	Type      string
+	ExpiresAt time.Time
+	Key       []byte
 }
 
 // MaxObjectKeyLength is the longest object key in bytes that the object layers write, like S3:

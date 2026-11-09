@@ -832,6 +832,18 @@ func generateListBucketsWithAttributionResponse(buckets []objectlayer.BucketWith
 	return resp
 }
 
+func generateListLicensesResponse(licenses []objectlayer.License) listLicensesResponse {
+	var resp listLicensesResponse
+	for _, l := range licenses {
+		resp.Licenses.Licenses = append(resp.Licenses.Licenses, license{
+			Type:      l.Type,
+			ExpiresAt: l.ExpiresAt.UTC().Format(time.RFC3339),
+			Key:       string(l.Key),
+		})
+	}
+	return resp
+}
+
 func generateCopyObjectPartResponse(partInfo objectlayer.PartInfo) cmd.CopyObjectPartResponse {
 	return cmd.CopyObjectPartResponse{
 		ETag:         "\"" + partInfo.ETag + "\"",

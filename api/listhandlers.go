@@ -535,6 +535,33 @@ func (api *API) ListBucketsWithAttributionHandler(w http.ResponseWriter, r *http
 	api.writeSuccessResponseXML(w, r, resp)
 }
 
+// ListLicensesHandler is the HTTP handler for Storj's ListLicenses extension, which lists the
+// licenses of the licenseType parameter that the requester's account has for the bucket
+// parameter.
+func (api *API) ListLicensesHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListLicenses")
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	values := r.URL.Query()
+	licenses, err := api.objectAPI.ListLicenses(ctx, values.Get("bucket"), values.Get("licenseType"))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	resp, err := encodeResponse(generateListLicensesResponse(licenses))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeSuccessResponseXML(w, r, resp)
+}
+
 // ListPartsHandler is the HTTP handler for the ListParts operation, which lists the parts that
 // have been uploaded for a multipart upload.
 func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {

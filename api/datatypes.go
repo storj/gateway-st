@@ -174,6 +174,20 @@ type bucketWithAttribution struct {
 	Attribution  string
 }
 
+// listLicensesResponse is the response of Storj's ListLicenses extension.
+type listLicensesResponse struct {
+	XMLName  xml.Name `xml:"ListLicensesResult"`
+	Licenses struct {
+		Licenses []license `xml:"License"`
+	}
+}
+
+type license struct {
+	Type      string
+	ExpiresAt string
+	Key       string `xml:",omitempty"`
+}
+
 // taggingResponse is tags.Tags with a namespace and its tags sorted by key. tags.Tags encodes
 // them in map order.
 type taggingResponse struct {

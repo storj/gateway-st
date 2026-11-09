@@ -43,6 +43,7 @@ import (
 	"storj.io/storj/satellite"
 	"storj.io/storj/satellite/buckets"
 	"storj.io/storj/satellite/console"
+	"storj.io/storj/satellite/entitlements"
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
 	"storj.io/storj/satellite/nodeselection"
@@ -344,6 +345,64 @@ func TestListBucketsWithAttribution(t *testing.T) {
 			attributions[b.Name] = b.Attribution
 		}
 		assert.Equal(t, map[string]string{testBucket: "app/1.0", testBucketB: ""}, attributions)
+	})
+}
+
+func TestListLicenses(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, UplinkCount: 1,
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
+
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare it.
+		lister, ok := layer.(objectlayer.ObjectLayer)
+		require.True(t, ok)
+
+		_, err = lister.ListLicenses(ctx, "", "object-mount")
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		licenses, err := lister.ListLicenses(ctx, testBucket, "object-mount")
+		require.NoError(t, err)
+		assert.Empty(t, licenses)
+
+		apiKeyInfo, err := sat.DB.Console().APIKeys().GetByHead(ctx, upl.APIKey[sat.ID()].Head())
+		require.NoError(t, err)
+
+		expiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+		require.NoError(t, sat.API.Entitlements.Service.Licenses().Set(ctx, apiKeyInfo.CreatedBy, entitlements.AccountLicenses{
+			Licenses: []entitlements.AccountLicense{
+				{
+					Type:       "object-mount",
+					PublicID:   apiKeyInfo.ProjectPublicID.String(),
+					BucketName: testBucket,
+					ExpiresAt:  expiresAt,
+					Key:        []byte("some key"),
+				},
+				{
+					Type:       "object-mount",
+					PublicID:   apiKeyInfo.ProjectPublicID.String(),
+					BucketName: testBucketB,
+					ExpiresAt:  expiresAt,
+				},
+			},
+		}))
+
+		licenses, err = lister.ListLicenses(ctx, testBucket, "object-mount")
+		require.NoError(t, err)
+		require.Len(t, licenses, 1)
+		assert.Equal(t, "object-mount", licenses[0].Type)
+		assert.True(t, expiresAt.Equal(licenses[0].ExpiresAt), licenses[0].ExpiresAt)
+		assert.Equal(t, []byte("some key"), licenses[0].Key)
 	})
 }
 

@@ -299,6 +299,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	// Storj's extensions, which are routed before ListBuckets because their keys aren't S3
 	// subresources.
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("attribution", "").HandlerFunc(api.ListBucketsWithAttributionHandler)
+	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("licenses", "").HandlerFunc(api.ListLicensesHandler)
 
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListBucketsHandler)
 }
