@@ -11,11 +11,11 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.28.0
-	storj.io/common v0.0.0-20261009084351-793a367e9857
+	storj.io/common v0.0.0-20261105101408-9ec44bcb844a
 	storj.io/gateway v0.0.0-00010101000000-000000000000
 	storj.io/minio v0.0.0-20261102092559-6949ef5dffd7
-	storj.io/storj v1.166.1
-	storj.io/uplink v1.14.6-0.20261102032016-63952e4217ad
+	storj.io/storj v1.166.2
+	storj.io/uplink v1.14.6-0.20261109055925-e5a98a79f2f6
 )
 
 require (
@@ -48,7 +48,7 @@ require (
 	github.com/alecthomas/participle v0.2.1 // indirect
 	github.com/alicebob/miniredis/v2 v2.37.0 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
-	github.com/apache/thrift v0.17.0 // indirect
+	github.com/apache/thrift v0.25.0 // indirect
 	github.com/bcicen/jstream v1.0.1 // indirect
 	github.com/beevik/ntp v0.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

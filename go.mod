@@ -15,11 +15,11 @@ require (
 	go.uber.org/zap v1.28.0
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	storj.io/common v0.0.0-20261009084351-793a367e9857
+	storj.io/common v0.0.0-20261105101408-9ec44bcb844a
 	storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f
 	storj.io/minio v0.0.0-20261102092559-6949ef5dffd7
 	storj.io/picobuf v0.0.4
-	storj.io/uplink v1.14.6-0.20261102032016-63952e4217ad
+	storj.io/uplink v1.14.6-0.20261109055925-e5a98a79f2f6
 )
 
 require (
@@ -35,7 +35,7 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/alecthomas/participle v0.2.1 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
-	github.com/apache/thrift v0.17.0 // indirect
+	github.com/apache/thrift v0.25.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bcicen/jstream v1.0.1 // indirect
 	github.com/beevik/ntp v0.3.0 // indirect
