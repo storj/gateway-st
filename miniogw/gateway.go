@@ -382,6 +382,24 @@ func (layer *gatewayLayer) GetBucketInfo(ctx context.Context, bucketName string)
 	}, nil
 }
 
+// GetBucketLocation returns the location that the bucket's placement is annotated with on the
+// satellite, which is empty for a placement without one.
+func (layer *gatewayLayer) GetBucketLocation(ctx context.Context, bucketName string) (location string, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	if err := ValidateBucket(ctx, bucketName); err != nil {
+		return "", minio.BucketNameInvalid{Bucket: bucketName}
+	}
+
+	project, err := projectFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	location, err = bucket.GetBucketLocation(ctx, project, bucketName)
+	return location, ConvertError(err, bucketName, "")
+}
+
 func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.BucketInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 

@@ -40,6 +40,7 @@ import (
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
 	"storj.io/storj/satellite"
+	"storj.io/storj/satellite/buckets"
 	"storj.io/storj/satellite/console"
 	"storj.io/storj/satellite/metabase"
 	"storj.io/storj/satellite/metabase/metabasetest"
@@ -239,6 +240,63 @@ func TestGetBucketInfo(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, testBucket, bucket.Name)
 		assert.Equal(t, info.Created, bucket.Created)
+	})
+}
+
+func TestGetBucketLocation(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		Reconfigure: testplanet.Reconfigure{
+			Satellite: func(log *zap.Logger, index int, config *satellite.Config) {
+				config.Placement = nodeselection.ConfigurablePlacementRule{
+					PlacementRules: `40:annotation("location","Poland")`,
+				}
+			},
+		},
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
+
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		// minio's ObjectLayer has no GetBucketLocation, the api package's does.
+		locator, ok := layer.(interface {
+			GetBucketLocation(ctx context.Context, bucket string) (string, error)
+		})
+		require.True(t, ok)
+
+		_, err = locator.GetBucketLocation(ctx, "")
+		assert.Equal(t, minio.BucketNameInvalid{}, err)
+
+		_, err = locator.GetBucketLocation(ctx, testBucket)
+		assert.Equal(t, minio.BucketNotFound{Bucket: testBucket}, err)
+
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		location, err := locator.GetBucketLocation(ctx, testBucket)
+		require.NoError(t, err)
+		assert.Empty(t, location)
+
+		_, err = project.CreateBucket(ctx, testBucketB)
+		require.NoError(t, err)
+		_, err = sat.API.DB.Buckets().UpdateBucket(ctx, buckets.Bucket{
+			ProjectID: upl.Projects[0].ID,
+			Name:      testBucketB,
+			Placement: storj.PlacementConstraint(40),
+		})
+		require.NoError(t, err)
+
+		location, err = locator.GetBucketLocation(ctx, testBucketB)
+		require.NoError(t, err)
+		assert.Equal(t, "Poland", location)
 	})
 }
 
