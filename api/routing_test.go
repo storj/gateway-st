@@ -416,6 +416,12 @@ func TestSubresourceRouting(t *testing.T) {
 		{method: http.MethodGet, target: "/bucket?versions", want: "ListObjectVersionsHandler"},
 		{method: http.MethodGet, target: "/bucket?uploads", want: "ListMultipartUploadsHandler"},
 		{method: http.MethodGet, target: "/bucket?location", want: "GetBucketLocationHandler"},
+		{method: http.MethodGet, target: "/bucket?website", want: "GetBucketWebsiteHandler"},
+		{method: http.MethodDelete, target: "/bucket?website", want: "DeleteBucketWebsiteHandler"},
+		{method: http.MethodPut, target: "/bucket?website", want: "501 NotImplemented"},
+		// Like S3, an object's website subresource is its bucket's.
+		{method: http.MethodGet, target: "/bucket/key?website", want: "GetBucketWebsiteHandler"},
+		{method: http.MethodDelete, target: "/bucket/key?website", want: "DeleteBucketWebsiteHandler"},
 		{method: http.MethodDelete, target: "/bucket", want: "DeleteBucketHandler"},
 
 		// Bucket paths: unrouted subresources must not reach CreateBucket, ListObjects or DeleteBucket.

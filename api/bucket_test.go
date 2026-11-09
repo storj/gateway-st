@@ -596,6 +596,37 @@ func TestGetBucketLocation(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>NoSuchBucket</Code>")
 }
 
+// TestBucketWebsiteLikeS3 checks S3's answers for a bucket without a website configuration. S3's
+// answer to DeleteBucketWebsite for an existing bucket wasn't checked.
+func TestBucketWebsiteLikeS3(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		getBucketInfo: func(_ context.Context, bucket string) (cmd.BucketInfo, error) {
+			if bucket != "bucket" {
+				return cmd.BucketInfo{}, cmd.BucketNotFound{Bucket: bucket}
+			}
+			return cmd.BucketInfo{Name: bucket}, nil
+		},
+	}
+
+	for _, tt := range []struct {
+		method, target string
+		status         int
+		code           string
+	}{
+		{http.MethodGet, "/bucket?website", http.StatusNotFound, "<Code>NoSuchWebsiteConfiguration</Code><Message>The specified bucket does not have a website configuration</Message>"},
+		{http.MethodGet, "/bucket/key?website", http.StatusNotFound, "<Code>NoSuchWebsiteConfiguration</Code>"},
+		{http.MethodGet, "/missing?website", http.StatusNotFound, "<Code>NoSuchBucket</Code>"},
+		{http.MethodDelete, "/bucket?website", http.StatusNoContent, ""},
+		{http.MethodDelete, "/bucket/key?website", http.StatusNoContent, ""},
+		{http.MethodDelete, "/missing?website", http.StatusNotFound, "<Code>NoSuchBucket</Code>"},
+	} {
+		resp := serve(t, objectAPI, tt.method, tt.target, nil, nil)
+		require.Equal(t, tt.status, resp.StatusCode, "%s %s: %s", tt.method, tt.target, resp.Body)
+		require.Contains(t, resp.Body, tt.code, "%s %s", tt.method, tt.target)
+	}
+}
+
 // TestListMaxKeysClamped checks that at most 1000 entries are listed, while the requested max-keys
 // is echoed like S3.
 func TestListMaxKeysClamped(t *testing.T) {

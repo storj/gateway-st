@@ -221,6 +221,10 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		objRouter.Methods(http.MethodPost).Queries("uploads", "").HandlerFunc(api.CreateMultipartUploadHandler)
 		objRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.CompleteMultipartUploadHandler)
 
+		// Like S3, an object's website subresource is its bucket's.
+		subrouter.Methods(http.MethodGet).Queries("website", "").HandlerFunc(api.GetBucketWebsiteHandler)
+		subrouter.Methods(http.MethodDelete).Queries("website", "").HandlerFunc(api.DeleteBucketWebsiteHandler)
+
 		// Registered after the object-level operations so that they only match bucket-level requests.
 		api.registerUnsupportedHandlers(subrouter.Router)
 
@@ -493,7 +497,7 @@ var unsupportedEndpoints = []struct {
 	},
 	{
 		query:   "website",
-		methods: []string{http.MethodPut, http.MethodGet, http.MethodDelete},
+		methods: []string{http.MethodPut},
 	},
 	{
 		query:   "ownershipControls",

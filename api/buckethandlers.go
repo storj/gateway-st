@@ -493,6 +493,48 @@ func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 	api.writeErrorResponse(w, r, apierr.CodeNoSuchCORSConfiguration)
 }
 
+// GetBucketWebsiteHandler is the HTTP handler for the GetBucketWebsite operation, which returns a
+// bucket's website configuration. Buckets don't have one.
+func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "GetBucketWebsite")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeErrorResponse(w, r, apierr.CodeNoSuchWebsiteConfiguration)
+}
+
+// DeleteBucketWebsiteHandler is the HTTP handler for the DeleteBucketWebsite operation, which
+// deletes a bucket's website configuration. Buckets don't have one, so it only checks that the
+// bucket exists, and answers 204 like minio's handlers and S3's documentation. S3's answer wasn't
+// compared, because it needs the s3:DeleteBucketWebsite permission.
+func (api *API) DeleteBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "DeleteBucketWebsite")
+
+	bucketName := mux.Vars(r)["bucket"]
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeSuccessNoContent(w, r)
+}
+
 // GetBucketLocationHandler is the HTTP handler for the GetBucketLocation operation,
 // which returns the location that a bucket resides in.
 func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request) {
