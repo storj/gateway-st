@@ -4,7 +4,6 @@
 package miniogw_test
 
 import (
-	"bytes"
 	"context"
 	"net/http"
 	"testing"
@@ -397,12 +396,7 @@ func TestObjectLock(t *testing.T) {
 		})
 
 		t.Run("suspending versioning is not allowed when object lock enabled on bucket", func(t *testing.T) {
-			_, err := client.PutBucketVersioning(&s3.PutBucketVersioningInput{
-				Bucket: new(bucket),
-				VersioningConfiguration: &s3.VersioningConfiguration{
-					Status: new(s3.BucketVersioningStatusSuspended),
-				},
-			})
+			err := putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusSuspended)
 			requireS3Error(t, err, http.StatusConflict, "InvalidBucketState")
 		})
 
@@ -893,76 +887,20 @@ func putObjectWithRetention(ctx context.Context, client *s3.S3, bucket, key, mod
 }
 
 func putObjectMultipartWithRetention(ctx context.Context, client *s3.S3, bucket, key, mode string, retainUntil time.Time) (*s3.CompleteMultipartUploadOutput, error) {
-	upload, err := client.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+	return putObjectMultipart(ctx, client, &s3.CreateMultipartUploadInput{
 		Bucket:                    new(bucket),
 		Key:                       new(key),
 		ObjectLockMode:            new(mode),
 		ObjectLockRetainUntilDate: new(retainUntil),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	part, err := client.UploadPartWithContext(ctx, &s3.UploadPartInput{
-		Bucket:     new(bucket),
-		Key:        new(key),
-		UploadId:   upload.UploadId,
-		PartNumber: new(int64(1)),
-		Body:       bytes.NewReader(testrand.Bytes(memory.KiB)),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return client.CompleteMultipartUploadWithContext(ctx, &s3.CompleteMultipartUploadInput{
-		Bucket:   new(bucket),
-		Key:      new(key),
-		UploadId: upload.UploadId,
-		MultipartUpload: &s3.CompletedMultipartUpload{
-			Parts: []*s3.CompletedPart{
-				{
-					ETag:       part.ETag,
-					PartNumber: new(int64(1)),
-				},
-			},
-		},
-	})
+	}, testrand.Bytes(memory.KiB))
 }
 
 func putObjectMultipartWithLegalHold(ctx context.Context, client *s3.S3, bucket, key, legalHoldStatus string) (*s3.CompleteMultipartUploadOutput, error) {
-	upload, err := client.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+	return putObjectMultipart(ctx, client, &s3.CreateMultipartUploadInput{
 		Bucket:                    new(bucket),
 		Key:                       new(key),
 		ObjectLockLegalHoldStatus: new(legalHoldStatus),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	part, err := client.UploadPartWithContext(ctx, &s3.UploadPartInput{
-		Bucket:     new(bucket),
-		Key:        new(key),
-		UploadId:   upload.UploadId,
-		PartNumber: new(int64(1)),
-		Body:       bytes.NewReader(testrand.Bytes(memory.KiB)),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return client.CompleteMultipartUploadWithContext(ctx, &s3.CompleteMultipartUploadInput{
-		Bucket:   new(bucket),
-		Key:      new(key),
-		UploadId: upload.UploadId,
-		MultipartUpload: &s3.CompletedMultipartUpload{
-			Parts: []*s3.CompletedPart{
-				{
-					ETag:       part.ETag,
-					PartNumber: new(int64(1)),
-				},
-			},
-		},
-	})
+	}, testrand.Bytes(memory.KiB))
 }
 
 func putObjectWithLegalHold(ctx context.Context, client *s3.S3, bucket, key, legalHoldStatus string) (*s3.PutObjectOutput, error) {

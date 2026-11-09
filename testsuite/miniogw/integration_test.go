@@ -4,6 +4,7 @@
 package miniogw_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/binary"
@@ -26,7 +27,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gorilla/mux"
-	minio "github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
@@ -40,7 +40,6 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/api"
-	"storj.io/gateway/internal/minioclient"
 	"storj.io/gateway/miniogw"
 	miniocmd "storj.io/minio/cmd"
 	"storj.io/minio/pkg/auth"
@@ -53,38 +52,37 @@ func TestUploadDownload(t *testing.T) {
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
 		NonParallel: true,
 	}, func(ctx *testcontext.Context, t *testing.T, planet *testplanet.Planet, gw *testGateway) {
-		client := gw.minioClient(t)
+		client := gw.client(t)
 		var err error
 
 		{ // normal upload
 			bucket := "bucket"
 
-			err = client.MakeBucket(ctx, bucket)
-			require.NoError(t, err)
+			require.NoError(t, createBucket(ctx, client, bucket, false, false))
 
 			// generate enough data for a remote segment
 			data := testrand.BytesInt(5000)
 			objectName := "testdata"
 
-			rawClient, ok := client.(*minioclient.Minio)
-			require.True(t, ok)
-
 			expectedMetadata := map[string]string{
 				"foo": "bar",
 			}
-			err = rawClient.Upload(ctx, bucket, objectName, data, expectedMetadata)
+			_, err = client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+				Bucket:   new(bucket),
+				Key:      new(objectName),
+				Body:     bytes.NewReader(data),
+				Metadata: aws.StringMap(expectedMetadata),
+			})
 			require.NoError(t, err)
 
-			object, err := rawClient.API.StatObject(ctx, bucket, objectName, minio.StatObjectOptions{})
+			object, err := headObject(ctx, client, bucket, objectName, "")
 			require.NoError(t, err)
 			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
 			require.EqualValues(t, map[string]string{
 				"Foo": "bar",
-			}, object.UserMetadata)
+			}, aws.StringValueMap(object.Metadata))
 
-			buffer := make([]byte, len(data))
-
-			bytes, err := client.Download(ctx, bucket, objectName, buffer)
+			bytes, err := getObjectData(ctx, client, bucket, objectName, "")
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
@@ -93,8 +91,7 @@ func TestUploadDownload(t *testing.T) {
 		{ // multipart upload
 			bucket := "bucket-multipart"
 
-			err = client.MakeBucket(ctx, bucket)
-			require.NoError(t, err)
+			require.NoError(t, createBucket(ctx, client, bucket, false, false))
 
 			// minimum single part size is 5mib
 			size := 8 * memory.MiB
@@ -109,38 +106,42 @@ func TestUploadDownload(t *testing.T) {
 			partsMD5 := md5.Sum(parts)
 			expectedETag := hex.EncodeToString(partsMD5[:]) + "-2"
 
-			rawClient, ok := client.(*minioclient.Minio)
-			require.True(t, ok)
-
 			expectedMetadata := map[string]string{
 				"foo": "bar",
 			}
-			err = rawClient.UploadMultipart(ctx, bucket, objectName, data, partSize.Int(), 0, expectedMetadata)
+			_, err = putObjectMultipart(ctx, client, &s3.CreateMultipartUploadInput{
+				Bucket:   new(bucket),
+				Key:      new(objectName),
+				Metadata: aws.StringMap(expectedMetadata),
+			}, data[:partSize], data[partSize:])
 			require.NoError(t, err)
 
-			// TODO find out why with prefix set its hanging test
-			for message := range rawClient.API.ListObjects(ctx, bucket, minio.ListObjectsOptions{WithMetadata: true}) {
-				require.Equal(t, objectName, message.Key)
-				require.NotEmpty(t, message.ETag)
+			listing, err := client.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{
+				Bucket:    new(bucket),
+				Delimiter: new("/"),
+			})
+			require.NoError(t, err)
+			for _, message := range listing.Contents {
+				require.Equal(t, objectName, aws.StringValue(message.Key))
+				require.NotEmpty(t, aws.StringValue(message.ETag))
 
-				// Minio adds a double quote to ETag, sometimes.
+				// The ETag is quoted.
 				// Remove the potential quote from either end.
-				etag := strings.TrimPrefix(message.ETag, `"`)
+				etag := strings.TrimPrefix(aws.StringValue(message.ETag), `"`)
 				etag = strings.TrimSuffix(etag, `"`)
 
 				require.Equal(t, expectedETag, etag)
 				break
 			}
 
-			object, err := rawClient.API.StatObject(ctx, bucket, objectName, minio.StatObjectOptions{})
+			object, err := headObject(ctx, client, bucket, objectName, "")
 			require.NoError(t, err)
 			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
 			require.EqualValues(t, map[string]string{
 				"Foo": "bar",
-			}, object.UserMetadata)
+			}, aws.StringValueMap(object.Metadata))
 
-			buffer := make([]byte, len(data))
-			bytes, err := client.Download(ctx, bucket, objectName, buffer)
+			bytes, err := getObjectData(ctx, client, bucket, objectName, "")
 			require.NoError(t, err)
 
 			require.Equal(t, data, bytes)
@@ -162,14 +163,14 @@ func TestWebsite(t *testing.T) {
 		address, accessKey, secretKey := gw.serve(t, access)
 		websiteAddress := gw.serveBinary(t, access, accessKey, secretKey, "--website")
 
-		client, err := minioclient.NewMinio(minioclient.Config{S3Gateway: address, AccessKey: accessKey, SecretKey: secretKey, NoSSL: true})
-		require.NoError(t, err)
+		client := createS3Client(t, address, accessKey, secretKey)
 
 		bucket, objectName := "bucket", "testdata"
-		require.NoError(t, client.MakeBucket(ctx, bucket))
+		require.NoError(t, createBucket(ctx, client, bucket, false, false))
 		// generate enough data for a remote segment
 		data := testrand.BytesInt(5000)
-		require.NoError(t, client.Upload(ctx, bucket, objectName, data, nil))
+		_, err := putObject(ctx, client, bucket, objectName, bytes.NewReader(data))
+		require.NoError(t, err)
 
 		// Without --website, the content can't be accessed as a static website.
 		for _, path := range []string{bucket, bucket + "/" + objectName} {
@@ -307,8 +308,7 @@ func (gw *testGateway) serveBinary(t *testing.T, access *uplink.Access, accessKe
 	require.NoError(t, err)
 
 	address := freeAddress(t)
-	client, err := minioclient.NewMinio(minioclient.Config{S3Gateway: address, AccessKey: accessKey, SecretKey: secretKey, NoSSL: true})
-	require.NoError(t, err)
+	client := createS3Client(t, address, accessKey, secretKey)
 
 	gateway, err := startGateway(t, gw.ctx, client, gw.exe, serialized, address, accessKey, secretKey, flags...)
 	require.NoError(t, err)
@@ -328,14 +328,6 @@ func (gw *testGateway) client(t *testing.T) *s3.S3 {
 func (gw *testGateway) clientFor(t *testing.T, access *uplink.Access) *s3.S3 {
 	address, accessKey, secretKey := gw.serve(t, access)
 	return createS3Client(t, address, accessKey, secretKey)
-}
-
-// minioClient returns a minio client of a gateway for the uplink's access to the satellite.
-func (gw *testGateway) minioClient(t *testing.T) minioclient.Client {
-	address, accessKey, secretKey := gw.serve(t, gw.planet.Uplinks[0].Access[gw.planet.Satellites[0].ID()])
-	client, err := minioclient.NewMinio(minioclient.Config{S3Gateway: address, AccessKey: accessKey, SecretKey: secretKey, NoSSL: true})
-	require.NoError(t, err)
-	return client
 }
 
 // freeAddress returns a local address that was free when it was checked.
@@ -375,7 +367,7 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
-func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
+func startGateway(t *testing.T, ctx *testcontext.Context, client *s3.S3, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
 	args := append([]string{"run",
 		"--config-dir", ctx.Dir("gateway", accessKey),
 		"--access", access,
@@ -407,10 +399,10 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client minioclient.Cli
 }
 
 // waitToStart will monitor starting when we are able to start the process.
-func waitToStart(ctx context.Context, client minioclient.Client, address string, maxStartupWait time.Duration) error {
+func waitToStart(ctx context.Context, client *s3.S3, address string, maxStartupWait time.Duration) error {
 	start := time.Now()
 	for {
-		_, err := client.ListBuckets(ctx)
+		_, err := client.ListBucketsWithContext(ctx, &s3.ListBucketsInput{})
 		if err == nil {
 			return nil
 		}
@@ -441,18 +433,19 @@ func createBucket(ctx context.Context, client *s3.S3, bucket string, versioningE
 	}
 
 	if versioningEnabled {
-		_, err = client.PutBucketVersioning(&s3.PutBucketVersioningInput{
-			Bucket: new(bucket),
-			VersioningConfiguration: &s3.VersioningConfiguration{
-				Status: new(s3.BucketVersioningStatusEnabled),
-			},
-		})
-		if err != nil {
-			return err
-		}
+		return putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled)
 	}
 
 	return nil
+}
+
+// putBucketVersioning sets the versioning status of a bucket.
+func putBucketVersioning(ctx context.Context, client *s3.S3, bucket, status string) error {
+	_, err := client.PutBucketVersioningWithContext(ctx, &s3.PutBucketVersioningInput{
+		Bucket:                  new(bucket),
+		VersioningConfiguration: &s3.VersioningConfiguration{Status: new(status)},
+	})
+	return err
 }
 
 func putObject(ctx context.Context, client *s3.S3, bucket, key string, body io.ReadSeeker) (*s3.PutObjectOutput, error) {
@@ -472,6 +465,59 @@ func getObject(ctx context.Context, client *s3.S3, bucket, key, versionID string
 		input.VersionId = new(versionID)
 	}
 	return client.GetObjectWithContext(ctx, &input)
+}
+
+func headObject(ctx context.Context, client *s3.S3, bucket, key, versionID string) (*s3.HeadObjectOutput, error) {
+	input := s3.HeadObjectInput{
+		Bucket: new(bucket),
+		Key:    new(key),
+	}
+	if versionID != "" {
+		input.VersionId = new(versionID)
+	}
+	return client.HeadObjectWithContext(ctx, &input)
+}
+
+// getObjectData returns the data of a version, or of the latest version if versionID is empty.
+func getObjectData(ctx context.Context, client *s3.S3, bucket, key, versionID string) (_ []byte, err error) {
+	resp, err := getObject(ctx, client, bucket, key, versionID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errs.Combine(err, resp.Body.Close()) }()
+	return io.ReadAll(resp.Body)
+}
+
+// putObjectMultipart uploads an object in a multipart upload created with input, with a part for
+// each of parts.
+func putObjectMultipart(ctx context.Context, client *s3.S3, input *s3.CreateMultipartUploadInput, parts ...[]byte) (*s3.CompleteMultipartUploadOutput, error) {
+	upload, err := client.CreateMultipartUploadWithContext(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	var completed []*s3.CompletedPart
+	for i, part := range parts {
+		partNumber := int64(i + 1)
+		resp, err := client.UploadPartWithContext(ctx, &s3.UploadPartInput{
+			Bucket:     input.Bucket,
+			Key:        input.Key,
+			UploadId:   upload.UploadId,
+			PartNumber: new(partNumber),
+			Body:       bytes.NewReader(part),
+		})
+		if err != nil {
+			return nil, err
+		}
+		completed = append(completed, &s3.CompletedPart{ETag: resp.ETag, PartNumber: new(partNumber)})
+	}
+
+	return client.CompleteMultipartUploadWithContext(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:          input.Bucket,
+		Key:             input.Key,
+		UploadId:        upload.UploadId,
+		MultipartUpload: &s3.CompletedMultipartUpload{Parts: completed},
+	})
 }
 
 func getObjectAttributes(ctx context.Context, client *s3.S3, bucket, key, versionID string, attributes []*string) (*s3.GetObjectAttributesOutput, error) {

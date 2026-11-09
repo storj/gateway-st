@@ -8,7 +8,6 @@ require (
 	github.com/amwolff/awsig v0.0.0-20260427205242-5ad7e9e1912b
 	github.com/aws/aws-sdk-go v1.55.6
 	github.com/gorilla/mux v1.8.0
-	github.com/minio/minio-go/v7 v7.3.0
 	github.com/stretchr/testify v1.11.1
 	github.com/zeebo/errs v1.4.0
 	go.uber.org/zap v1.28.0
@@ -145,6 +144,7 @@ require (
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
+	github.com/minio/minio-go/v7 v7.3.0 // indirect
 	github.com/minio/selfupdate v0.3.1 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/minio/simdjson-go v0.2.1 // indirect
