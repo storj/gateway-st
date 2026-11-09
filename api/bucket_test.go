@@ -999,7 +999,9 @@ func TestListBuckets(t *testing.T) {
 
 func TestHeadBucketRegionAndPolicyStatus(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
-		fakeObjectLayer: &fakeObjectLayer{},
+		fakeObjectLayer: &fakeObjectLayer{
+			getBucketLocation: func(context.Context, string) (string, error) { return "", nil },
+		},
 		getBucketInfo: func(_ context.Context, bucket string) (cmd.BucketInfo, error) {
 			return cmd.BucketInfo{Name: bucket}, nil
 		},
@@ -1086,23 +1088,25 @@ func TestConfigurationResponseNamespace(t *testing.T) {
 
 func TestHeadBucketRegion(t *testing.T) {
 	for _, tt := range []struct {
-		err    error
-		status int
-		region string
+		location string
+		err      error
+		status   int
+		region   string
 	}{
-		{nil, http.StatusOK, "us-east-1"},
-		{cmd.PrefixAccessDenied{Bucket: "bucket"}, http.StatusForbidden, "us-east-1"},
-		{cmd.BucketNotFound{Bucket: "bucket"}, http.StatusNotFound, ""},
+		{"", nil, http.StatusOK, "us-east-1"},
+		{"Poland", nil, http.StatusOK, "Poland"},
+		{"", cmd.PrefixAccessDenied{Bucket: "bucket"}, http.StatusForbidden, "us-east-1"},
+		{"", cmd.BucketNotFound{Bucket: "bucket"}, http.StatusNotFound, ""},
 	} {
-		objectAPI := &bucketObjectLayer{
-			fakeObjectLayer: &fakeObjectLayer{},
-			getBucketInfo: func(_ context.Context, bucket string) (cmd.BucketInfo, error) {
-				return cmd.BucketInfo{Name: bucket}, tt.err
+		objectAPI := &fakeObjectLayer{
+			getBucketLocation: func(context.Context, string) (string, error) {
+				return tt.location, tt.err
 			},
 		}
 		resp := serve(t, objectAPI, http.MethodHead, "/bucket", nil, nil)
 		require.Equal(t, tt.status, resp.StatusCode, tt.err)
 		require.Equal(t, tt.region, resp.Header.Get("X-Amz-Bucket-Region"), tt.err)
+		require.Equal(t, []string{"GetBucketLocation"}, objectAPI.Calls())
 	}
 }
 

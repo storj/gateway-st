@@ -483,7 +483,7 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Every bucket is in bucketRegion, so any other region matches none.
+	// Every bucket is taken to be in bucketRegion, so any other region matches none.
 	if region := values.Get("bucket-region"); region != "" && region != bucketRegion {
 		bucketInfos = nil
 	}

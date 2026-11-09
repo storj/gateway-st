@@ -69,9 +69,10 @@ const (
 	xAmzChecksumPrefix = "X-Amz-Checksum-"
 	nullVersionID      = "null"
 
-	// bucketRegion is the region that HeadBucket and ListBuckets report for every bucket. SDKs use
-	// it as an AWS region, so it isn't the location of the bucket's placement, which
-	// GetBucketLocation reports.
+	// bucketRegion is the region of a bucket whose placement has no location, which
+	// GetBucketLocation reports as empty like S3 does for us-east-1. ListBuckets' bucket-region
+	// filter assumes it for every bucket, because looking up each bucket's location would take a
+	// satellite request per bucket.
 	bucketRegion = "us-east-1"
 )
 
@@ -380,9 +381,11 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
-		// Like S3, the region of a bucket that the caller can't access is sent too, so that clients
-		// can find the endpoint to send their requests to.
+	// The location also tells whether the bucket exists, so it's looked up instead of the bucket.
+	location, err := api.objectAPI.GetBucketLocation(ctx, bucketName)
+	if err != nil {
+		// Like S3, a region is sent for a bucket that the caller can't access too, so that clients
+		// can find the endpoint to send their requests to. Its location can't be looked up.
 		if resp, ok := errToResponse(err); ok && resp.HTTPStatusCode == http.StatusForbidden {
 			w.Header().Set(xhttp.AmzBucketRegion, bucketRegion)
 		}
@@ -390,7 +393,10 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(xhttp.AmzBucketRegion, bucketRegion)
+	if location == "" {
+		location = bucketRegion
+	}
+	w.Header().Set(xhttp.AmzBucketRegion, location)
 	api.writeSuccessResponseHeadersOnly(w, r)
 }
 
