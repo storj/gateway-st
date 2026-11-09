@@ -49,6 +49,10 @@ import (
 //     \"<YOUR-AKID>/YYYYMMDD/REGION/SERVICE/aws4_request\"" for a missing or extra part.
 //     awsig: the same code with a generic message, except a wrong region, which is 403
 //     SignatureDoesNotMatch.
+//   - There's no x-amz-content-sha256 header, with GET, HEAD or PUT.
+//     S3: 400 InvalidRequest "Missing required header for this request: x-amz-content-sha256".
+//     awsig: 400 MissingSecurityHeader, as for the SignedHeaders problems above, which it checks
+//     first. Telling them apart needs an awsig error of its own.
 var awsigErrToCodes = []struct {
 	err  error
 	code apierr.Code
