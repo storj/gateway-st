@@ -14,9 +14,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
@@ -41,11 +43,11 @@ func TestVersioning(t *testing.T) {
 		client := gw.client(t)
 
 		getBucketVersioning := func(bucket string) (string, error) {
-			resp, err := client.GetBucketVersioningWithContext(ctx, &s3.GetBucketVersioningInput{Bucket: new(bucket)})
+			resp, err := client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: new(bucket)})
 			if err != nil {
 				return "", err
 			}
-			return aws.StringValue(resp.Status), nil
+			return string(resp.Status), nil
 		}
 
 		t.Run("bucket versioning enabling-disabling", func(t *testing.T) {
@@ -57,13 +59,13 @@ func TestVersioning(t *testing.T) {
 			require.Empty(t, v)
 
 			// try to change bucket state unversioned -> enabled -> suspended
-			require.NoError(t, putBucketVersioning(ctx, client, bucketA, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucketA, types.BucketVersioningStatusEnabled))
 
 			v, err = getBucketVersioning(bucketA)
 			require.NoError(t, err)
 			require.EqualValues(t, versioning.Enabled, v)
 
-			require.NoError(t, putBucketVersioning(ctx, client, bucketA, s3.BucketVersioningStatusSuspended))
+			require.NoError(t, putBucketVersioning(ctx, client, bucketA, types.BucketVersioningStatusSuspended))
 
 			v, err = getBucketVersioning(bucketA)
 			require.NoError(t, err)
@@ -73,7 +75,7 @@ func TestVersioning(t *testing.T) {
 			require.NoError(t, createBucket(ctx, client, bucketB, false, false))
 
 			// try to change bucket state unversioned -> suspended
-			require.NoError(t, putBucketVersioning(ctx, client, bucketB, s3.BucketVersioningStatusSuspended))
+			require.NoError(t, putBucketVersioning(ctx, client, bucketB, types.BucketVersioningStatusSuspended))
 			v, err = getBucketVersioning(bucketB)
 			require.NoError(t, err)
 			require.EqualValues(t, versioning.Suspended, v)
@@ -83,32 +85,32 @@ func TestVersioning(t *testing.T) {
 			bucket := testrand.BucketName()
 
 			require.NoError(t, createBucket(ctx, client, bucket, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucket, types.BucketVersioningStatusEnabled))
 
 			// upload first version
 			expectedContentA1 := testrand.Bytes(5 * memory.KiB)
 			uploadInfo, err := putObject(ctx, client, bucket, "objectA", bytes.NewReader(expectedContentA1))
 			require.NoError(t, err)
-			require.NotEmpty(t, aws.StringValue(uploadInfo.VersionId))
+			require.NotEmpty(t, aws.ToString(uploadInfo.VersionId))
 
-			objectA1VersionID := aws.StringValue(uploadInfo.VersionId)
+			objectA1VersionID := aws.ToString(uploadInfo.VersionId)
 
 			statInfo, err := headObject(ctx, client, bucket, "objectA", "")
 			require.NoError(t, err)
-			require.Equal(t, objectA1VersionID, aws.StringValue(statInfo.VersionId))
+			require.Equal(t, objectA1VersionID, aws.ToString(statInfo.VersionId))
 
 			// the same request but with VersionID specified
 			statInfo, err = headObject(ctx, client, bucket, "objectA", objectA1VersionID)
 			require.NoError(t, err)
-			require.Equal(t, objectA1VersionID, aws.StringValue(statInfo.VersionId))
+			require.Equal(t, objectA1VersionID, aws.ToString(statInfo.VersionId))
 
 			tags := map[string]string{
 				"key1": "tag1",
 			}
-			_, err = client.PutObjectTaggingWithContext(ctx, &s3.PutObjectTaggingInput{
+			_, err = client.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
 				Bucket:  new(bucket),
 				Key:     new("objectA"),
-				Tagging: &s3.Tagging{TagSet: []*s3.Tag{{Key: new("key1"), Value: new("tag1")}}},
+				Tagging: &types.Tagging{TagSet: []types.Tag{{Key: new("key1"), Value: new("tag1")}}},
 			})
 			require.NoError(t, err)
 
@@ -116,18 +118,18 @@ func TestVersioning(t *testing.T) {
 			expectedContentA2 := testrand.Bytes(5 * memory.KiB)
 			uploadInfo, err = putObject(ctx, client, bucket, "objectA", bytes.NewReader(expectedContentA2))
 			require.NoError(t, err)
-			require.NotEmpty(t, aws.StringValue(uploadInfo.VersionId))
+			require.NotEmpty(t, aws.ToString(uploadInfo.VersionId))
 
-			objectA2VersionID := aws.StringValue(uploadInfo.VersionId)
+			objectA2VersionID := aws.ToString(uploadInfo.VersionId)
 
 			statInfo, err = headObject(ctx, client, bucket, "objectA", "")
 			require.NoError(t, err)
-			require.Equal(t, objectA2VersionID, aws.StringValue(statInfo.VersionId))
+			require.Equal(t, objectA2VersionID, aws.ToString(statInfo.VersionId))
 
 			// the same request but with VersionID specified
 			statInfo, err = headObject(ctx, client, bucket, "objectA", objectA2VersionID)
 			require.NoError(t, err)
-			require.Equal(t, objectA2VersionID, aws.StringValue(statInfo.VersionId))
+			require.Equal(t, objectA2VersionID, aws.ToString(statInfo.VersionId))
 
 			// // check that we have two different versions
 			contentA1, err := getObjectData(ctx, client, bucket, "objectA", objectA1VersionID)
@@ -138,7 +140,7 @@ func TestVersioning(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, expectedContentA2, contentA2)
 
-			tagsInfo, err := client.GetObjectTaggingWithContext(ctx, &s3.GetObjectTaggingInput{
+			tagsInfo, err := client.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
 				Bucket:    new(bucket),
 				Key:       new("objectA"),
 				VersionId: new(objectA1VersionID),
@@ -153,7 +155,7 @@ func TestVersioning(t *testing.T) {
 			bucket := testrand.BucketName()
 
 			require.NoError(t, createBucket(ctx, client, bucket, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucket, types.BucketVersioningStatusEnabled))
 
 			expectedContent := testrand.Bytes(500 * memory.KiB)
 			uploadInfo, err := putObjectMultipart(ctx, client, &s3.CreateMultipartUploadInput{
@@ -161,14 +163,14 @@ func TestVersioning(t *testing.T) {
 				Key:    new("objectA"),
 			}, expectedContent)
 			require.NoError(t, err)
-			require.NotEmpty(t, aws.StringValue(uploadInfo.VersionId))
+			require.NotEmpty(t, aws.ToString(uploadInfo.VersionId))
 		})
 
 		t.Run("check VersionID with delete object and delete objects", func(t *testing.T) {
 			bucket := testrand.BucketName()
 
 			require.NoError(t, createBucket(ctx, client, bucket, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucket, types.BucketVersioningStatusEnabled))
 
 			var versionIDs []string
 
@@ -176,8 +178,8 @@ func TestVersioning(t *testing.T) {
 				expectedContent := testrand.Bytes(5 * memory.KiB)
 				uploadInfo, err := putObject(ctx, client, bucket, "objectA", bytes.NewReader(expectedContent))
 				require.NoError(t, err)
-				require.NotEmpty(t, aws.StringValue(uploadInfo.VersionId))
-				versionIDs = append(versionIDs, aws.StringValue(uploadInfo.VersionId))
+				require.NotEmpty(t, aws.ToString(uploadInfo.VersionId))
+				versionIDs = append(versionIDs, aws.ToString(uploadInfo.VersionId))
 			}
 
 			require.NoError(t, deleteObject(ctx, client, bucket, "objectA", versionIDs[0]))
@@ -285,13 +287,13 @@ func TestVersioning(t *testing.T) {
 			bucketC := testrand.BucketName()
 
 			require.NoError(t, createBucket(ctx, client, bucketA, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucketA, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucketA, types.BucketVersioningStatusEnabled))
 
 			require.NoError(t, createBucket(ctx, client, bucketB, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucketB, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucketB, types.BucketVersioningStatusEnabled))
 
 			require.NoError(t, createBucket(ctx, client, bucketC, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucketC, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucketC, types.BucketVersioningStatusEnabled))
 
 			listing, err := listObjectVersions(ctx, client, &s3.ListObjectVersionsInput{Bucket: new(bucketA)})
 			require.NoError(t, err)
@@ -340,7 +342,7 @@ func TestVersioning(t *testing.T) {
 					} else {
 						uploadInfo, err := putObject(ctx, client, bucket, upload.key, bytes.NewReader(expectedContent))
 						require.NoError(t, err)
-						versions[upload.key] = append(versions[upload.key], aws.StringValue(uploadInfo.VersionId))
+						versions[upload.key] = append(versions[upload.key], aws.ToString(uploadInfo.VersionId))
 					}
 				}
 				for k := range versions {
@@ -354,7 +356,7 @@ func TestVersioning(t *testing.T) {
 			checkListing := func(t *testing.T, bucket string, testCases []testCase) {
 				for _, tc := range testCases {
 					t.Run(tc.name, func(t *testing.T) {
-						for _, maxKeys := range []int64{0, 1, 2, 1000} {
+						for _, maxKeys := range []int32{0, 1, 2, 1000} {
 							input := s3.ListObjectVersionsInput{
 								Bucket: new(bucket),
 								Prefix: new(tc.prefix),
@@ -555,7 +557,7 @@ func TestVersioning(t *testing.T) {
 			bucket := testrand.BucketName()
 
 			require.NoError(t, createBucket(ctx, client, bucket, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucket, types.BucketVersioningStatusEnabled))
 
 			expectedContent := testrand.Bytes(5 * memory.KiB)
 			_, err := putObject(ctx, client, bucket, "objectA", bytes.NewReader(expectedContent))
@@ -581,7 +583,7 @@ func TestVersioning(t *testing.T) {
 			bucket := testrand.BucketName()
 
 			require.NoError(t, createBucket(ctx, client, bucket, false, false))
-			require.NoError(t, putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled))
+			require.NoError(t, putBucketVersioning(ctx, client, bucket, types.BucketVersioningStatusEnabled))
 
 			expectedSize := 5 * memory.KiB
 			expectedContent := testrand.Bytes(expectedSize)
@@ -591,10 +593,10 @@ func TestVersioning(t *testing.T) {
 			_, err = putObject(ctx, client, bucket, "objectA", bytes.NewReader(testrand.Bytes(expectedSize)))
 			require.NoError(t, err)
 
-			copyInfo, err := copyObject(ctx, client, bucket, "objectA", aws.StringValue(info.VersionId), bucket, "objectA-copy")
+			copyInfo, err := copyObject(ctx, client, bucket, "objectA", aws.ToString(info.VersionId), bucket, "objectA-copy")
 			require.NoError(t, err)
-			require.NotEmpty(t, aws.StringValue(copyInfo.VersionId))
-			require.NotEqual(t, aws.StringValue(info.VersionId), aws.StringValue(copyInfo.VersionId))
+			require.NotEmpty(t, aws.ToString(copyInfo.VersionId))
+			require.NotEqual(t, aws.ToString(info.VersionId), aws.ToString(copyInfo.VersionId))
 
 			data, err := getObjectData(ctx, client, bucket, "objectA-copy", "")
 			require.NoError(t, err)
@@ -612,10 +614,10 @@ func TestVersioning(t *testing.T) {
 			}
 
 			// copy objectA with VersionID into objectA
-			copyInfo, err = copyObject(ctx, client, bucket, "objectA", aws.StringValue(info.VersionId), bucket, "objectA")
+			copyInfo, err = copyObject(ctx, client, bucket, "objectA", aws.ToString(info.VersionId), bucket, "objectA")
 			require.NoError(t, err)
-			require.NotEmpty(t, aws.StringValue(copyInfo.VersionId))
-			require.NotEqual(t, aws.StringValue(info.VersionId), aws.StringValue(copyInfo.VersionId))
+			require.NotEmpty(t, aws.ToString(copyInfo.VersionId))
+			require.NotEqual(t, aws.ToString(info.VersionId), aws.ToString(copyInfo.VersionId))
 		})
 	})
 }
@@ -629,52 +631,74 @@ type listedVersion struct {
 	IsDeleteMarker bool
 }
 
-// listObjectVersions lists all pages of versions for input. aws-sdk-go returns the versions and
+// listObjectVersions lists all pages of versions for input. aws-sdk-go-v2 returns the versions and
 // delete markers of a page in separate lists, so each page's entries are read from its response
 // body in their listed order instead, versions and delete markers first and then common prefixes.
-func listObjectVersions(ctx context.Context, client *s3.S3, input *s3.ListObjectVersionsInput) ([]listedVersion, error) {
+func listObjectVersions(ctx context.Context, client *s3.Client, input *s3.ListObjectVersionsInput) ([]listedVersion, error) {
+	pageInput := *input
 	var listing []listedVersion
-	readPage := func(r *request.Request) {
-		r.Handlers.Unmarshal.PushFront(func(r *request.Request) {
-			body, err := io.ReadAll(r.HTTPResponse.Body)
-			if err != nil {
-				r.Error = err
-				return
-			}
-			r.HTTPResponse.Body = io.NopCloser(bytes.NewReader(body))
-
-			var page struct {
-				Entries []struct {
-					XMLName   xml.Name
-					Key       string
-					VersionID string `xml:"VersionId"`
-					IsLatest  bool
-					Prefix    string
-				} `xml:",any"`
-			}
-			if err := xml.Unmarshal(body, &page); err != nil {
-				r.Error = err
-				return
-			}
-			var prefixes []listedVersion
-			for _, entry := range page.Entries {
-				switch entry.XMLName.Local {
-				case "Version", "DeleteMarker":
-					listing = append(listing, listedVersion{
-						Key:            entry.Key,
-						VersionID:      entry.VersionID,
-						IsLatest:       entry.IsLatest,
-						IsDeleteMarker: entry.XMLName.Local == "DeleteMarker",
-					})
-				case "CommonPrefixes":
-					prefixes = append(prefixes, listedVersion{Key: entry.Prefix})
-				}
-			}
-			listing = append(listing, prefixes...)
+	for {
+		var body []byte
+		resp, err := client.ListObjectVersions(ctx, &pageInput, func(o *s3.Options) {
+			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+				return stack.Deserialize.Add(middleware.DeserializeMiddlewareFunc("readBody", func(ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler) (middleware.DeserializeOutput, middleware.Metadata, error) {
+					out, metadata, err := next.HandleDeserialize(ctx, in)
+					if resp, ok := out.RawResponse.(*smithyhttp.Response); ok && err == nil {
+						if body, err = io.ReadAll(resp.Body); err == nil {
+							resp.Body = io.NopCloser(bytes.NewReader(body))
+						}
+					}
+					return out, metadata, err
+				}), middleware.After)
+			})
 		})
+		if err != nil {
+			return nil, err
+		}
+
+		page, err := decodeVersionsPage(body)
+		if err != nil {
+			return nil, err
+		}
+		listing = append(listing, page...)
+
+		if !aws.ToBool(resp.IsTruncated) {
+			return listing, nil
+		}
+		pageInput.KeyMarker, pageInput.VersionIdMarker = resp.NextKeyMarker, resp.NextVersionIdMarker
 	}
-	err := client.ListObjectVersionsPagesWithContext(ctx, input, func(*s3.ListObjectVersionsOutput, bool) bool { return true }, readPage)
-	return listing, err
+}
+
+// decodeVersionsPage returns the entries of a ListObjectVersions response body in their listed
+// order, versions and delete markers first and then common prefixes.
+func decodeVersionsPage(body []byte) ([]listedVersion, error) {
+	var page struct {
+		Entries []struct {
+			XMLName   xml.Name
+			Key       string
+			VersionID string `xml:"VersionId"`
+			IsLatest  bool
+			Prefix    string
+		} `xml:",any"`
+	}
+	if err := xml.Unmarshal(body, &page); err != nil {
+		return nil, err
+	}
+	var versions, prefixes []listedVersion
+	for _, entry := range page.Entries {
+		switch entry.XMLName.Local {
+		case "Version", "DeleteMarker":
+			versions = append(versions, listedVersion{
+				Key:            entry.Key,
+				VersionID:      entry.VersionID,
+				IsLatest:       entry.IsLatest,
+				IsDeleteMarker: entry.XMLName.Local == "DeleteMarker",
+			})
+		case "CommonPrefixes":
+			prefixes = append(prefixes, listedVersion{Key: entry.Prefix})
+		}
+	}
+	return append(versions, prefixes...), nil
 }
 
 // removeObjectResult is the result for one of the objects of a DeleteObjects request.
@@ -688,19 +712,19 @@ type removeObjectResult struct {
 
 // deleteObjects deletes versions of key, or creates a delete marker for an empty version ID, and
 // returns a result for each, with the error of the request if it failed.
-func deleteObjects(ctx context.Context, client *s3.S3, bucket, key string, versionIDs []string) []removeObjectResult {
-	objects := make([]*s3.ObjectIdentifier, 0, len(versionIDs))
+func deleteObjects(ctx context.Context, client *s3.Client, bucket, key string, versionIDs []string) []removeObjectResult {
+	objects := make([]types.ObjectIdentifier, 0, len(versionIDs))
 	for _, versionID := range versionIDs {
-		object := &s3.ObjectIdentifier{Key: new(key)}
+		object := types.ObjectIdentifier{Key: new(key)}
 		if versionID != "" {
 			object.VersionId = new(versionID)
 		}
 		objects = append(objects, object)
 	}
 
-	resp, err := client.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+	resp, err := client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 		Bucket: new(bucket),
-		Delete: &s3.Delete{Objects: objects},
+		Delete: &types.Delete{Objects: objects},
 	})
 	if err != nil {
 		results := make([]removeObjectResult, 0, len(versionIDs))
@@ -713,27 +737,27 @@ func deleteObjects(ctx context.Context, client *s3.S3, bucket, key string, versi
 	var results []removeObjectResult
 	for _, deleted := range resp.Deleted {
 		results = append(results, removeObjectResult{
-			ObjectName:            aws.StringValue(deleted.Key),
-			ObjectVersionID:       aws.StringValue(deleted.VersionId),
-			DeleteMarker:          aws.BoolValue(deleted.DeleteMarker),
-			DeleteMarkerVersionID: aws.StringValue(deleted.DeleteMarkerVersionId),
+			ObjectName:            aws.ToString(deleted.Key),
+			ObjectVersionID:       aws.ToString(deleted.VersionId),
+			DeleteMarker:          aws.ToBool(deleted.DeleteMarker),
+			DeleteMarkerVersionID: aws.ToString(deleted.DeleteMarkerVersionId),
 		})
 	}
 	for _, failed := range resp.Errors {
 		results = append(results, removeObjectResult{
-			ObjectName:      aws.StringValue(failed.Key),
-			ObjectVersionID: aws.StringValue(failed.VersionId),
-			Err:             errors.New(aws.StringValue(failed.Code) + ": " + aws.StringValue(failed.Message)),
+			ObjectName:      aws.ToString(failed.Key),
+			ObjectVersionID: aws.ToString(failed.VersionId),
+			Err:             errors.New(aws.ToString(failed.Code) + ": " + aws.ToString(failed.Message)),
 		})
 	}
 	return results
 }
 
 // tagSetToMap returns the tags of tagSet by key.
-func tagSetToMap(tagSet []*s3.Tag) map[string]string {
+func tagSetToMap(tagSet []types.Tag) map[string]string {
 	tags := make(map[string]string, len(tagSet))
 	for _, tag := range tagSet {
-		tags[aws.StringValue(tag.Key)] = aws.StringValue(tag.Value)
+		tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 	}
 	return tags
 }

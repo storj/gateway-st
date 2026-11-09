@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -21,11 +22,15 @@ import (
 	"time"
 
 	"github.com/amwolff/awsig"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/errs"
@@ -68,11 +73,11 @@ func TestUploadDownload(t *testing.T) {
 			expectedMetadata := map[string]string{
 				"foo": "bar",
 			}
-			_, err = client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+			_, err = client.PutObject(ctx, &s3.PutObjectInput{
 				Bucket:   new(bucket),
 				Key:      new(objectName),
 				Body:     bytes.NewReader(data),
-				Metadata: aws.StringMap(expectedMetadata),
+				Metadata: expectedMetadata,
 			})
 			require.NoError(t, err)
 
@@ -81,7 +86,7 @@ func TestUploadDownload(t *testing.T) {
 			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
 			require.EqualValues(t, map[string]string{
 				"Foo": "bar",
-			}, aws.StringValueMap(object.Metadata))
+			}, userMetadata(object.ResultMetadata))
 
 			bytes, err := getObjectData(ctx, client, bucket, objectName, "")
 			require.NoError(t, err)
@@ -113,22 +118,22 @@ func TestUploadDownload(t *testing.T) {
 			_, err = putObjectMultipart(ctx, client, &s3.CreateMultipartUploadInput{
 				Bucket:   new(bucket),
 				Key:      new(objectName),
-				Metadata: aws.StringMap(expectedMetadata),
+				Metadata: expectedMetadata,
 			}, data[:partSize], data[partSize:])
 			require.NoError(t, err)
 
-			listing, err := client.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{
+			listing, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 				Bucket:    new(bucket),
 				Delimiter: new("/"),
 			})
 			require.NoError(t, err)
 			for _, message := range listing.Contents {
-				require.Equal(t, objectName, aws.StringValue(message.Key))
-				require.NotEmpty(t, aws.StringValue(message.ETag))
+				require.Equal(t, objectName, aws.ToString(message.Key))
+				require.NotEmpty(t, aws.ToString(message.ETag))
 
 				// The ETag is quoted.
 				// Remove the potential quote from either end.
-				etag := strings.TrimPrefix(aws.StringValue(message.ETag), `"`)
+				etag := strings.TrimPrefix(aws.ToString(message.ETag), `"`)
 				etag = strings.TrimSuffix(etag, `"`)
 
 				require.Equal(t, expectedETag, etag)
@@ -140,7 +145,7 @@ func TestUploadDownload(t *testing.T) {
 			// TODO figure out why it returns "Foo:bar", instead "foo:bar"
 			require.EqualValues(t, map[string]string{
 				"Foo": "bar",
-			}, aws.StringValueMap(object.Metadata))
+			}, userMetadata(object.ResultMetadata))
 
 			bytes, err := getObjectData(ctx, client, bucket, objectName, "")
 			require.NoError(t, err)
@@ -164,7 +169,7 @@ func TestWebsite(t *testing.T) {
 		address, accessKey, secretKey := gw.serve(t, access)
 		websiteAddress := gw.serveBinary(t, access, accessKey, secretKey, "--website")
 
-		client := createS3Client(t, address, accessKey, secretKey)
+		client := createS3Client(address, accessKey, secretKey)
 
 		bucket, objectName := "bucket", "testdata"
 		require.NoError(t, createBucket(ctx, client, bucket, false, false))
@@ -310,7 +315,7 @@ func (gw *testGateway) serveBinary(t *testing.T, access *uplink.Access, accessKe
 	require.NoError(t, err)
 
 	address := freeAddress(t)
-	client := createS3Client(t, address, accessKey, secretKey)
+	client := createS3Client(address, accessKey, secretKey)
 
 	gateway, err := startGateway(t, gw.ctx, client, gw.exe, serialized, address, accessKey, secretKey, flags...)
 	require.NoError(t, err)
@@ -322,14 +327,65 @@ func (gw *testGateway) serveBinary(t *testing.T, access *uplink.Access, accessKe
 }
 
 // client returns an S3 client of a gateway for the uplink's access to the satellite.
-func (gw *testGateway) client(t *testing.T) *s3.S3 {
+func (gw *testGateway) client(t *testing.T) *s3.Client {
 	return gw.clientFor(t, gw.planet.Uplinks[0].Access[gw.planet.Satellites[0].ID()])
 }
 
 // clientFor returns an S3 client of a gateway for access.
-func (gw *testGateway) clientFor(t *testing.T, access *uplink.Access) *s3.S3 {
+func (gw *testGateway) clientFor(t *testing.T, access *uplink.Access) *s3.Client {
 	address, accessKey, secretKey := gw.serve(t, access)
-	return createS3Client(t, address, accessKey, secretKey)
+	if gw.kind == binaryGateway {
+		return createS3Client(address, accessKey, secretKey, func(o *s3.Options) {
+			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+				return stack.Build.Add(middleware.BuildMiddlewareFunc("binaryCompatibility", binaryCompatibility), middleware.After)
+			})
+		})
+	}
+	return createS3Client(address, accessKey, secretKey)
+}
+
+// binaryCompatibility works around the gateway binary's minio handlers not supporting what
+// aws-sdk-go-v2 sends, so that the tests still cover the rest of the binary. The handlers of
+// DeleteObjects, PutObjectRetention and PutObjectLegalHold require Content-MD5, where the SDK sends
+// an x-amz-checksum-* header instead, and GetObjectAttributes reads only the first of the
+// x-amz-object-attributes lines that the SDK sends.
+func binaryCompatibility(ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler) (middleware.BuildOutput, middleware.Metadata, error) {
+	req, ok := in.Request.(*smithyhttp.Request)
+	if !ok {
+		return next.HandleBuild(ctx, in)
+	}
+	switch awsmiddleware.GetOperationName(ctx) {
+	case "DeleteObjects", "PutObjectRetention", "PutObjectLegalHold":
+		body, err := io.ReadAll(req.GetStream())
+		if err != nil {
+			return middleware.BuildOutput{}, middleware.Metadata{}, err
+		}
+		sum := md5.Sum(body)
+		req.Header.Set("Content-MD5", base64.StdEncoding.EncodeToString(sum[:]))
+		if in.Request, err = req.SetStream(bytes.NewReader(body)); err != nil {
+			return middleware.BuildOutput{}, middleware.Metadata{}, err
+		}
+	case "GetObjectAttributes":
+		req.Header.Set("X-Amz-Object-Attributes", strings.Join(req.Header.Values("X-Amz-Object-Attributes"), ","))
+	}
+	return next.HandleBuild(ctx, in)
+}
+
+// userMetadata returns the user metadata of a response by the names of its x-amz-meta-* headers,
+// which net/http canonicalizes, without the prefix. aws-sdk-go-v2 lowercases the names instead.
+func userMetadata(metadata middleware.Metadata) map[string]string {
+	resp, ok := awsmiddleware.GetRawResponse(metadata).(*smithyhttp.Response)
+	if !ok {
+		return nil
+	}
+	const prefix = "X-Amz-Meta-"
+	userMetadata := map[string]string{}
+	for name, values := range resp.Header {
+		if strings.HasPrefix(name, prefix) {
+			userMetadata[name[len(prefix):]] = values[0]
+		}
+	}
+	return userMetadata
 }
 
 // freeAddress returns a local address that was free when it was checked.
@@ -369,7 +425,7 @@ func httpGet(ctx context.Context, url string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
-func startGateway(t *testing.T, ctx *testcontext.Context, client *s3.S3, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
+func startGateway(t *testing.T, ctx *testcontext.Context, client *s3.Client, exe, access, address, accessKey, secretKey string, moreFlags ...string) (*exec.Cmd, error) {
 	args := append([]string{"run",
 		"--config-dir", ctx.Dir("gateway", accessKey),
 		"--access", access,
@@ -401,10 +457,10 @@ func startGateway(t *testing.T, ctx *testcontext.Context, client *s3.S3, exe, ac
 }
 
 // waitToStart will monitor starting when we are able to start the process.
-func waitToStart(ctx context.Context, client *s3.S3, address string, maxStartupWait time.Duration) error {
+func waitToStart(ctx context.Context, client *s3.Client, address string, maxStartupWait time.Duration) error {
 	start := time.Now()
 	for {
-		_, err := client.ListBucketsWithContext(ctx, &s3.ListBucketsInput{})
+		_, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
 		if err == nil {
 			return nil
 		}
@@ -425,8 +481,8 @@ func (log logWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func createBucket(ctx context.Context, client *s3.S3, bucket string, versioningEnabled, lockEnabled bool) error {
-	_, err := client.CreateBucketWithContext(ctx, &s3.CreateBucketInput{
+func createBucket(ctx context.Context, client *s3.Client, bucket string, versioningEnabled, lockEnabled bool) error {
+	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket:                     new(bucket),
 		ObjectLockEnabledForBucket: new(lockEnabled),
 	})
@@ -435,30 +491,30 @@ func createBucket(ctx context.Context, client *s3.S3, bucket string, versioningE
 	}
 
 	if versioningEnabled {
-		return putBucketVersioning(ctx, client, bucket, s3.BucketVersioningStatusEnabled)
+		return putBucketVersioning(ctx, client, bucket, types.BucketVersioningStatusEnabled)
 	}
 
 	return nil
 }
 
 // putBucketVersioning sets the versioning status of a bucket.
-func putBucketVersioning(ctx context.Context, client *s3.S3, bucket, status string) error {
-	_, err := client.PutBucketVersioningWithContext(ctx, &s3.PutBucketVersioningInput{
+func putBucketVersioning(ctx context.Context, client *s3.Client, bucket string, status types.BucketVersioningStatus) error {
+	_, err := client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
 		Bucket:                  new(bucket),
-		VersioningConfiguration: &s3.VersioningConfiguration{Status: new(status)},
+		VersioningConfiguration: &types.VersioningConfiguration{Status: status},
 	})
 	return err
 }
 
-func putObject(ctx context.Context, client *s3.S3, bucket, key string, body io.ReadSeeker) (*s3.PutObjectOutput, error) {
-	return client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+func putObject(ctx context.Context, client *s3.Client, bucket, key string, body io.ReadSeeker) (*s3.PutObjectOutput, error) {
+	return client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: new(bucket),
 		Key:    new(key),
 		Body:   body,
 	})
 }
 
-func getObject(ctx context.Context, client *s3.S3, bucket, key, versionID string) (*s3.GetObjectOutput, error) {
+func getObject(ctx context.Context, client *s3.Client, bucket, key, versionID string) (*s3.GetObjectOutput, error) {
 	input := s3.GetObjectInput{
 		Bucket: new(bucket),
 		Key:    new(key),
@@ -466,10 +522,10 @@ func getObject(ctx context.Context, client *s3.S3, bucket, key, versionID string
 	if versionID != "" {
 		input.VersionId = new(versionID)
 	}
-	return client.GetObjectWithContext(ctx, &input)
+	return client.GetObject(ctx, &input)
 }
 
-func headObject(ctx context.Context, client *s3.S3, bucket, key, versionID string) (*s3.HeadObjectOutput, error) {
+func headObject(ctx context.Context, client *s3.Client, bucket, key, versionID string) (*s3.HeadObjectOutput, error) {
 	input := s3.HeadObjectInput{
 		Bucket: new(bucket),
 		Key:    new(key),
@@ -477,11 +533,11 @@ func headObject(ctx context.Context, client *s3.S3, bucket, key, versionID strin
 	if versionID != "" {
 		input.VersionId = new(versionID)
 	}
-	return client.HeadObjectWithContext(ctx, &input)
+	return client.HeadObject(ctx, &input)
 }
 
 // getObjectData returns the data of a version, or of the latest version if versionID is empty.
-func getObjectData(ctx context.Context, client *s3.S3, bucket, key, versionID string) (_ []byte, err error) {
+func getObjectData(ctx context.Context, client *s3.Client, bucket, key, versionID string) (_ []byte, err error) {
 	resp, err := getObject(ctx, client, bucket, key, versionID)
 	if err != nil {
 		return nil, err
@@ -492,16 +548,16 @@ func getObjectData(ctx context.Context, client *s3.S3, bucket, key, versionID st
 
 // putObjectMultipart uploads an object in a multipart upload created with input, with a part for
 // each of parts.
-func putObjectMultipart(ctx context.Context, client *s3.S3, input *s3.CreateMultipartUploadInput, parts ...[]byte) (*s3.CompleteMultipartUploadOutput, error) {
-	upload, err := client.CreateMultipartUploadWithContext(ctx, input)
+func putObjectMultipart(ctx context.Context, client *s3.Client, input *s3.CreateMultipartUploadInput, parts ...[]byte) (*s3.CompleteMultipartUploadOutput, error) {
+	upload, err := client.CreateMultipartUpload(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	var completed []*s3.CompletedPart
+	var completed []types.CompletedPart
 	for i, part := range parts {
-		partNumber := int64(i + 1)
-		resp, err := client.UploadPartWithContext(ctx, &s3.UploadPartInput{
+		partNumber := int32(i + 1)
+		resp, err := client.UploadPart(ctx, &s3.UploadPartInput{
 			Bucket:     input.Bucket,
 			Key:        input.Key,
 			UploadId:   upload.UploadId,
@@ -511,18 +567,18 @@ func putObjectMultipart(ctx context.Context, client *s3.S3, input *s3.CreateMult
 		if err != nil {
 			return nil, err
 		}
-		completed = append(completed, &s3.CompletedPart{ETag: resp.ETag, PartNumber: new(partNumber)})
+		completed = append(completed, types.CompletedPart{ETag: resp.ETag, PartNumber: new(partNumber)})
 	}
 
-	return client.CompleteMultipartUploadWithContext(ctx, &s3.CompleteMultipartUploadInput{
+	return client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
 		Bucket:          input.Bucket,
 		Key:             input.Key,
 		UploadId:        upload.UploadId,
-		MultipartUpload: &s3.CompletedMultipartUpload{Parts: completed},
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: completed},
 	})
 }
 
-func getObjectAttributes(ctx context.Context, client *s3.S3, bucket, key, versionID string, attributes []*string) (*s3.GetObjectAttributesOutput, error) {
+func getObjectAttributes(ctx context.Context, client *s3.Client, bucket, key, versionID string, attributes []types.ObjectAttributes) (*s3.GetObjectAttributesOutput, error) {
 	input := s3.GetObjectAttributesInput{
 		Bucket:           new(bucket),
 		Key:              new(key),
@@ -531,7 +587,7 @@ func getObjectAttributes(ctx context.Context, client *s3.S3, bucket, key, versio
 	if versionID != "" {
 		input.VersionId = new(versionID)
 	}
-	return client.GetObjectAttributesWithContext(ctx, &input)
+	return client.GetObjectAttributes(ctx, &input)
 }
 
 // copySource returns the x-amz-copy-source of a version, or of the latest version if versionID is
@@ -543,15 +599,15 @@ func copySource(bucket, key, versionID string) string {
 	return bucket + "/" + key + "?versionId=" + versionID
 }
 
-func copyObject(ctx context.Context, client *s3.S3, sourceBucket, sourceKey, sourceVersionID, destBucket, destKey string) (*s3.CopyObjectOutput, error) {
-	return client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+func copyObject(ctx context.Context, client *s3.Client, sourceBucket, sourceKey, sourceVersionID, destBucket, destKey string) (*s3.CopyObjectOutput, error) {
+	return client.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:     new(destBucket),
 		Key:        new(destKey),
 		CopySource: new(copySource(sourceBucket, sourceKey, sourceVersionID)),
 	})
 }
 
-func deleteObject(ctx context.Context, client *s3.S3, bucket, key, versionID string) error {
+func deleteObject(ctx context.Context, client *s3.Client, bucket, key, versionID string) error {
 	input := s3.DeleteObjectInput{
 		Bucket: new(bucket),
 		Key:    new(key),
@@ -559,34 +615,33 @@ func deleteObject(ctx context.Context, client *s3.S3, bucket, key, versionID str
 	if versionID != "" {
 		input.VersionId = new(versionID)
 	}
-	_, err := client.DeleteObjectWithContext(ctx, &input)
+	_, err := client.DeleteObject(ctx, &input)
 	return err
 }
 
-func createS3Client(t *testing.T, gatewayAddr, accessKeyID, secretKey string) *s3.S3 {
-	sess, err := session.NewSession(&aws.Config{
-		Region:           aws.String("global"),
-		Credentials:      credentials.NewStaticCredentials(accessKeyID, secretKey, ""),
-		Endpoint:         aws.String("http://" + gatewayAddr),
-		S3ForcePathStyle: aws.Bool(true),
-	})
-	require.NoError(t, err)
-
-	return s3.New(sess)
+// createS3Client returns a client of a gateway at gatewayAddr with aws-sdk-go-v2's default settings,
+// so it sends what current SDKs send, such as flexible checksums instead of Content-MD5.
+func createS3Client(gatewayAddr, accessKeyID, secretKey string, optFns ...func(*s3.Options)) *s3.Client {
+	return s3.New(s3.Options{
+		Region:       "global",
+		Credentials:  credentials.NewStaticCredentialsProvider(accessKeyID, secretKey, ""),
+		BaseEndpoint: new("http://" + gatewayAddr),
+		UsePathStyle: true,
+	}, optFns...)
 }
 
 func errorCode(err error) string {
-	var awsErr awserr.Error
-	if errors.As(err, &awsErr) {
-		return awsErr.Code()
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode()
 	}
 	return ""
 }
 
 func statusCode(err error) int {
-	var reqErr awserr.RequestFailure
-	if errors.As(err, &reqErr) {
-		return reqErr.StatusCode()
+	var respErr *awshttp.ResponseError
+	if errors.As(err, &respErr) {
+		return respErr.HTTPStatusCode()
 	}
 	return 0
 }

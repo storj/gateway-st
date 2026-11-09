@@ -8,8 +8,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
@@ -52,9 +52,9 @@ func TestBucketTagging(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		requireTags := func(t *testing.T, bucketName string, expectedTags []*s3.Tag) {
-			tagResp, err := client.GetBucketTaggingWithContext(ctx, &s3.GetBucketTaggingInput{
-				Bucket: aws.String(bucketName),
+		requireTags := func(t *testing.T, bucketName string, expectedTags []types.Tag) {
+			tagResp, err := client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{
+				Bucket: new(bucketName),
 			})
 			require.NoError(t, err)
 
@@ -70,91 +70,91 @@ func TestBucketTagging(t *testing.T) {
 		}
 
 		t.Run("Non-existent bucket", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String("non-existent-bucket"),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{},
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new("non-existent-bucket"),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{},
 				},
 			})
 			requireS3Error(t, err, http.StatusNotFound, "NoSuchBucket")
 		})
 
 		t.Run("No tags", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{
 						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value1"),
+							Key:   new("key1"),
+							Value: new("value1"),
 						},
 					},
 				},
 			})
 			require.NoError(t, err)
 
-			_, err = client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{},
+			_, err = client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{},
 				},
 			})
 			require.NoError(t, err)
 
-			_, err = client.GetBucketTaggingWithContext(ctx, &s3.GetBucketTaggingInput{
-				Bucket: aws.String(bucketName),
+			_, err = client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{
+				Bucket: new(bucketName),
 			})
 			requireS3Error(t, err, http.StatusNotFound, "NoSuchTagSet")
 		})
 
 		t.Run("Delete tags", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{
 						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value1"),
+							Key:   new("key1"),
+							Value: new("value1"),
 						},
 					},
 				},
 			})
 			require.NoError(t, err)
 
-			_, err = client.DeleteBucketTaggingWithContext(ctx, &s3.DeleteBucketTaggingInput{
-				Bucket: aws.String(bucketName),
+			_, err = client.DeleteBucketTagging(ctx, &s3.DeleteBucketTaggingInput{
+				Bucket: new(bucketName),
 			})
 			require.NoError(t, err)
 
-			_, err = client.GetBucketTaggingWithContext(ctx, &s3.GetBucketTaggingInput{
-				Bucket: aws.String(bucketName),
+			_, err = client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{
+				Bucket: new(bucketName),
 			})
 			requireS3Error(t, err, http.StatusNotFound, "NoSuchTagSet")
 
-			_, err = client.DeleteBucketTaggingWithContext(ctx, &s3.DeleteBucketTaggingInput{
-				Bucket: aws.String(bucketName),
+			_, err = client.DeleteBucketTagging(ctx, &s3.DeleteBucketTaggingInput{
+				Bucket: new(bucketName),
 			})
 			require.NoError(t, err) // delete returns success even if there are no tags
 		})
 
 		t.Run("Basic", func(t *testing.T) {
-			expectedTags := []*s3.Tag{
+			expectedTags := []types.Tag{
 				{
-					Key:   aws.String("abcdeABCDE01234+-./:=@_"),
-					Value: aws.String("_@=:/.-+fghijFGHIJ56789"),
+					Key:   new("abcdeABCDE01234+-./:=@_"),
+					Value: new("_@=:/.-+fghijFGHIJ56789"),
 				},
 				{
-					Key:   aws.String(string([]rune{'Ա', 'א', 'ء', 'ऄ', 'ঀ', '٠', '०', '০'})),
-					Value: aws.String(string([]rune{'ֆ', 'ת', 'ي', 'ह', 'হ', '٩', '९', '৯'})),
+					Key:   new(string([]rune{'Ա', 'א', 'ء', 'ऄ', 'ঀ', '٠', '०', '০'})),
+					Value: new(string([]rune{'ֆ', 'ת', 'ي', 'ह', 'হ', '٩', '९', '৯'})),
 				},
 				{
-					Key:   aws.String("key"),
-					Value: aws.String("value"),
+					Key:   new("key"),
+					Value: new("value"),
 				},
 			}
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
 					TagSet: expectedTags,
 				},
 			})
@@ -163,13 +163,13 @@ func TestBucketTagging(t *testing.T) {
 		})
 
 		t.Run("Tag key too long", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{
 						{
-							Key:   aws.String(string(testrand.RandAlphaNumeric(129))),
-							Value: aws.String("value"),
+							Key:   new(string(testrand.RandAlphaNumeric(129))),
+							Value: new("value"),
 						},
 					},
 				},
@@ -178,13 +178,13 @@ func TestBucketTagging(t *testing.T) {
 		})
 
 		t.Run("Tag value too long", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{
 						{
-							Key:   aws.String("key"),
-							Value: aws.String(string(testrand.RandAlphaNumeric(257))),
+							Key:   new("key"),
+							Value: new(string(testrand.RandAlphaNumeric(257))),
 						},
 					},
 				},
@@ -193,17 +193,17 @@ func TestBucketTagging(t *testing.T) {
 		})
 
 		t.Run("Duplicate tag key", func(t *testing.T) {
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
-					TagSet: []*s3.Tag{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
+					TagSet: []types.Tag{
 						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value1"),
+							Key:   new("key1"),
+							Value: new("value1"),
 						},
 						{
-							Key:   aws.String("key1"),
-							Value: aws.String("value2"),
+							Key:   new("key1"),
+							Value: new("value2"),
 						},
 					},
 				},
@@ -212,18 +212,18 @@ func TestBucketTagging(t *testing.T) {
 		})
 
 		t.Run("Too many tags", func(t *testing.T) {
-			var tooManyTags []*s3.Tag
+			var tooManyTags []types.Tag
 
 			for range 51 {
-				tooManyTags = append(tooManyTags, &s3.Tag{
-					Key:   aws.String(string(testrand.RandAlphaNumeric(32))),
-					Value: aws.String(string(testrand.RandAlphaNumeric(32))),
+				tooManyTags = append(tooManyTags, types.Tag{
+					Key:   new(string(testrand.RandAlphaNumeric(32))),
+					Value: new(string(testrand.RandAlphaNumeric(32))),
 				})
 			}
 
-			_, err := client.PutBucketTaggingWithContext(ctx, &s3.PutBucketTaggingInput{
-				Bucket: aws.String(bucketName),
-				Tagging: &s3.Tagging{
+			_, err := client.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
+				Bucket: new(bucketName),
+				Tagging: &types.Tagging{
 					TagSet: tooManyTags,
 				},
 			})

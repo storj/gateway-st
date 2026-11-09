@@ -11,7 +11,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/common/errs2"
@@ -66,63 +67,60 @@ func TestConditionalWriteHeaders(t *testing.T) {
 		}
 
 		doPutRequest := func(ctx context.Context, bucket, key string, body io.ReadSeeker, ifNoneMatch string) error {
-			req, _ := client.PutObjectRequest(&s3.PutObjectInput{
-				Bucket: new(bucket),
-				Key:    new(key),
-				Body:   body,
+			_, err := client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket:      new(bucket),
+				Key:         new(key),
+				Body:        body,
+				IfNoneMatch: new(ifNoneMatch),
 			})
-			req.SetContext(ctx)
-			req.HTTPRequest.Header.Set("If-None-Match", ifNoneMatch)
-			return req.Send()
+			return err
 		}
 
 		doCopyRequest := func(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, ifNoneMatch string) error {
-			req, _ := client.CopyObjectRequest(&s3.CopyObjectInput{
-				Bucket:     new(dstBucket),
-				Key:        new(dstKey),
-				CopySource: new(srcBucket + "/" + srcKey),
+			_, err := client.CopyObject(ctx, &s3.CopyObjectInput{
+				Bucket:      new(dstBucket),
+				Key:         new(dstKey),
+				CopySource:  new(srcBucket + "/" + srcKey),
+				IfNoneMatch: new(ifNoneMatch),
 			})
-			req.SetContext(ctx)
-			req.HTTPRequest.Header.Set("If-None-Match", ifNoneMatch)
-			return req.Send()
+			return err
 		}
 
-		newUpload := func(bucket, key string, body io.ReadSeeker) (*string, []*s3.CompletedPart) {
-			uploadResp, err := client.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+		newUpload := func(bucket, key string, body io.ReadSeeker) (*string, []types.CompletedPart) {
+			uploadResp, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 				Bucket: new(bucket),
 				Key:    new(key),
 			})
 			require.NoError(t, err)
 
-			partResp, err := client.UploadPartWithContext(ctx, &s3.UploadPartInput{
+			partResp, err := client.UploadPart(ctx, &s3.UploadPartInput{
 				Bucket:     new(bucket),
 				Key:        new(key),
-				PartNumber: new(int64(1)),
+				PartNumber: new(int32(1)),
 				UploadId:   uploadResp.UploadId,
 				Body:       body,
 			})
 			require.NoError(t, err)
 
-			return uploadResp.UploadId, []*s3.CompletedPart{
+			return uploadResp.UploadId, []types.CompletedPart{
 				{
-					PartNumber: new(int64(1)),
+					PartNumber: new(int32(1)),
 					ETag:       partResp.ETag,
 				},
 			}
 		}
 
-		completeUpload := func(bucket, key string, uploadID *string, completedParts []*s3.CompletedPart, ifNoneMatch string) error {
-			req, _ := client.CompleteMultipartUploadRequest(&s3.CompleteMultipartUploadInput{
+		completeUpload := func(bucket, key string, uploadID *string, completedParts []types.CompletedPart, ifNoneMatch string) error {
+			_, err := client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
 				Bucket:   new(bucket),
 				Key:      new(key),
 				UploadId: uploadID,
-				MultipartUpload: &s3.CompletedMultipartUpload{
+				MultipartUpload: &types.CompletedMultipartUpload{
 					Parts: completedParts,
 				},
+				IfNoneMatch: new(ifNoneMatch),
 			})
-			req.SetContext(ctx)
-			req.HTTPRequest.Header.Set("If-None-Match", ifNoneMatch)
-			return req.Send()
+			return err
 		}
 
 		runSubTest("Unimplemented PutObject", func(t *testing.T, bucket, key string) {
