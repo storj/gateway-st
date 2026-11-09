@@ -25,6 +25,7 @@ import (
 	"storj.io/common/sync2"
 	"storj.io/common/version"
 	"storj.io/eventkit"
+	"storj.io/gateway/api/objectlayer"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -414,6 +415,31 @@ func (layer *gatewayLayer) ListBuckets(ctx context.Context) (items []minio.Bucke
 		items = append(items, minio.BucketInfo{
 			Name:    info.Name,
 			Created: info.Created,
+		})
+	}
+	if buckets.Err() != nil {
+		return nil, ConvertError(buckets.Err(), "", "")
+	}
+	return items, nil
+}
+
+// ListBucketsWithAttribution is ListBuckets with the attribution that the satellite has for each
+// bucket.
+func (layer *gatewayLayer) ListBucketsWithAttribution(ctx context.Context) (items []objectlayer.BucketWithAttributionInfo, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	project, err := projectFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	buckets := bucket.ListBucketsWithAttribution(ctx, project, nil)
+	for buckets.Next() {
+		info := buckets.Item()
+		items = append(items, objectlayer.BucketWithAttributionInfo{
+			Name:        info.Name,
+			Created:     info.Created,
+			Attribution: info.Attribution,
 		})
 	}
 	if buckets.Err() != nil {

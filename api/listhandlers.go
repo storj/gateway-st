@@ -510,6 +510,31 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	api.writeSuccessResponseXML(w, r, resp)
 }
 
+// ListBucketsWithAttributionHandler is the HTTP handler for Storj's ListBucketsWithAttribution
+// extension, which lists the buckets owned by the requester with each bucket's attribution.
+func (api *API) ListBucketsWithAttributionHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := cmd.NewContext(r, w, "ListBucketsWithAttribution")
+
+	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	buckets, err := api.objectAPI.ListBucketsWithAttribution(ctx)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	resp, err := encodeResponse(generateListBucketsWithAttributionResponse(buckets))
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeSuccessResponseXML(w, r, resp)
+}
+
 // ListPartsHandler is the HTTP handler for the ListParts operation, which lists the parts that
 // have been uploaded for a multipart upload.
 func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {

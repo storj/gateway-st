@@ -156,6 +156,24 @@ type listBucketsResponse struct {
 	Prefix            string `xml:"Prefix,omitempty"`
 }
 
+// listBucketsWithAttributionResponse is the response of Storj's ListBucketsWithAttribution
+// extension, which is cmd.ListBucketsResponse with each bucket's attribution.
+type listBucketsWithAttributionResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListAllMyBucketsResult"`
+
+	Owner   cmd.Owner
+	Buckets struct {
+		Buckets []bucketWithAttribution `xml:"Bucket"`
+	}
+}
+
+// bucketWithAttribution is cmd.Bucket with its attribution.
+type bucketWithAttribution struct {
+	Name         string
+	CreationDate string
+	Attribution  string
+}
+
 // taggingResponse is tags.Tags with a namespace and its tags sorted by key. tags.Tags encodes
 // them in map order.
 type taggingResponse struct {

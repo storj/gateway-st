@@ -812,6 +812,26 @@ func generateListBucketsResponse(bucketInfos []objectlayer.BucketInfo, prefix, c
 	return resp
 }
 
+func generateListBucketsWithAttributionResponse(buckets []objectlayer.BucketWithAttributionInfo) listBucketsWithAttributionResponse {
+	resp := listBucketsWithAttributionResponse{
+		Owner: cmd.Owner{
+			ID:          defaultOwnerID,
+			DisplayName: defaultOwnerDisplayName,
+		},
+	}
+	resp.Buckets.Buckets = make([]bucketWithAttribution, 0, len(buckets))
+
+	for _, b := range buckets {
+		resp.Buckets.Buckets = append(resp.Buckets.Buckets, bucketWithAttribution{
+			Name:         b.Name,
+			CreationDate: b.Created.UTC().Format(iso8601Milli),
+			Attribution:  b.Attribution,
+		})
+	}
+
+	return resp
+}
+
 func generateCopyObjectPartResponse(partInfo objectlayer.PartInfo) cmd.CopyObjectPartResponse {
 	return cmd.CopyObjectPartResponse{
 		ETag:         "\"" + partInfo.ETag + "\"",

@@ -30,6 +30,7 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/common/uuid"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
@@ -297,6 +298,52 @@ func TestGetBucketLocation(t *testing.T) {
 		location, err = locator.GetBucketLocation(ctx, testBucketB)
 		require.NoError(t, err)
 		assert.Equal(t, "Poland", location)
+	})
+}
+
+func TestListBucketsWithAttribution(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, UplinkCount: 1,
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		// The satellite attributes a bucket to the user agent of the project that creates it.
+		attributedProject, err := uplink.Config{UserAgent: "app/1.0"}.OpenProject(tCtx, upl.Access[sat.ID()])
+		require.NoError(t, err)
+		defer tCtx.Check(attributedProject.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
+
+		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		require.NoError(t, err)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+
+		// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare it.
+		lister, ok := layer.(objectlayer.ObjectLayer)
+		require.True(t, ok)
+
+		buckets, err := lister.ListBucketsWithAttribution(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, buckets)
+
+		_, err = attributedProject.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+		_, err = project.CreateBucket(ctx, testBucketB)
+		require.NoError(t, err)
+
+		buckets, err = lister.ListBucketsWithAttribution(ctx)
+		require.NoError(t, err)
+		require.Len(t, buckets, 2)
+		attributions := make(map[string]string)
+		for _, b := range buckets {
+			assert.False(t, b.Created.IsZero(), b.Name)
+			attributions[b.Name] = b.Attribution
+		}
+		assert.Equal(t, map[string]string{testBucket: "app/1.0", testBucketB: ""}, attributions)
 	})
 }
 

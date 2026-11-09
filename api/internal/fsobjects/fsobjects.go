@@ -568,6 +568,19 @@ func (l *Layer) ListBuckets(ctx context.Context) ([]objectlayer.BucketInfo, erro
 	return buckets, nil
 }
 
+// ListBucketsWithAttribution lists all buckets, which have no attribution.
+func (l *Layer) ListBucketsWithAttribution(ctx context.Context) ([]objectlayer.BucketWithAttributionInfo, error) {
+	infos, err := l.ListBuckets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]objectlayer.BucketWithAttributionInfo, 0, len(infos))
+	for _, info := range infos {
+		buckets = append(buckets, objectlayer.BucketWithAttributionInfo{Name: info.Name, Created: info.Created})
+	}
+	return buckets, nil
+}
+
 // DeleteBucket deletes a bucket. Like miniogw, a bucket that only has pending multipart uploads is
 // deleted with them.
 func (l *Layer) DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error {

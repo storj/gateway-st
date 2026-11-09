@@ -286,7 +286,8 @@ func (gw *testGateway) serve(t *testing.T, access *uplink.Access) (address, acce
 	require.NoError(t, err)
 
 	router := mux.NewRouter()
-	// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare GetBucketLocation.
+	// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare the api package's
+	// additions to it, such as GetBucketLocation.
 	api.New(gw.layer.(objectlayer.ObjectLayer), credentialsProvider{accessKey: secretKey}, api.Config{},
 		api.WithLogger(api.NewZapLogger(gw.planet.Log().Named("api")))).RegisterHandlers(router)
 	// miniogw finds the project in the request's context, like edge's middleware puts it.

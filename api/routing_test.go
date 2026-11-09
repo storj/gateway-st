@@ -463,6 +463,11 @@ func TestSubresourceRouting(t *testing.T) {
 		{method: http.MethodGet, target: "/", want: "ListBucketsHandler"},
 		{method: http.MethodGet, target: "/?retention", want: "501 NotImplemented"},
 
+		// The root path: Storj's extensions, whose keys aren't subresources elsewhere.
+		{method: http.MethodGet, target: "/?attribution", want: "ListBucketsWithAttributionHandler"},
+		{method: http.MethodPut, target: "/?attribution", want: notAllowed},
+		{method: http.MethodGet, target: "/bucket?attribution", want: "ListObjectsHandler"},
+
 		// Bucket paths: multipart parameters need a key.
 		{method: http.MethodPut, target: "/bucket?partNumber=1&uploadId=x", want: keyRequired},
 		{method: http.MethodGet, target: "/bucket?uploadId=x", want: keyRequired},

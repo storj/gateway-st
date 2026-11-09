@@ -1071,6 +1071,27 @@ func TestListBuckets(t *testing.T) {
 	}
 }
 
+func TestListBucketsWithAttribution(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listBucketsWithAttr: func(context.Context) ([]objectlayer.BucketWithAttributionInfo, error) {
+			return []objectlayer.BucketWithAttributionInfo{{Name: "attributed", Attribution: "app/1.0"}, {Name: "plain"}}, nil
+		},
+	}
+	const date = "<CreationDate>0001-01-01T00:00:00.000Z</CreationDate>"
+
+	resp := serve(t, objectAPI, http.MethodGet, "/?attribution", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, `<ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+	require.Contains(t, resp.Body, "<Buckets>"+
+		"<Bucket><Name>attributed</Name>"+date+"<Attribution>app/1.0</Attribution></Bucket>"+
+		"<Bucket><Name>plain</Name>"+date+"<Attribution></Attribution></Bucket>"+
+		"</Buckets>")
+
+	resp = serve(t, &fakeObjectLayer{err: cmd.SlowDown{}}, http.MethodGet, "/?attribution", nil, nil)
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>SlowDown</Code>")
+}
+
 func TestHeadBucketRegionAndPolicyStatus(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{

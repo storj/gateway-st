@@ -30,6 +30,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"storj.io/minio/cmd"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -40,7 +41,7 @@ import (
 )
 
 // ObjectLayer is the storage backend of the api package. It's the subset of minio's
-// cmd.ObjectLayer that the api package uses, plus GetBucketLocation.
+// cmd.ObjectLayer that the api package uses, plus GetBucketLocation and Storj's extensions.
 type ObjectLayer interface {
 	MakeBucketWithLocation(ctx context.Context, bucket string, opts BucketOptions) error
 	GetBucketInfo(ctx context.Context, bucket string) (BucketInfo, error)
@@ -48,6 +49,9 @@ type ObjectLayer interface {
 	// handlers don't ask their object layer for it.
 	GetBucketLocation(ctx context.Context, bucket string) (string, error)
 	ListBuckets(ctx context.Context) ([]BucketInfo, error)
+	// ListBucketsWithAttribution, Storj's extension, is ListBuckets with the attribution that the
+	// satellite has for each bucket.
+	ListBucketsWithAttribution(ctx context.Context) ([]BucketWithAttributionInfo, error)
 	DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error
 
 	ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (ListObjectsInfo, error)
@@ -127,6 +131,14 @@ type (
 	DefaultRetention = objectlock.DefaultRetention
 	LegalHoldStatus  = objectlock.LegalHoldStatus
 )
+
+// BucketWithAttributionInfo is a bucket and its attribution, which is empty for a bucket without
+// one.
+type BucketWithAttributionInfo struct {
+	Name        string
+	Created     time.Time
+	Attribution string
+}
 
 // MaxObjectKeyLength is the longest object key in bytes that the object layers write, like S3:
 // miniogw refuses longer keys on PutObject, the destination of CopyObject, CreateMultipartUpload and
