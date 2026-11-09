@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 )
 
@@ -42,7 +43,7 @@ func (l *postObjectLayer) PutObject(ctx context.Context, bucket, object string, 
 
 // postObject sends a SigV4-signed browser POST upload. The signing fields are added to both the
 // form and the policy conditions.
-func postObject(t *testing.T, objectAPI cmd.ObjectLayer, target string, conditions []any, fields [][2]string, file string) response {
+func postObject(t *testing.T, objectAPI objectlayer.ObjectLayer, target string, conditions []any, fields [][2]string, file string) response {
 	t.Helper()
 
 	now := time.Now().UTC()
@@ -152,7 +153,7 @@ func TestPostObjectContentLengthRange(t *testing.T) {
 }
 
 func TestPostObjectMetadata(t *testing.T) {
-	upload := func(objectAPI cmd.ObjectLayer, fields ...[2]string) response {
+	upload := func(objectAPI objectlayer.ObjectLayer, fields ...[2]string) response {
 		conditions := []any{map[string]string{"bucket": "bucket"}}
 		for _, f := range fields {
 			conditions = append(conditions, map[string]string{f[0]: f[1]})

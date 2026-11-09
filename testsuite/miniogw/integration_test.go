@@ -40,6 +40,7 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/gateway/api"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	miniocmd "storj.io/minio/cmd"
 	"storj.io/minio/pkg/auth"
@@ -280,7 +281,8 @@ func (gw *testGateway) serve(t *testing.T, access *uplink.Access) (address, acce
 	require.NoError(t, err)
 
 	router := mux.NewRouter()
-	api.New(gw.layer, credentialsProvider{accessKey: secretKey}, api.Config{},
+	// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare GetBucketLocation.
+	api.New(gw.layer.(objectlayer.ObjectLayer), credentialsProvider{accessKey: secretKey}, api.Config{},
 		api.WithLogger(api.NewZapLogger(gw.planet.Log().Named("api")))).RegisterHandlers(router)
 	// miniogw finds the project in the request's context, like edge's middleware puts it.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

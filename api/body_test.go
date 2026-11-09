@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
@@ -270,7 +271,7 @@ func TestConnectionCloseLikeS3(t *testing.T) {
 		name, method, target string
 		header               http.Header
 		body                 []byte
-		layer                cmd.ObjectLayer
+		layer                objectlayer.ObjectLayer
 		status               int
 		closed               bool
 	}{

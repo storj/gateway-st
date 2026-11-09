@@ -33,6 +33,7 @@ import (
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 )
@@ -60,6 +61,7 @@ type fakeObjectLayer struct {
 	calls []string
 
 	listBuckets             func(ctx context.Context) ([]cmd.BucketInfo, error)
+	getBucketLocation       func(ctx context.Context, bucket string) (string, error)
 	getObjectInfo           func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
 	getObjectNInfo          func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
 	copyObject              func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error)
@@ -98,6 +100,13 @@ func (f *fakeObjectLayer) ListBuckets(ctx context.Context) ([]cmd.BucketInfo, er
 		return nil, err
 	}
 	return f.listBuckets(ctx)
+}
+
+func (f *fakeObjectLayer) GetBucketLocation(ctx context.Context, bucket string) (string, error) {
+	if err := f.record("GetBucketLocation"); err != nil {
+		return "", err
+	}
+	return f.getBucketLocation(ctx, bucket)
 }
 
 func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
@@ -193,7 +202,7 @@ type response struct {
 	Close bool
 }
 
-func newTestRouter(objectAPI cmd.ObjectLayer) *mux.Router {
+func newTestRouter(objectAPI objectlayer.ObjectLayer) *mux.Router {
 	router := mux.NewRouter()
 	api.New(objectAPI, testCredentialsProvider{}, api.Config{}).RegisterHandlers(router)
 	return router
@@ -201,7 +210,7 @@ func newTestRouter(objectAPI cmd.ObjectLayer) *mux.Router {
 
 // serve sends a signed request to an API backed by objectAPI and returns the response.
 // The request body is an in-memory reader; use serveHTTP where body delivery matters.
-func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, header http.Header, body []byte) response {
+func serve(t *testing.T, objectAPI objectlayer.ObjectLayer, method, target string, header http.Header, body []byte) response {
 	t.Helper()
 
 	router := newTestRouter(objectAPI)
@@ -231,7 +240,7 @@ func serve(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, heade
 // serveHTTP is like serve, but sends the request over a real connection to an
 // httptest.Server, so the handler reads a production net/http request body.
 // To sign a payload other than body, set X-Amz-Content-Sha256 in header.
-func serveHTTP(t *testing.T, objectAPI cmd.ObjectLayer, method, target string, header http.Header, body []byte) response {
+func serveHTTP(t *testing.T, objectAPI objectlayer.ObjectLayer, method, target string, header http.Header, body []byte) response {
 	t.Helper()
 
 	srv := httptest.NewServer(newTestRouter(objectAPI))
@@ -2251,7 +2260,7 @@ func newDeleteObjectsLayer() *fakeObjectLayer {
 
 // TestDeleteObjectsLikeS3 checks the responses that S3 returned for the same requests.
 func TestDeleteObjectsLikeS3(t *testing.T) {
-	deleteObjects := func(objectAPI cmd.ObjectLayer, body string, header http.Header) response {
+	deleteObjects := func(objectAPI objectlayer.ObjectLayer, body string, header http.Header) response {
 		header = header.Clone()
 		if header == nil {
 			header = http.Header{}

@@ -537,6 +537,17 @@ func (l *Layer) GetBucketInfo(ctx context.Context, bucket string) (objectlayer.B
 	return objectlayer.BucketInfo{Name: bucket, Created: meta.Created}, nil
 }
 
+// GetBucketLocation returns the default location, "", for an existing bucket.
+func (l *Layer) GetBucketLocation(ctx context.Context, bucket string) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if _, err := l.readBucket(bucket); err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
 // ListBuckets lists all buckets.
 func (l *Layer) ListBuckets(ctx context.Context) ([]objectlayer.BucketInfo, error) {
 	l.mu.Lock()

@@ -22,6 +22,7 @@ import (
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
@@ -570,6 +571,31 @@ func TestGetBucketAcl(t *testing.T) {
 	require.Contains(t, resp.Body, "<ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Grantee>")
 }
 
+func TestGetBucketLocation(t *testing.T) {
+	locations := map[string]string{"placed": "Poland", "default": ""}
+	objectAPI := &fakeObjectLayer{
+		getBucketLocation: func(_ context.Context, bucket string) (string, error) {
+			location, ok := locations[bucket]
+			if !ok {
+				return "", cmd.BucketNotFound{Bucket: bucket}
+			}
+			return location, nil
+		},
+	}
+
+	resp := serve(t, objectAPI, http.MethodGet, "/placed?location", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, `<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">Poland</LocationConstraint>`)
+
+	resp = serve(t, objectAPI, http.MethodGet, "/default?location", nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, `<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></LocationConstraint>`)
+
+	resp = serve(t, objectAPI, http.MethodGet, "/missing?location", nil, nil)
+	require.Equal(t, http.StatusNotFound, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>NoSuchBucket</Code>")
+}
+
 // TestListMaxKeysClamped checks that at most 1000 entries are listed, while the requested max-keys
 // is echoed like S3.
 func TestListMaxKeysClamped(t *testing.T) {
@@ -1082,7 +1108,7 @@ func TestHeadBucketRegion(t *testing.T) {
 
 // TestObjectLockMessagesLikeS3 checks the messages that S3 returned for the same object lock errors.
 func TestObjectLockMessagesLikeS3(t *testing.T) {
-	put := func(objectAPI cmd.ObjectLayer, target, body string) response {
+	put := func(objectAPI objectlayer.ObjectLayer, target, body string) response {
 		return serve(t, objectAPI, http.MethodPut, target, http.Header{"Content-Md5": {base64MD5([]byte(body))}}, []byte(body))
 	}
 	rule := func(retention string) string {

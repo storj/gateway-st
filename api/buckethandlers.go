@@ -69,8 +69,9 @@ const (
 	xAmzChecksumPrefix = "X-Amz-Checksum-"
 	nullVersionID      = "null"
 
-	// bucketRegion is the region of every bucket. GetBucketLocation reports it as an empty
-	// LocationConstraint, which means us-east-1.
+	// bucketRegion is the region that HeadBucket and ListBuckets report for every bucket. SDKs use
+	// it as an AWS region, so it isn't the location of the bucket's placement, which
+	// GetBucketLocation reports.
 	bucketRegion = "us-east-1"
 )
 
@@ -488,8 +489,6 @@ func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetBucketLocationHandler is the HTTP handler for the GetBucketLocation operation,
 // which returns the location that a bucket resides in.
-//
-// This is a dummy handler. It always returns an empty Location response.
 func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "GetBucketLocation")
 
@@ -500,12 +499,13 @@ func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if _, err := api.objectAPI.GetBucketInfo(ctx, bucketName); err != nil {
+	location, err := api.objectAPI.GetBucketLocation(ctx, bucketName)
+	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
 
-	resp, err := encodeResponse(cmd.LocationResponse{})
+	resp, err := encodeResponse(cmd.LocationResponse{Location: location})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

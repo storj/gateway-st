@@ -40,10 +40,13 @@ import (
 )
 
 // ObjectLayer is the storage backend of the api package. It's the subset of minio's
-// cmd.ObjectLayer that the api package uses.
+// cmd.ObjectLayer that the api package uses, plus GetBucketLocation.
 type ObjectLayer interface {
 	MakeBucketWithLocation(ctx context.Context, bucket string, opts BucketOptions) error
 	GetBucketInfo(ctx context.Context, bucket string) (BucketInfo, error)
+	// GetBucketLocation returns the bucket's location, or "" for the default location. minio's
+	// handlers don't ask their object layer for it.
+	GetBucketLocation(ctx context.Context, bucket string) (string, error)
 	ListBuckets(ctx context.Context) ([]BucketInfo, error)
 	DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error
 

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 )
@@ -1148,7 +1149,7 @@ func TestPresignedV2QueryHeaders(t *testing.T) {
 
 	// put sends a SigV2 presigned PUT to resource with headers in the query, signed like botocore's
 	// HmacV1QueryAuth signs them.
-	put := func(objectAPI cmd.ObjectLayer, resource string, headers map[string]string, body []byte) *httptest.ResponseRecorder {
+	put := func(objectAPI objectlayer.ObjectLayer, resource string, headers map[string]string, body []byte) *httptest.ResponseRecorder {
 		expires := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 		query := url.Values{"AWSAccessKeyId": {testAccessKeyID}, "Expires": {expires}}
 		var amzHeaders []string
