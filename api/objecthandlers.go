@@ -2216,11 +2216,7 @@ func (w *keepAliveWriter) start(ctx context.Context, interval time.Duration) (st
 // writeErrorResponseAfterKeepAlive writes an error response to a client that has already been
 // sent a status code and an XML header by a keepAliveWriter.
 func (api *API) writeErrorResponseAfterKeepAlive(w http.ResponseWriter, r *http.Request, err error) {
-	resp, matched := errToResponse(err)
-	if !matched {
-		api.log.Error(r, "unexpected error", err)
-		resp, _ = apierr.CodeInternal.ToResponse()
-	}
+	resp := api.errorResponse(r, err, nil)
 
 	encodedResp, err := xml.Marshal(newErrorResponse(w, r, resp))
 	if err != nil {

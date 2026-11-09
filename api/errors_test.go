@@ -9,8 +9,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -47,6 +49,9 @@ func TestStorageErrorTranslation(t *testing.T) {
 		{cmd.InvalidPart{}, "InvalidPart", http.StatusBadRequest},
 		{cmd.InvalidRange{}, "InvalidRange", http.StatusRequestedRangeNotSatisfiable},
 		{cmd.InvalidArgument{}, "InvalidArgument", http.StatusBadRequest},
+		// Satellite or storage node requests that were canceled or timed out.
+		{context.Canceled, "RequestTimeout", http.StatusServiceUnavailable},
+		{context.DeadlineExceeded, "RequestTimeout", http.StatusServiceUnavailable},
 	} {
 		for variant, err := range storageErrors(tt.err) {
 			t.Run(tt.code+"/"+variant, func(t *testing.T) {
@@ -54,6 +59,34 @@ func TestStorageErrorTranslation(t *testing.T) {
 				require.Equal(t, tt.status, resp.StatusCode, resp.Body)
 				require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code>")
 			})
+		}
+	}
+}
+
+// TestClientDisconnected checks that an error caused by the client going away is reported as
+// that, like minio's handlers, with and without a body.
+func TestClientDisconnected(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		ctx, cancel := context.WithCancel(t.Context())
+		objectAPI := &fakeObjectLayer{
+			getObjectNInfo: func(ctx context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, _ cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+				cancel()
+				return nil, ctx.Err()
+			},
+			getObjectInfo: func(ctx context.Context, _, _ string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				cancel()
+				return cmd.ObjectInfo{}, ctx.Err()
+			},
+		}
+
+		req := httptest.NewRequestWithContext(ctx, method, "/bucket/key", nil)
+		signV4(req, nil, time.Now())
+		rec := httptest.NewRecorder()
+		newTestRouter(objectAPI).ServeHTTP(rec, req)
+
+		require.Equal(t, 499, rec.Code, method)
+		if method == http.MethodGet {
+			require.Contains(t, rec.Body.String(), "<Code>ClientDisconnected</Code>")
 		}
 	}
 }

@@ -22,6 +22,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -172,17 +173,7 @@ func (api *API) writeErrorResponse(w http.ResponseWriter, r *http.Request, err e
 }
 
 func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Request, err error, fallbackErr error) {
-	resp, matched := errToResponse(err)
-	if !matched && fallbackErr != nil {
-		resp, matched = errToResponse(fallbackErr)
-	}
-	if !matched {
-		api.log.Error(r, "unexpected error", err)
-		// It's safe to ignore the second return value (whether a corresponding response exists)
-		// because apierr.Code constants and their responses are generated together. A defined
-		// apierr.Code constant is guaranteed to have a defined response.
-		resp, _ = apierr.CodeInternal.ToResponse()
-	}
+	resp := api.errorResponse(r, err, fallbackErr)
 
 	// A body that failed verification may not be framed as its headers say: a body longer than its
 	// Content-Length leaves bytes that would be read as the start of the next request on the
@@ -208,8 +199,35 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 	api.writeResponse(w, r, resp.HTTPStatusCode, encodedResp, mimeXML)
 }
 
-// errorResponse is the XML body of an S3 error response.
-type errorResponse struct {
+// errorResponse returns the response to r for err, or for fallbackErr if err has none.
+func (api *API) errorResponse(r *http.Request, err, fallbackErr error) apierr.Response {
+	// Like minio's handlers, whatever failed when the client went away is reported as that.
+	if errors.Is(r.Context().Err(), context.Canceled) {
+		return minioAPIErrorResponse(cmd.ErrClientDisconnected)
+	}
+
+	resp, matched := errToResponse(err)
+	if !matched && fallbackErr != nil {
+		resp, matched = errToResponse(fallbackErr)
+	}
+	if !matched {
+		api.log.Error(r, "unexpected error", err)
+		// It's safe to ignore the second return value (whether a corresponding response exists)
+		// because apierr.Code constants and their responses are generated together. A defined
+		// apierr.Code constant is guaranteed to have a defined response.
+		resp, _ = apierr.CodeInternal.ToResponse()
+	}
+	return resp
+}
+
+// minioAPIErrorResponse returns the response of a minio API error code.
+func minioAPIErrorResponse(code cmd.APIErrorCode) apierr.Response {
+	apiErr := cmd.GetAPIError(code)
+	return apierr.Response{Code: apiErr.Code, Description: apiErr.Description, HTTPStatusCode: apiErr.HTTPStatusCode}
+}
+
+// errorXML is the XML body of an S3 error response.
+type errorXML struct {
 	XMLName    xml.Name `xml:"Error"`
 	Code       string
 	Message    string
@@ -228,13 +246,13 @@ type errorResponse struct {
 	MaxSizeAllowed   string `xml:",omitempty"`
 }
 
-func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Response) errorResponse {
+func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Response) errorXML {
 	vars := mux.Vars(r)
 	objectKey, err := unescapePath(vars["object"])
 	if err != nil {
 		objectKey = ""
 	}
-	return errorResponse{
+	return errorXML{
 		Code:       resp.Code,
 		Message:    resp.Description,
 		BucketName: vars["bucket"],
@@ -254,11 +272,7 @@ func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Respon
 }
 
 func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWriter, err error) {
-	resp, matched := errToResponse(err)
-	if !matched {
-		api.log.Error(r, "unexpected error", err)
-		resp, _ = apierr.CodeInternal.ToResponse()
-	}
+	resp := api.errorResponse(r, err, nil)
 	api.writeResponse(w, r, resp.HTTPStatusCode, nil, mimeNone)
 }
 
@@ -383,12 +397,7 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 	}
 
 	if code, ok := minioErrToAPIErrorCode(err); ok {
-		apiErr := cmd.GetAPIError(code)
-		resp := apierr.Response{
-			Code:           apiErr.Code,
-			Description:    apiErr.Description,
-			HTTPStatusCode: apiErr.HTTPStatusCode,
-		}
+		resp := minioAPIErrorResponse(code)
 		// Keep the object layer's explanation where the generic message would lose it.
 		if e := (objectlayer.NotImplemented{}); errors.As(err, &e) && e.Message != "" {
 			resp.Description = e.Message
@@ -402,8 +411,13 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 	}
 
 	if errors.As(err, new(incompleteBodyError)) {
-		apiErr := cmd.GetAPIError(cmd.ErrIncompleteBody)
-		return apierr.Response{Code: apiErr.Code, Description: apiErr.Description, HTTPStatusCode: apiErr.HTTPStatusCode}, true
+		return minioAPIErrorResponse(cmd.ErrIncompleteBody), true
+	}
+
+	// miniogw returns these unchanged when a satellite or storage node request is canceled or
+	// times out, which minio's handlers report as a timeout.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return minioAPIErrorResponse(cmd.ErrOperationTimedOut), true
 	}
 
 	// io.EOF isn't mapped here, because the object layer can return it too. Handlers that decode an
