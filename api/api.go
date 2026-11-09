@@ -206,6 +206,11 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	notVirtualHosted := func(r *http.Request, _ *mux.RouteMatch) bool {
 		return !isVirtualHostedHost(hostname(r), domains)
 	}
+	// Like S3, a path-style request whose path starts with an extra slash addresses an empty bucket
+	// name, which is invalid. minio's handlers answered GET // with ListBuckets.
+	apiRouter.PathPrefix("//").MatcherFunc(notVirtualHosted).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.writeErrorResponse(w, r, objectlayer.BucketNameInvalid{})
+	})
 	pathStyleRouter := apiRouter.PathPrefix("/{bucket}").MatcherFunc(notVirtualHosted).Subrouter()
 	pathStyleRouter.Use(api.unescapeBucket)
 	subrouters = append(subrouters, bucketSubrouter{Router: pathStyleRouter})

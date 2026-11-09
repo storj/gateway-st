@@ -49,6 +49,23 @@ func TestUnsupportedSubresourceDoesNotDeleteBucket(t *testing.T) {
 	}
 }
 
+// TestEmptyBucketNameLikeS3 checks S3's answers for path-style requests with an extra slash.
+func TestEmptyBucketNameLikeS3(t *testing.T) {
+	for _, tt := range []struct {
+		method, target string
+	}{
+		{http.MethodGet, "//"},
+		{http.MethodGet, "///"},
+		{http.MethodHead, "//"},
+	} {
+		resp := serve(t, &fakeObjectLayer{}, tt.method, tt.target, nil, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode, tt.method+" "+tt.target)
+		if tt.method == http.MethodGet {
+			require.Contains(t, resp.Body, "<Code>InvalidBucketName</Code><Message>The specified bucket is not valid.</Message>")
+		}
+	}
+}
+
 func TestRequestPathIsNotCleaned(t *testing.T) {
 	var gotKey string
 	objectAPI := &fakeObjectLayer{
