@@ -14,8 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api"
+	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 )
 
@@ -87,6 +90,33 @@ func TestClientDisconnected(t *testing.T) {
 		require.Equal(t, 499, rec.Code, method)
 		if method == http.MethodGet {
 			require.Contains(t, rec.Body.String(), "<Code>ClientDisconnected</Code>")
+		}
+	}
+}
+
+func TestSlowDownRetryAfter(t *testing.T) {
+	for _, tt := range []struct {
+		retryAfter time.Duration
+		err        error
+		expected   string
+	}{
+		{6 * time.Second, miniogw.ErrSlowDown, "6"},
+		{1500 * time.Millisecond, miniogw.ErrSlowDown, "2"},
+		{6 * time.Second, cmd.SlowDown{}, "6"},
+		{0, miniogw.ErrSlowDown, ""},
+		{6 * time.Second, cmd.ObjectNotFound{}, ""},
+	} {
+		router := mux.NewRouter()
+		api.New(&fakeObjectLayer{err: tt.err}, testCredentialsProvider{}, api.Config{SlowDownRetryAfter: tt.retryAfter}).RegisterHandlers(router)
+
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			req := httptest.NewRequestWithContext(t.Context(), method, "/bucket/key", nil)
+			signV4(req, nil, time.Now())
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			require.NotEqual(t, http.StatusOK, rec.Code)
+			require.Equal(t, tt.expected, rec.Header().Get("Retry-After"), "%s %v %v", method, tt.retryAfter, tt.err)
 		}
 	}
 }

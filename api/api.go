@@ -31,6 +31,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/amwolff/awsig"
@@ -50,6 +51,11 @@ type Config struct {
 	// longer one wins: b.s3.example.com addresses bucket b, so a bucket named b.s3 can't be
 	// addressed under example.com.
 	Domains []string
+
+	// SlowDownRetryAfter is sent, rounded up to whole seconds, in the Retry-After header of
+	// SlowDown errors, which minio's handlers send STORJ_MINIO_RETRY_AFTER in. It isn't sent
+	// when zero.
+	SlowDownRetryAfter time.Duration
 }
 
 // AuthData contains additional auth data provided by awsig.CredentialsProvider.

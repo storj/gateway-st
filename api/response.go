@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -174,6 +175,7 @@ func (api *API) writeErrorResponse(w http.ResponseWriter, r *http.Request, err e
 
 func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Request, err error, fallbackErr error) {
 	resp := api.errorResponse(r, err, fallbackErr)
+	api.setRetryAfter(w, resp)
 
 	// A body that failed verification may not be framed as its headers say: a body longer than its
 	// Content-Length leaves bytes that would be read as the start of the next request on the
@@ -218,6 +220,15 @@ func (api *API) errorResponse(r *http.Request, err, fallbackErr error) apierr.Re
 		resp, _ = apierr.CodeInternal.ToResponse()
 	}
 	return resp
+}
+
+// setRetryAfter tells the client when to retry the request if resp is a SlowDown error.
+func (api *API) setRetryAfter(w http.ResponseWriter, resp apierr.Response) {
+	if resp.Code != "SlowDown" || api.config.SlowDownRetryAfter <= 0 {
+		return
+	}
+	seconds := int64(math.Ceil(api.config.SlowDownRetryAfter.Seconds()))
+	w.Header().Set(xhttp.RetryAfter, strconv.FormatInt(seconds, 10))
 }
 
 // minioAPIErrorResponse returns the response of a minio API error code.
@@ -273,6 +284,7 @@ func newErrorResponse(w http.ResponseWriter, r *http.Request, resp apierr.Respon
 
 func (api *API) writeErrorResponseHeadersOnly(r *http.Request, w http.ResponseWriter, err error) {
 	resp := api.errorResponse(r, err, nil)
+	api.setRetryAfter(w, resp)
 	api.writeResponse(w, r, resp.HTTPStatusCode, nil, mimeNone)
 }
 
