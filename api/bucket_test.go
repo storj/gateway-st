@@ -627,6 +627,49 @@ func TestBucketWebsiteLikeS3(t *testing.T) {
 	}
 }
 
+func TestGetBucketCors(t *testing.T) {
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		getBucketInfo: func(_ context.Context, bucket string) (cmd.BucketInfo, error) {
+			if bucket != "bucket" {
+				return cmd.BucketInfo{}, cmd.BucketNotFound{Bucket: bucket}
+			}
+			return cmd.BucketInfo{Name: bucket}, nil
+		},
+	}
+	get := func(config api.Config, target string) response {
+		router := mux.NewRouter()
+		api.New(objectAPI, testCredentialsProvider{}, config).RegisterHandlers(router)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+		signV4(req, nil, time.Now())
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return response{StatusCode: rec.Code, Body: rec.Body.String()}
+	}
+
+	// Like S3 for a bucket without a CORS configuration.
+	resp := get(api.Config{}, "/bucket?cors")
+	require.Equal(t, http.StatusNotFound, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>NoSuchCORSConfiguration</Code><Message>The CORS configuration does not exist</Message>")
+
+	cors := &api.CORSConfiguration{Rules: []api.CORSRule{{
+		AllowedHeaders: []string{"*"},
+		AllowedMethods: []string{http.MethodGet, http.MethodPut},
+		AllowedOrigins: []string{"https://a.example", "https://b.example/?a&b"},
+		ExposeHeaders:  []string{"*"},
+	}}}
+	resp = get(api.Config{CORS: cors}, "/bucket?cors")
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, `<CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><CORSRule>`+
+		`<AllowedHeader>*</AllowedHeader><AllowedMethod>GET</AllowedMethod><AllowedMethod>PUT</AllowedMethod>`+
+		`<AllowedOrigin>https://a.example</AllowedOrigin><AllowedOrigin>https://b.example/?a&amp;b</AllowedOrigin>`+
+		`<ExposeHeader>*</ExposeHeader></CORSRule></CORSConfiguration>`)
+
+	resp = get(api.Config{CORS: cors}, "/missing?cors")
+	require.Equal(t, http.StatusNotFound, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>NoSuchBucket</Code>")
+}
+
 // TestListMaxKeysClamped checks that at most 1000 entries are listed, while the requested max-keys
 // is echoed like S3.
 func TestListMaxKeysClamped(t *testing.T) {

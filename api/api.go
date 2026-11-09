@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"net/url"
@@ -52,10 +53,29 @@ type Config struct {
 	// addressed under example.com.
 	Domains []string
 
+	// CORS is reported by GetBucketCors for every bucket, for a gateway that answers CORS requests
+	// for all buckets itself, like edge does. Without it, GetBucketCors answers
+	// NoSuchCORSConfiguration like S3 for a bucket without one.
+	CORS *CORSConfiguration
+
 	// SlowDownRetryAfter is sent, rounded up to whole seconds, in the Retry-After header of
 	// SlowDown errors, which minio's handlers send STORJ_MINIO_RETRY_AFTER in. It isn't sent
 	// when zero.
 	SlowDownRetryAfter time.Duration
+}
+
+// CORSConfiguration is a bucket's Cross-Origin Resource Sharing configuration.
+type CORSConfiguration struct {
+	XMLName xml.Name   `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CORSConfiguration"`
+	Rules   []CORSRule `xml:"CORSRule"`
+}
+
+// CORSRule is a rule of a CORSConfiguration, whose elements S3 sends in this order.
+type CORSRule struct {
+	AllowedHeaders []string `xml:"AllowedHeader"`
+	AllowedMethods []string `xml:"AllowedMethod"`
+	AllowedOrigins []string `xml:"AllowedOrigin"`
+	ExposeHeaders  []string `xml:"ExposeHeader"`
 }
 
 // AuthData contains additional auth data provided by awsig.CredentialsProvider.

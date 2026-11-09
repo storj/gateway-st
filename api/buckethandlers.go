@@ -472,9 +472,7 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetBucketCorsHandler is the HTTP handler for the GetBucketCors operation,
-// which returns a bucket's Cross-Origin Resource Sharing (CORS) configuration.
-//
-// This is a dummy handler. It always returns a NoSuchCORSConfiguration error.
+// which returns a bucket's Cross-Origin Resource Sharing (CORS) configuration, Config.CORS.
 func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := cmd.NewContext(r, w, "GetBucketCors")
 
@@ -490,7 +488,18 @@ func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	api.writeErrorResponse(w, r, apierr.CodeNoSuchCORSConfiguration)
+	if api.config.CORS == nil {
+		api.writeErrorResponse(w, r, apierr.CodeNoSuchCORSConfiguration)
+		return
+	}
+
+	resp, err := encodeResponse(api.config.CORS)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	api.writeSuccessResponseXML(w, r, resp)
 }
 
 // GetBucketWebsiteHandler is the HTTP handler for the GetBucketWebsite operation, which returns a
