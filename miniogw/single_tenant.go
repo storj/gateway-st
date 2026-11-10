@@ -250,11 +250,6 @@ func (l *singleTenancyLayer) PutObjectPart(ctx context.Context, bucket, object, 
 	return info, l.log(err)
 }
 
-func (l *singleTenancyLayer) GetMultipartInfo(ctx context.Context, bucket string, object string, uploadID string, opts minio.ObjectOptions) (info minio.MultipartInfo, err error) {
-	info, err = l.layer.GetMultipartInfo(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, opts)
-	return info, l.log(err)
-}
-
 func (l *singleTenancyLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
 	result, err = l.layer.ListObjectParts(WithCredentials(ctx, l.project, l.credentialsInfo), bucket, object, uploadID, partNumberMarker, maxParts, opts)
 	return result, l.log(err)
