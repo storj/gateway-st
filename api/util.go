@@ -204,7 +204,7 @@ func validateTaggingHeader(header string) (string, error) {
 	// url.ParseQuery merges duplicate keys, so the pairs are split manually.
 	tagMap := make(map[string]string)
 	var pairs []string
-	for _, pair := range strings.Split(header, "&") {
+	for pair := range strings.SplitSeq(header, "&") {
 		if pair == "" {
 			continue
 		}

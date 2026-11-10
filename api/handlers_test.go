@@ -232,9 +232,7 @@ func serve(t *testing.T, objectAPI objectlayer.ObjectLayer, method, target strin
 	router := newTestRouter(objectAPI)
 
 	req := httptest.NewRequestWithContext(t.Context(), method, target, bytes.NewReader(body))
-	for k, v := range header {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, header)
 	signV4(req, body, time.Now())
 
 	rec := httptest.NewRecorder()
@@ -264,9 +262,7 @@ func serveHTTP(t *testing.T, objectAPI objectlayer.ObjectLayer, method, target s
 
 	req, err := http.NewRequestWithContext(t.Context(), method, srv.URL+target, bytes.NewReader(body))
 	require.NoError(t, err)
-	for k, v := range header {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, header)
 	signV4(req, body, time.Now())
 
 	resp, err := srv.Client().Do(req)

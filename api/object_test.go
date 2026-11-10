@@ -11,6 +11,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -652,9 +653,7 @@ func TestCopyObjectStorageClass(t *testing.T) {
 		for _, directive := range []string{"COPY", "REPLACE"} {
 			gotMetadata = nil
 			header := http.Header{"X-Amz-Copy-Source": {"/bucket/key"}, "X-Amz-Metadata-Directive": {directive}}
-			for k, v := range tt.header {
-				header[k] = v
-			}
+			maps.Copy(header, tt.header)
 			resp := serve(t, objectAPI, http.MethodPut, tt.target, header, nil)
 			require.Equal(t, tt.expStatus, resp.StatusCode, "%s %s: %s", directive, tt.target, resp.Body)
 			if tt.expStatus == http.StatusOK {
