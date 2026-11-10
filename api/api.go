@@ -147,6 +147,36 @@ func WithMiddleware(middleware ...mux.MiddlewareFunc) Option {
 	}
 }
 
+// ErrorCodeTag is the key of the tag of the request's ReqInfo that holds the code of its error
+// response, such as NoSuchKey.
+const ErrorCodeTag = "error_code"
+
+// newContext fills in the request's ReqInfo for its operation and returns a context with it.
+// cmd.NewContext would put a new ReqInfo in the context, which middleware outside the API couldn't
+// read.
+func newContext(r *http.Request, w http.ResponseWriter) context.Context {
+	filled := logger.GetReqInfo(cmd.NewContext(r, w, Operation(r)))
+	reqInfo := logger.GetReqInfo(r.Context())
+	reqInfo.RemoteHost = filled.RemoteHost
+	reqInfo.Host = filled.Host
+	reqInfo.UserAgent = filled.UserAgent
+	reqInfo.DeploymentID = filled.DeploymentID
+	reqInfo.RequestID = filled.RequestID
+	reqInfo.API = filled.API
+	reqInfo.BucketName = filled.BucketName
+	reqInfo.ObjectName = filled.ObjectName
+	return logger.SetReqInfo(r.Context(), reqInfo)
+}
+
+// fillReqInfo fills in the request's ReqInfo before WithMiddleware's middleware runs, so that a
+// request it answers, such as one it limits, has its operation, bucket and object too. Handlers fill
+// it in again after unescapeBucket.
+func fillReqInfo(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(newContext(r, w)))
+	})
+}
+
 // Operation returns the S3 operation, such as GetObject, that r is routed to, or "" if it isn't
 // routed to one, such as when its route only answers an error.
 func Operation(r *http.Request) string {
@@ -157,6 +187,10 @@ func Operation(r *http.Request) string {
 }
 
 // RegisterHandlers registers S3-compatible HTTP handlers on the provided router.
+//
+// Middleware outside the API that puts a ReqInfo from storj.io/minio/cmd/logger in the request's
+// context can read it after the handler returns. The handlers fill it in, with the code of an
+// error response in its ErrorCodeTag tag, and call the object layer with it.
 func (api *API) RegisterHandlers(router *mux.Router) {
 	// Like S3 and awsig, ';' is part of a query key or value rather than a separator, but the
 	// Queries matchers split on it and url.ParseQuery rejects it. Middleware runs only after routing,
@@ -182,7 +216,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	router.SkipClean(true)
 	apiRouter.SkipClean(true)
 
-	apiRouter.Use(requestIDMiddleware, api.rejectMalformedQuery)
+	apiRouter.Use(requestIDMiddleware, api.rejectMalformedQuery, fillReqInfo)
 	apiRouter.Use(api.middleware...)
 
 	// Middleware only runs for matched routes, so these handlers set the request ID themselves.
@@ -405,8 +439,11 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		requestID := strings.ToUpper(hex.EncodeToString(id[:]))
 		w.Header().Set(xhttp.AmzRequestID, requestID)
 		w.Header().Set(amzID2, base64.StdEncoding.EncodeToString(hostID[:]))
-		// Handlers log with the request, so the request ID must be in its context.
-		r = r.WithContext(logger.SetReqInfo(r.Context(), &logger.ReqInfo{RequestID: requestID}))
+		// Handlers log with the request, so the request ID must be in its context. A ReqInfo that
+		// middleware outside the API put there is reused, so that it can read what handlers fill in.
+		reqInfo := logger.GetReqInfo(r.Context())
+		reqInfo.RequestID = requestID
+		r = r.WithContext(logger.SetReqInfo(r.Context(), reqInfo))
 		if r.Body != nil && r.Body != http.NoBody {
 			body := &trackedBody{ReadCloser: r.Body, contentLength: r.ContentLength}
 			r.Body = body

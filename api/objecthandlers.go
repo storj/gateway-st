@@ -69,7 +69,7 @@ const (
 // PutObjectAclHandler is the HTTP handler for the PutObjectAcl operation,
 // which sets an object's access control list.
 func (api *API) PutObjectAclHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutObjectAcl")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -159,7 +159,7 @@ func checkACL(h http.Header, body []byte) error {
 // PutObjectLegalHoldHandler is the HTTP handler for the PutObjectLegalHold operation,
 // which sets an object's legal hold configuration.
 func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutObjectLegalHold")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -204,7 +204,7 @@ func (api *API) PutObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 // PutObjectRetentionHandler is the HTTP handler for the PutObjectRetention operation,
 // which sets an object's retention configuration.
 func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutObjectRetention")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -261,7 +261,7 @@ func (api *API) PutObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 // PutObjectTaggingHandler is the HTTP handler for the PutObjectTagging operation,
 // which places a set of tags on an object.
 func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutObjectTagging")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -317,7 +317,7 @@ func (api *API) PutObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 // UploadPartHandler is the HTTP handler for the UploadPart operation, which uploads a part
 // of a multipart upload.
 func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "UploadPart")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -392,7 +392,7 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 // UploadPartCopyHandler is the HTTP handler for the UploadPartCopyHandler operation,
 // which uploads a part of a multipart upload using an existing object as a data source.
 func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "UploadPartCopy")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	dstBucket := vars["bucket"]
@@ -528,7 +528,7 @@ func (api *API) UploadPartCopyHandler(w http.ResponseWriter, r *http.Request) {
 
 // PutObjectHandler is the HTTP handler for the PutObject operation, which uploads an object.
 func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutObject")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -643,7 +643,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 // This is a dummy handler. It always returns a default access control list
 // because we do not support placing them on objects.
 func (api *API) GetObjectAclHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObjectAcl")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -700,7 +700,7 @@ func (api *API) GetObjectAclHandler(w http.ResponseWriter, r *http.Request) {
 // GetObjectAttributesHandler is the HTTP handler for the GetObjectAttributes operation,
 // which returns an object's metadata.
 func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObjectAttributes")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -830,7 +830,7 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 // GetObjectLegalHoldHandler is the HTTP handler for the GetObjectLegalHold operation,
 // which returns an object's legal hold configuration.
 func (api *API) GetObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObjectLegalHold")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -874,7 +874,7 @@ func (api *API) GetObjectLegalHoldHandler(w http.ResponseWriter, r *http.Request
 // GetObjectTaggingHandler is the HTTP handler for the GetObjectTagging operation,
 // which returns the set of tags associated with an object.
 func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObjectTagging")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -923,7 +923,7 @@ func (api *API) GetObjectTaggingHandler(w http.ResponseWriter, r *http.Request) 
 // GetObjectRetentionHandler is the HTTP handler for the GetObjectRetention operation,
 // which returns an object's retention configuration.
 func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObjectRetention")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -969,7 +969,7 @@ func (api *API) GetObjectRetentionHandler(w http.ResponseWriter, r *http.Request
 
 // GetObjectHandler is the HTTP handler for the GetObject operation, which downloads an object.
 func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObject")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1126,7 +1126,7 @@ func (w *deferredStatusWriter) Write(p []byte) (int, error) {
 // HeadObjectHandler is the HTTP handler for the HeadObject operation, which returns an object's
 // metadata without its data.
 func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "HeadObject")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1432,7 +1432,7 @@ func isETagEqual(a, b string) bool {
 // DeleteObjectHandler is the HTTP handler for the DeleteObject operation, which deletes an object
 // or one of its versions.
 func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "DeleteObject")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1484,7 +1484,7 @@ func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
 // DeleteObjectTaggingHandler is the HTTP handler for the DeleteObjectTagging operation,
 // which removes the set of tags that have been placed on an object.
 func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "DeleteObjectTagging")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1521,7 +1521,7 @@ func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Reques
 // CopyObjectHandler is the HTTP handler for the CopyObject operation, which creates a copy of an
 // existing object.
 func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "CopyObject")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	dstBucket := vars["bucket"]
@@ -1807,7 +1807,7 @@ func (api *API) checkCopyPreconditions(w http.ResponseWriter, r *http.Request, s
 // CreateMultipartUploadHandler is the HTTP handler for the CreateMultipartUpload operation,
 // which initiates a multipart upload.
 func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "CreateMultipartUpload")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -1987,7 +1987,7 @@ func decodeCompleteMultipartUpload(body awsig.Reader) (cmd.CompleteMultipartUplo
 // CompleteMultipartUploadHandler is the HTTP handler for the CompleteMultipartUpload operation,
 // which completes a multipart upload by assembling its parts.
 func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "CompleteMultipartUpload")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
@@ -2231,7 +2231,7 @@ func (api *API) writeErrorResponseAfterKeepAlive(w http.ResponseWriter, r *http.
 // AbortMultipartUploadHandler is the HTTP handler for the AbortMultipartUpload operation,
 // which aborts a multipart upload.
 func (api *API) AbortMultipartUploadHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "AbortMultipartUpload")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]

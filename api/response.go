@@ -45,6 +45,7 @@ import (
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
+	"storj.io/minio/cmd/logger"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
 	"storj.io/minio/pkg/event"
@@ -207,8 +208,11 @@ func (api *API) writeErrorResponseWithFallback(w http.ResponseWriter, r *http.Re
 	api.writeResponse(w, r, resp.HTTPStatusCode, encodedResp, mimeXML)
 }
 
-// errorResponse returns the response to r for err, or for fallbackErr if err has none.
-func (api *API) errorResponse(r *http.Request, err, fallbackErr error) apierr.Response {
+// errorResponse returns the response to r for err, or for fallbackErr if err has none, and records
+// its code in r's ReqInfo.
+func (api *API) errorResponse(r *http.Request, err, fallbackErr error) (resp apierr.Response) {
+	defer func() { logger.GetReqInfo(r.Context()).SetTags(ErrorCodeTag, resp.Code) }()
+
 	// Like minio's handlers, whatever failed when the client went away is reported as that.
 	if errors.Is(r.Context().Err(), context.Canceled) {
 		return minioAPIErrorResponse(cmd.ErrClientDisconnected)

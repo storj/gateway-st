@@ -78,7 +78,7 @@ const (
 
 // CreateBucketHandler is the HTTP handler for the CreateBucket operation, which creates a bucket.
 func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "CreateBucket")
+	ctx := newContext(r, w)
 
 	bucket := mux.Vars(r)["bucket"]
 
@@ -152,7 +152,7 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 // PutBucketAclHandler is the HTTP handler for the PutBucketAcl operation,
 // which sets a bucket's access control list.
 func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucketAcl")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -186,7 +186,7 @@ func (api *API) PutBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 // PutBucketNotificationConfigurationHandler is the HTTP handler for the PutBucketNotificationConfiguration
 // operation, which sets a bucket's notification configuration.
 func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucketNotificationConfiguration")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -224,7 +224,7 @@ func (api *API) PutBucketNotificationConfigurationHandler(w http.ResponseWriter,
 // PutObjectLockConfigurationHandler is the HTTP handler for the PutObjectLockConfiguration
 // operation, which places an Object Lock configuration on a bucket.
 func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutObjectLockConfiguration")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -267,7 +267,7 @@ func (api *API) PutObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 // PutBucketTaggingHandler is the HTTP handler for the PutBucketTagging operation,
 // which places a set of tags on a bucket.
 func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucketTagging")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -305,7 +305,7 @@ func (api *API) PutBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 // PutBucketVersioningHandler is the HTTP handler for the PutBucketVersioning operation,
 // which sets a bucket's object versioning configuration.
 func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PutBucketVersioning")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -372,7 +372,7 @@ func (api *API) PutBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 // HeadBucketHandler is the HTTP handler for the HeadBucket operation, which checks if a bucket can be accessed.
 func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "HeadBucket")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -406,7 +406,7 @@ func (api *API) HeadBucketHandler(w http.ResponseWriter, r *http.Request) {
 // This is a dummy handler. It always returns an empty Transfer Acceleration configuration
 // because we do not support placing them on buckets.
 func (api *API) GetBucketAccelerateHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketAccelerate")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -430,7 +430,7 @@ func (api *API) GetBucketAccelerateHandler(w http.ResponseWriter, r *http.Reques
 // This is a dummy handler. It always returns a default access control list
 // because we do not support placing them on buckets.
 func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketAcl")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -474,7 +474,7 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 // GetBucketCorsHandler is the HTTP handler for the GetBucketCors operation,
 // which returns a bucket's Cross-Origin Resource Sharing (CORS) configuration, Config.CORS.
 func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketCors")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -505,7 +505,7 @@ func (api *API) GetBucketCorsHandler(w http.ResponseWriter, r *http.Request) {
 // GetBucketWebsiteHandler is the HTTP handler for the GetBucketWebsite operation, which returns a
 // bucket's website configuration. Buckets don't have one.
 func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketWebsite")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -527,7 +527,7 @@ func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) 
 // bucket exists, and answers 204 like minio's handlers and S3's documentation. S3's answer wasn't
 // compared, because it needs the s3:DeleteBucketWebsite permission.
 func (api *API) DeleteBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "DeleteBucketWebsite")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -547,7 +547,7 @@ func (api *API) DeleteBucketWebsiteHandler(w http.ResponseWriter, r *http.Reques
 // GetBucketLocationHandler is the HTTP handler for the GetBucketLocation operation,
 // which returns the location that a bucket resides in.
 func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketLocation")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -576,7 +576,7 @@ func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request)
 //
 // This is a dummy handler. It always returns an empty Location response.
 func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketLogging")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -597,7 +597,7 @@ func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) 
 // GetBucketNotificationConfigurationHandler is the HTTP handler for the GetBucketNotificationConfiguration
 // operation, which returns a bucket's notification configuration.
 func (api *API) GetBucketNotificationConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketNotificationConfiguration")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -625,7 +625,7 @@ func (api *API) GetBucketNotificationConfigurationHandler(w http.ResponseWriter,
 // GetObjectLockConfigurationHandler is the HTTP handler for the GetObjectLockConfiguration operation,
 // which sets a bucket's Object Lock configuration.
 func (api *API) GetObjectLockConfigurationHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetObjectLockConfiguration")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -655,7 +655,7 @@ func (api *API) GetObjectLockConfigurationHandler(w http.ResponseWriter, r *http
 //
 // This is a dummy handler. It always returns a result indicating that a bucket is not public.
 func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketPolicyStatus")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -686,7 +686,7 @@ func (api *API) GetBucketPolicyStatusHandler(w http.ResponseWriter, r *http.Requ
 //
 // This is a dummy handler. It always returns an empty Requester Pays configuration.
 func (api *API) GetBucketRequestPaymentHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketRequestPayment")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -707,7 +707,7 @@ func (api *API) GetBucketRequestPaymentHandler(w http.ResponseWriter, r *http.Re
 // GetBucketTaggingHandler is the HTTP handler for the GetBucketTagging operation,
 // which returns the set of tags associated with a bucket.
 func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketTagging")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -734,7 +734,7 @@ func (api *API) GetBucketTaggingHandler(w http.ResponseWriter, r *http.Request) 
 // GetBucketVersioningHandler is the HTTP handler for the GetBucketVersioning operation,
 // which returns a bucket's versioning configuration.
 func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "GetBucketVersioning")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -761,7 +761,7 @@ func (api *API) GetBucketVersioningHandler(w http.ResponseWriter, r *http.Reques
 
 // PostObjectHandler uploads an object to a bucket using an HTML form with a policy document.
 func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "PostObject")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -969,7 +969,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 // DeleteObjectsHandler is the HTTP handler for the DeleteObject operation, which deletes multiple objects
 // from a bucket.
 func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "DeleteObjects")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -1175,7 +1175,7 @@ func requestedVersionID(versionID string, requested bool) *string {
 
 // DeleteBucketHandler is the HTTP handler for the DeleteBucket operation, which deletes a bucket.
 func (api *API) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "DeleteBucket")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -1205,7 +1205,7 @@ func (api *API) DeleteBucketHandler(w http.ResponseWriter, r *http.Request) {
 // DeleteBucketTaggingHandler is the HTTP handler for the DeleteBucketTagging operation,
 // which removes the set of tags that have been placed on a bucket.
 func (api *API) DeleteBucketTaggingHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "DeleteBucketTagging")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 

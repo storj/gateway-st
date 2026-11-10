@@ -32,7 +32,6 @@ import (
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/gateway/api/objectlayer"
-	"storj.io/minio/cmd"
 	xhttp "storj.io/minio/cmd/http"
 )
 
@@ -44,7 +43,7 @@ const (
 
 // ListObjectsHandler is the HTTP handler for the ListObjects operation, which lists the objects in a bucket.
 func (api *API) ListObjectsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListObjects")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -172,7 +171,7 @@ func validateEncodingType(encodingType string) error {
 
 // ListObjectsV2Handler is the HTTP handler for the ListObjectsV2 operation, which lists the objects in a bucket.
 func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListObjectsV2")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -269,7 +268,7 @@ func getListObjectsV2Params(values url.Values) (params listObjectsV2Params, err 
 // ListObjectVersionsHandler is the HTTP handler for the ListObjectVersions operation,
 // which lists the object versions in a bucket.
 func (api *API) ListObjectVersionsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListObjectVersions")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -351,7 +350,7 @@ func getListObjectVersionsParams(values url.Values) (params listObjectVersionsPa
 // ListMultipartUploadsHandler is the HTTP handler for the ListMultipartUploads operation,
 // which lists the incomplete multipart uploads in a bucket.
 func (api *API) ListMultipartUploadsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListMultipartUploads")
+	ctx := newContext(r, w)
 
 	bucketName := mux.Vars(r)["bucket"]
 
@@ -447,7 +446,7 @@ func getListMultipartUploadsParams(values url.Values) (params listMultipartUploa
 // ListBucketsHandler is the HTTP handler for the ListBuckets operation,
 // which lists the buckets owned by the requester.
 func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListBuckets")
+	ctx := newContext(r, w)
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -513,7 +512,7 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 // ListBucketsWithAttributionHandler is the HTTP handler for Storj's ListBucketsWithAttribution
 // extension, which lists the buckets owned by the requester with each bucket's attribution.
 func (api *API) ListBucketsWithAttributionHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListBucketsWithAttribution")
+	ctx := newContext(r, w)
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -539,7 +538,7 @@ func (api *API) ListBucketsWithAttributionHandler(w http.ResponseWriter, r *http
 // licenses of the licenseType parameter that the requester's account has for the bucket
 // parameter.
 func (api *API) ListLicensesHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListLicenses")
+	ctx := newContext(r, w)
 
 	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -565,7 +564,7 @@ func (api *API) ListLicensesHandler(w http.ResponseWriter, r *http.Request) {
 // ListPartsHandler is the HTTP handler for the ListParts operation, which lists the parts that
 // have been uploaded for a multipart upload.
 func (api *API) ListPartsHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := cmd.NewContext(r, w, "ListParts")
+	ctx := newContext(r, w)
 
 	vars := mux.Vars(r)
 	bucketName := vars["bucket"]
