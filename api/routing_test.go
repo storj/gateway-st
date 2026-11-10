@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"testing"
 	"time"
@@ -20,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
+	"storj.io/gateway/api/apierr"
 	"storj.io/minio/cmd"
 )
 
@@ -523,4 +526,82 @@ func TestMissingDateHeaderIsAccessDenied(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "<Code>AccessDenied</Code>")
 	require.Contains(t, rec.Body.String(), "AWS authentication requires a valid Date or x-amz-date header")
+}
+
+// TestRoutesAreNamedAfterOperations checks that each route to a handler is named after the
+// handler's operation, which Operation returns, and that routes that only answer an error aren't
+// named.
+func TestRoutesAreNamedAfterOperations(t *testing.T) {
+	handlerName := regexp.MustCompile(`\(\*API\)\.(\w+)Handler-fm$`)
+	var handlers int
+	require.NoError(t, newTestRouter(&fakeObjectLayer{}).Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
+		handler := route.GetHandler()
+		if handler == nil {
+			return nil
+		}
+		name := runtime.FuncForPC(reflect.ValueOf(handler).Pointer()).Name()
+		if m := handlerName.FindStringSubmatch(name); m != nil {
+			handlers++
+			require.Equal(t, m[1], route.GetName(), name)
+		} else {
+			require.Empty(t, route.GetName(), name)
+		}
+		return nil
+	}))
+	require.NotZero(t, handlers)
+}
+
+// TestWithMiddleware checks that middleware sees the operation and request ID of a routed request
+// and can answer it instead of its handler, like edge's concurrency limiter.
+func TestWithMiddleware(t *testing.T) {
+	objectAPI := &fakeObjectLayer{
+		listBuckets: func(context.Context) ([]cmd.BucketInfo, error) { return nil, nil },
+	}
+	var operations []string
+	var s3API *api.API
+	s3API = api.New(objectAPI, testCredentialsProvider{}, api.Config{SlowDownRetryAfter: time.Second},
+		api.WithMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.NotEmpty(t, w.Header().Get("X-Amz-Request-Id"))
+				operations = append(operations, api.Operation(r))
+				if api.Operation(r) == "PutObject" {
+					s3API.WriteErrorResponse(w, r, apierr.Response{
+						Code:           "SlowDown",
+						Description:    "Please reduce your request rate.",
+						HTTPStatusCode: http.StatusTooManyRequests,
+					})
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}))
+	router := mux.NewRouter()
+	s3API.RegisterHandlers(router)
+
+	serve := func(method, target string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), method, target, nil)
+		if method == http.MethodPut {
+			req.Header.Set("Content-Length", "0")
+		}
+		signV4(req, nil, time.Now())
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := serve(http.MethodGet, "/")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = serve(http.MethodPut, "/bucket/key")
+	require.Equal(t, http.StatusTooManyRequests, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Code>SlowDown</Code>")
+	require.Contains(t, rec.Body.String(), "<RequestId>"+rec.Header().Get("X-Amz-Request-Id")+"</RequestId>")
+	require.Equal(t, "1", rec.Header().Get("Retry-After"))
+
+	// A route that only answers an error has no operation, and an unrouted request has no route.
+	require.Equal(t, http.StatusBadRequest, serve(http.MethodGet, "/bucket?uploadId=x").Code)
+	require.Equal(t, http.StatusMethodNotAllowed, serve(http.MethodGet, "/bucket/key?torrent").Code)
+
+	require.Equal(t, []string{"ListBuckets", "PutObject", ""}, operations)
+	require.Equal(t, []string{"ListBuckets"}, objectAPI.Calls())
 }

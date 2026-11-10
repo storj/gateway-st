@@ -89,7 +89,8 @@ type API struct {
 	objectAPI objectlayer.ObjectLayer
 	verifier  verifier
 
-	config Config
+	config     Config
+	middleware []mux.MiddlewareFunc
 }
 
 // New constructs a new S3-compatible HTTP API.
@@ -138,6 +139,23 @@ func (v verifier) Verify(r *http.Request, virtualHostedBucket string) (awsig.Ver
 // Option is an option for constructing an API.
 type Option func(*API)
 
+// WithMiddleware adds middleware that runs for each routed request, after its request ID is set and
+// before its handler. With Operation and WriteErrorResponse, it can limit some operations.
+func WithMiddleware(middleware ...mux.MiddlewareFunc) Option {
+	return func(api *API) {
+		api.middleware = append(api.middleware, middleware...)
+	}
+}
+
+// Operation returns the S3 operation, such as GetObject, that r is routed to, or "" if it isn't
+// routed to one, such as when its route only answers an error.
+func Operation(r *http.Request) string {
+	if route := mux.CurrentRoute(r); route != nil {
+		return route.GetName()
+	}
+	return ""
+}
+
 // RegisterHandlers registers S3-compatible HTTP handlers on the provided router.
 func (api *API) RegisterHandlers(router *mux.Router) {
 	// Like S3 and awsig, ';' is part of a query key or value rather than a separator, but the
@@ -165,6 +183,7 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 	apiRouter.SkipClean(true)
 
 	apiRouter.Use(requestIDMiddleware, api.rejectMalformedQuery)
+	apiRouter.Use(api.middleware...)
 
 	// Middleware only runs for matched routes, so these handlers set the request ID themselves.
 	router.NotFoundHandler = requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,36 +238,36 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		// Object-level operations
 		objRouter := subrouter.Path("/{object:.+}").Subrouter()
 
-		objRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutObjectAclHandler)
-		objRouter.Methods(http.MethodPut).Queries("legal-hold", "").HandlerFunc(api.PutObjectLegalHoldHandler)
-		objRouter.Methods(http.MethodPut).Queries("retention", "").HandlerFunc(api.PutObjectRetentionHandler)
-		objRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutObjectTaggingHandler)
-		objRouter.Methods(http.MethodPut).Queries("partNumber", "", "uploadId", "").Headers(xhttp.AmzCopySource, "").HandlerFunc(api.UploadPartCopyHandler)
-		objRouter.Methods(http.MethodPut).Queries("partNumber", "", "uploadId", "").HandlerFunc(api.UploadPartHandler)
+		objRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutObjectAclHandler).Name("PutObjectAcl")
+		objRouter.Methods(http.MethodPut).Queries("legal-hold", "").HandlerFunc(api.PutObjectLegalHoldHandler).Name("PutObjectLegalHold")
+		objRouter.Methods(http.MethodPut).Queries("retention", "").HandlerFunc(api.PutObjectRetentionHandler).Name("PutObjectRetention")
+		objRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutObjectTaggingHandler).Name("PutObjectTagging")
+		objRouter.Methods(http.MethodPut).Queries("partNumber", "", "uploadId", "").Headers(xhttp.AmzCopySource, "").HandlerFunc(api.UploadPartCopyHandler).Name("UploadPartCopy")
+		objRouter.Methods(http.MethodPut).Queries("partNumber", "", "uploadId", "").HandlerFunc(api.UploadPartHandler).Name("UploadPart")
 		objRouter.Methods(http.MethodPut).Queries("partNumber", "").HandlerFunc(api.errorHandler(apierr.CodePartNumberWithoutUploadID))
-		objRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).Headers(xhttp.AmzCopySource, "").HandlerFunc(api.CopyObjectHandler)
-		objRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).HandlerFunc(api.PutObjectHandler)
+		objRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).Headers(xhttp.AmzCopySource, "").HandlerFunc(api.CopyObjectHandler).Name("CopyObject")
+		objRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).HandlerFunc(api.PutObjectHandler).Name("PutObject")
 
-		objRouter.Methods(http.MethodHead).HandlerFunc(api.HeadObjectHandler)
+		objRouter.Methods(http.MethodHead).HandlerFunc(api.HeadObjectHandler).Name("HeadObject")
 
-		objRouter.Methods(http.MethodGet).Queries("uploadId", "").HandlerFunc(api.ListPartsHandler)
-		objRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetObjectAclHandler)
-		objRouter.Methods(http.MethodGet).Queries("attributes", "").HandlerFunc(api.GetObjectAttributesHandler)
-		objRouter.Methods(http.MethodGet).Queries("legal-hold", "").HandlerFunc(api.GetObjectLegalHoldHandler)
-		objRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetObjectTaggingHandler)
-		objRouter.Methods(http.MethodGet).Queries("retention", "").HandlerFunc(api.GetObjectRetentionHandler)
-		objRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources("partNumber")).HandlerFunc(api.GetObjectHandler)
+		objRouter.Methods(http.MethodGet).Queries("uploadId", "").HandlerFunc(api.ListPartsHandler).Name("ListParts")
+		objRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetObjectAclHandler).Name("GetObjectAcl")
+		objRouter.Methods(http.MethodGet).Queries("attributes", "").HandlerFunc(api.GetObjectAttributesHandler).Name("GetObjectAttributes")
+		objRouter.Methods(http.MethodGet).Queries("legal-hold", "").HandlerFunc(api.GetObjectLegalHoldHandler).Name("GetObjectLegalHold")
+		objRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetObjectTaggingHandler).Name("GetObjectTagging")
+		objRouter.Methods(http.MethodGet).Queries("retention", "").HandlerFunc(api.GetObjectRetentionHandler).Name("GetObjectRetention")
+		objRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources("partNumber")).HandlerFunc(api.GetObjectHandler).Name("GetObject")
 
-		objRouter.Methods(http.MethodDelete).Queries("uploadId", "").HandlerFunc(api.AbortMultipartUploadHandler)
-		objRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteObjectTaggingHandler)
-		objRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteObjectHandler)
+		objRouter.Methods(http.MethodDelete).Queries("uploadId", "").HandlerFunc(api.AbortMultipartUploadHandler).Name("AbortMultipartUpload")
+		objRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteObjectTaggingHandler).Name("DeleteObjectTagging")
+		objRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteObjectHandler).Name("DeleteObject")
 
-		objRouter.Methods(http.MethodPost).Queries("uploads", "").HandlerFunc(api.CreateMultipartUploadHandler)
-		objRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.CompleteMultipartUploadHandler)
+		objRouter.Methods(http.MethodPost).Queries("uploads", "").HandlerFunc(api.CreateMultipartUploadHandler).Name("CreateMultipartUpload")
+		objRouter.Methods(http.MethodPost).Queries("uploadId", "").HandlerFunc(api.CompleteMultipartUploadHandler).Name("CompleteMultipartUpload")
 
 		// Like S3, an object's website subresource is its bucket's.
-		subrouter.Methods(http.MethodGet).Queries("website", "").HandlerFunc(api.GetBucketWebsiteHandler)
-		subrouter.Methods(http.MethodDelete).Queries("website", "").HandlerFunc(api.DeleteBucketWebsiteHandler)
+		subrouter.Methods(http.MethodGet).Queries("website", "").HandlerFunc(api.GetBucketWebsiteHandler).Name("GetBucketWebsite")
+		subrouter.Methods(http.MethodDelete).Queries("website", "").HandlerFunc(api.DeleteBucketWebsiteHandler).Name("DeleteBucketWebsite")
 
 		// Registered after the object-level operations so that they only match bucket-level requests.
 		api.registerUnsupportedHandlers(subrouter.Router)
@@ -261,47 +280,47 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 		bucketRouter.Queries("uploadId", "").HandlerFunc(api.errorHandler(apierr.CodeKeyMustBeSpecified))
 		bucketRouter.Queries("partNumber", "").HandlerFunc(api.errorHandler(apierr.CodeKeyMustBeSpecified))
 
-		bucketRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler)
-		bucketRouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler)
-		bucketRouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutObjectLockConfigurationHandler)
-		bucketRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler)
-		bucketRouter.Methods(http.MethodPut).Queries("versioning", "").HandlerFunc(api.PutBucketVersioningHandler)
-		bucketRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).HandlerFunc(api.CreateBucketHandler)
+		bucketRouter.Methods(http.MethodPut).Queries("acl", "").HandlerFunc(api.PutBucketAclHandler).Name("PutBucketAcl")
+		bucketRouter.Methods(http.MethodPut).Queries("notification", "").HandlerFunc(api.PutBucketNotificationConfigurationHandler).Name("PutBucketNotificationConfiguration")
+		bucketRouter.Methods(http.MethodPut).Queries("object-lock", "").HandlerFunc(api.PutObjectLockConfigurationHandler).Name("PutObjectLockConfiguration")
+		bucketRouter.Methods(http.MethodPut).Queries("tagging", "").HandlerFunc(api.PutBucketTaggingHandler).Name("PutBucketTagging")
+		bucketRouter.Methods(http.MethodPut).Queries("versioning", "").HandlerFunc(api.PutBucketVersioningHandler).Name("PutBucketVersioning")
+		bucketRouter.Methods(http.MethodPut).MatcherFunc(withoutSubresources()).HandlerFunc(api.CreateBucketHandler).Name("CreateBucket")
 
-		bucketRouter.Methods(http.MethodHead).HandlerFunc(api.HeadBucketHandler)
+		bucketRouter.Methods(http.MethodHead).HandlerFunc(api.HeadBucketHandler).Name("HeadBucket")
 
-		bucketRouter.Methods(http.MethodGet).Queries("accelerate", "").HandlerFunc(api.GetBucketAccelerateHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetBucketAclHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("cors", "").HandlerFunc(api.GetBucketCorsHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("location", "").HandlerFunc(api.GetBucketLocationHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("logging", "").HandlerFunc(api.GetBucketLoggingHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("notification", "").HandlerFunc(api.GetBucketNotificationConfigurationHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetObjectLockConfigurationHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("policyStatus", "").HandlerFunc(api.GetBucketPolicyStatusHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler)
-		bucketRouter.Methods(http.MethodGet).Queries("versioning", "").HandlerFunc(api.GetBucketVersioningHandler)
+		bucketRouter.Methods(http.MethodGet).Queries("accelerate", "").HandlerFunc(api.GetBucketAccelerateHandler).Name("GetBucketAccelerate")
+		bucketRouter.Methods(http.MethodGet).Queries("acl", "").HandlerFunc(api.GetBucketAclHandler).Name("GetBucketAcl")
+		bucketRouter.Methods(http.MethodGet).Queries("cors", "").HandlerFunc(api.GetBucketCorsHandler).Name("GetBucketCors")
+		bucketRouter.Methods(http.MethodGet).Queries("location", "").HandlerFunc(api.GetBucketLocationHandler).Name("GetBucketLocation")
+		bucketRouter.Methods(http.MethodGet).Queries("logging", "").HandlerFunc(api.GetBucketLoggingHandler).Name("GetBucketLogging")
+		bucketRouter.Methods(http.MethodGet).Queries("notification", "").HandlerFunc(api.GetBucketNotificationConfigurationHandler).Name("GetBucketNotificationConfiguration")
+		bucketRouter.Methods(http.MethodGet).Queries("object-lock", "").HandlerFunc(api.GetObjectLockConfigurationHandler).Name("GetObjectLockConfiguration")
+		bucketRouter.Methods(http.MethodGet).Queries("policyStatus", "").HandlerFunc(api.GetBucketPolicyStatusHandler).Name("GetBucketPolicyStatus")
+		bucketRouter.Methods(http.MethodGet).Queries("requestPayment", "").HandlerFunc(api.GetBucketRequestPaymentHandler).Name("GetBucketRequestPayment")
+		bucketRouter.Methods(http.MethodGet).Queries("tagging", "").HandlerFunc(api.GetBucketTaggingHandler).Name("GetBucketTagging")
+		bucketRouter.Methods(http.MethodGet).Queries("versioning", "").HandlerFunc(api.GetBucketVersioningHandler).Name("GetBucketVersioning")
 
-		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListMultipartUploadsHandler).Queries("uploads", "")
-		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectVersionsHandler).Queries("versions", "")
+		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListMultipartUploadsHandler).Queries("uploads", "").Name("ListMultipartUploads")
+		bucketRouter.Methods(http.MethodGet).HandlerFunc(api.ListObjectVersionsHandler).Queries("versions", "").Name("ListObjectVersions")
 		// Like S3, only a list-type of exactly 2 selects ListObjectsV2, and any other value, even an
 		// empty one, lists like ListObjects.
-		bucketRouter.Methods(http.MethodGet).MatcherFunc(isListObjectsV2).HandlerFunc(api.ListObjectsV2Handler)
-		bucketRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources("list-type")).HandlerFunc(api.ListObjectsHandler)
+		bucketRouter.Methods(http.MethodGet).MatcherFunc(isListObjectsV2).HandlerFunc(api.ListObjectsV2Handler).Name("ListObjectsV2")
+		bucketRouter.Methods(http.MethodGet).MatcherFunc(withoutSubresources("list-type")).HandlerFunc(api.ListObjectsHandler).Name("ListObjects")
 
-		bucketRouter.Methods(http.MethodPost).MatcherFunc(withoutSubresources()).HeadersRegexp(xhttp.ContentType, "(?i)^multipart/form-data").HandlerFunc(api.PostObjectHandler)
-		bucketRouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler)
+		bucketRouter.Methods(http.MethodPost).MatcherFunc(withoutSubresources()).HeadersRegexp(xhttp.ContentType, "(?i)^multipart/form-data").HandlerFunc(api.PostObjectHandler).Name("PostObject")
+		bucketRouter.Methods(http.MethodPost).Queries("delete", "").HandlerFunc(api.DeleteObjectsHandler).Name("DeleteObjects")
 
-		bucketRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler)
-		bucketRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteBucketHandler)
+		bucketRouter.Methods(http.MethodDelete).Queries("tagging", "").HandlerFunc(api.DeleteBucketTaggingHandler).Name("DeleteBucketTagging")
+		bucketRouter.Methods(http.MethodDelete).MatcherFunc(withoutSubresources()).HandlerFunc(api.DeleteBucketHandler).Name("DeleteBucket")
 	}
 
 	// Storj's extensions, which are routed before ListBuckets because their keys aren't S3
 	// subresources.
-	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("attribution", "").HandlerFunc(api.ListBucketsWithAttributionHandler)
-	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("licenses", "").HandlerFunc(api.ListLicensesHandler)
+	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("attribution", "").HandlerFunc(api.ListBucketsWithAttributionHandler).Name("ListBucketsWithAttribution")
+	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("licenses", "").HandlerFunc(api.ListLicensesHandler).Name("ListLicenses")
 
-	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListBucketsHandler)
+	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).MatcherFunc(withoutSubresources()).HandlerFunc(api.ListBucketsHandler).Name("ListBuckets")
 }
 
 // isListObjectsV2 is a matcher for requests with a list-type of 2. Like S3, it only looks at the

@@ -169,6 +169,12 @@ func (api *API) writeSuccessNoContent(w http.ResponseWriter, r *http.Request) {
 	api.writeResponse(w, r, http.StatusNoContent, nil, mimeNone)
 }
 
+// WriteErrorResponse writes the S3 error response for err, as the handlers do. err may be an
+// apierr.Response to send any code and status, such as a SlowDown with 429 Too Many Requests.
+func (api *API) WriteErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
+	api.writeErrorResponse(w, r, err)
+}
+
 func (api *API) writeErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
 	api.writeErrorResponseWithFallback(w, r, err, nil)
 }
