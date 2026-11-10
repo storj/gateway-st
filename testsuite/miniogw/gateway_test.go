@@ -795,6 +795,24 @@ func TestPutObject(t *testing.T) {
 	})
 }
 
+func TestPutObjectMetadataTooLarge(t *testing.T) {
+	t.Parallel()
+
+	runTest(t, func(t *testing.T, ctx context.Context, layer minio.ObjectLayer, project *uplink.Project) {
+		_, err := project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		hashReader, err := hash.NewDefaultReader(bytes.NewReader(nil), 0, "", "", 0)
+		require.NoError(t, err)
+
+		// Encryption makes the metadata larger than the satellite's limit.
+		_, err = layer.PutObject(ctx, testBucket, testFile, minio.NewPutObjReader(hashReader), minio.ObjectOptions{
+			UserDefined: map[string]string{"key": strings.Repeat("x", 2048)},
+		})
+		assert.Equal(t, miniogw.ErrMetadataTooLarge, err)
+	})
+}
+
 func TestPutObjectWithObjectLock(t *testing.T) {
 	t.Parallel()
 

@@ -954,7 +954,7 @@ storj.io/monkit-jaeger v0.0.0-20261105083904-1200d4f8f72d h1:I4XD6oEjpEtjSQ7xCm/
 storj.io/monkit-jaeger v0.0.0-20261105083904-1200d4f8f72d/go.mod h1:ZS8oCmCdx8/cSCbQBeT3BSAgxqoHPclTerizqn5i+Os=
 storj.io/picobuf v0.0.4 h1:qswHDla+YZ2TovGtMnU4astjvrADSIz84FXRn0qgP6o=
 storj.io/picobuf v0.0.4/go.mod h1:hSMxmZc58MS/2qSLy1I0idovlO7+6K47wIGUyRZa6mg=
-storj.io/storj v1.166.3 h1:29dmrp5L4khY3nIOG4pYwc9aDxz/ZKCosmOrz1O3B0w=
-storj.io/storj v1.166.3/go.mod h1:2GWBc4iYQ13Rd1o4D560M8eZDxe+W7hZXVC2ujVnex0=
+storj.io/storj v1.166.0-rc.0.20261111185447-b7faad1b3318 h1:If6lajYQW6Ix8FxkzoQlDvlq4BYmqJw/G4BFr4jNWyE=
+storj.io/storj v1.166.0-rc.0.20261111185447-b7faad1b3318/go.mod h1:4v7qmRISHSok4zKvwvrtlgvXm+3Gi7hy83eAqDRzhcY=
 storj.io/uplink v1.14.6-0.20261111091625-6b5dae007d6b h1:C8tbVJmGLBoHTAxSfYWPkhxvMIKsY3WNKY400mkcm28=
 storj.io/uplink v1.14.6-0.20261111091625-6b5dae007d6b/go.mod h1:OybARl7kEqK3wGbGDOGnRJhlsw2Ndz5GAuhGswNv2jo=

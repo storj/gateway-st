@@ -159,7 +159,10 @@ INTEGRATION_COMPOSE     := docker compose -p $(INTEGRATION_PROJECT)
 INTEGRATION_CREDENTIALS := $(INTEGRATION_COMPOSE) exec -T satellite-api storj-up credentials -e -s $(INTEGRATION_SATELLITE)
 
 # Storj satellite revision storj-up builds. Defaults to testsuite/go.mod's pin.
-STORJ_REF ?= $(shell awk '$$1 == "storj.io/storj" {print $$2}' testsuite/go.mod)
+STORJ_REF ?= $(shell go -C testsuite list -m -f '{{.Version}}' storj.io/storj)
+# storj-up clones main and resets to this commit, so pseudo-versions build
+# from their trailing hash. Tags pass through unchanged.
+STORJ_COMMIT = $(lastword $(subst -, ,$(STORJ_REF)))
 
 .PHONY: integration-run
 integration-run: ## Bring up the env, run all integration tests, tear it down (purges even on failure)
@@ -193,7 +196,7 @@ integration-image-build:
 	CGO_ENABLED=0 ./scripts/build-image.sh ${BUILD_NUMBER} ${GO_VERSION}
 
 	storj-up init minimal,db && \
-		storj-up build remote github minimal -b $(STORJ_REF) -c $(STORJ_REF) -s && \
+		storj-up build remote github minimal -c $(STORJ_COMMIT) -s && \
 		$(INTEGRATION_COMPOSE) build
 
 .PHONY: integration-network-create

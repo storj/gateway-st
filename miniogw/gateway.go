@@ -223,6 +223,14 @@ var (
 		StatusCode: http.StatusBadRequest,
 	}
 
+	// ErrMetadataTooLarge is returned when an object's metadata is larger than the satellite allows
+	// once encrypted.
+	ErrMetadataTooLarge = miniogo.ErrorResponse{
+		Code:       "MetadataTooLarge",
+		Message:    "Your metadata headers exceed the maximum allowed metadata size.",
+		StatusCode: http.StatusBadRequest,
+	}
+
 	// ErrObjectVersionInvalid is returned by DeleteObjects when an object version is malformed.
 	ErrObjectVersionInvalid = miniogo.ErrorResponse{
 		Code:       "InvalidVersion",
@@ -1810,6 +1818,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return ErrSlowDown
 	case errors.Is(err, versioned.ErrMethodNotAllowed):
 		return minio.MethodNotAllowed{Bucket: bucketName, Object: object}
+	case errors.Is(err, versioned.ErrMetadataTooLarge):
+		return ErrMetadataTooLarge
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		// MinIO's handlers can't tell a truncated request body from a backend error, so every
 		// io.ErrUnexpectedEOF is IncompleteBody. Err keeps the cause for the api package, which can.
