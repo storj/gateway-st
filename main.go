@@ -47,6 +47,8 @@ type GatewayFlags struct {
 	Config
 
 	Website bool `help:"serve content as a static website" default:"false" basic-help:"true"`
+
+	ExperimentalAPI bool `help:"(experimental) serve S3 requests with the api package instead of minio's handlers" default:"false"`
 }
 
 var (
@@ -202,6 +204,10 @@ func checkCfg(ctx context.Context) (err error) {
 
 // Run starts a Minio Gateway given proper config.
 func (flags GatewayFlags) Run(ctx context.Context) (err error) {
+	if flags.ExperimentalAPI {
+		return flags.runAPI(ctx)
+	}
+
 	err = minio.RegisterGatewayCommand(cli.Command{
 		Name:  "storj",
 		Usage: "Storj",
