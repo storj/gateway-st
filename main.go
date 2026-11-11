@@ -46,7 +46,7 @@ type GatewayFlags struct {
 
 	Config
 
-	Website bool `help:"serve content as a static website" default:"false" basic-help:"true"`
+	Website bool `help:"serve content as a static website, letting anyone read and list everything the access can read" default:"false" basic-help:"true"`
 
 	ExperimentalAPI bool `help:"(experimental) serve S3 requests with the api package instead of minio's handlers" default:"false"`
 }
