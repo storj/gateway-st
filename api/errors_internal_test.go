@@ -81,9 +81,8 @@ func TestAwsigErrToCode(t *testing.T) {
 		{fmt.Errorf("%w: %w", awsig.ErrInvalidChunkSize, awsig.ErrEntityTooSmall), "InvalidChunkSizeError"},
 		{fmt.Errorf("%w: %w", awsig.ErrMalformedPOSTRequest, awsig.ErrMessageTooLarge), "MaxPostPreDataLengthExceededError"},
 		{fmt.Errorf("%w: %w", awsig.ErrMalformedTrailer, io.ErrUnexpectedEOF), "MalformedTrailerError"},
-		{awsig.ErrAuthorizationQueryParametersError, "AuthorizationQueryParametersError"},
-		{awsig.ErrInvalidChecksumRequest, "InvalidRequest"},
-		{awsig.ErrUnsignedHeader, "AccessDenied"},
+		{fmt.Errorf("%w: %w", awsig.ErrAuthorizationQueryParametersError, awsig.ErrAuthorizationHeaderMalformed), "AuthorizationQueryParametersError"},
+		{fmt.Errorf("%w: %w", awsig.ErrUnsignedHeader, awsig.ErrMissingSecurityHeader), "AccessDenied"},
 		{awsig.ErrInvalidArgument, "InvalidArgument"},
 	} {
 		resp, ok := errToResponse(tt.err)

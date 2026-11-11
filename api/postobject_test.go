@@ -45,8 +45,14 @@ func (l *postObjectLayer) PutObject(ctx context.Context, bucket, object string, 
 // form and the policy conditions.
 func postObject(t *testing.T, objectAPI objectlayer.ObjectLayer, target string, conditions []any, fields [][2]string, file string) response {
 	t.Helper()
+	return postObjectAt(t, objectAPI, target, conditions, fields, file, time.Now())
+}
 
-	now := time.Now().UTC()
+// postObjectAt is like postObject, but signs the upload as of now.
+func postObjectAt(t *testing.T, objectAPI objectlayer.ObjectLayer, target string, conditions []any, fields [][2]string, file string, now time.Time) response {
+	t.Helper()
+
+	now = now.UTC()
 	amzDate := now.Format("20060102T150405Z")
 	credential := testAccessKeyID + "/" + amzDate[:8] + "/us-east-1/s3/aws4_request"
 	fields = append(fields,

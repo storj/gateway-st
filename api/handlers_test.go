@@ -324,8 +324,8 @@ func signV4(req *http.Request, body []byte, now time.Time) {
 
 	canonicalRequest := strings.Join([]string{
 		req.Method,
-		// S3 signs the path as the client escaped it.
-		req.URL.EscapedPath(),
+		// S3 decodes the path and encodes everything except unreserved characters and '/' again.
+		strings.ReplaceAll(uriEncode(req.URL.Path), "%2F", "/"),
 		strings.Join(queryParams, "&"),
 		canonicalHeaders.String(),
 		signedHeaders,

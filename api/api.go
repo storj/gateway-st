@@ -236,13 +236,14 @@ func Operation(r *http.Request) string {
 // context can read it after the handler returns. The handlers fill it in, with the code of an
 // error response in its ErrorCodeTag tag, and call the object layer with it.
 func (api *API) RegisterHandlers(router *mux.Router) {
-	// Like S3 and awsig, ';' is part of a query key or value rather than a separator, but the
-	// Queries matchers split on it and url.ParseQuery rejects it. Middleware runs only after routing,
-	// so it's escaped by a matcher, which runs before the matchers of the routes below. That doesn't
-	// change the signature, which is computed from the decoded parameters.
+	// Like S3, ';' is part of a query key or value rather than a separator, but the Queries
+	// matchers split on it, and url.ParseQuery, which awsig and the handlers use, drops pairs that
+	// contain it. Middleware runs only after routing, so it's escaped by a matcher, which runs before
+	// the matchers of the routes below. That doesn't change the signature, which is computed from
+	// the decoded parameters.
 	//
 	// Headers that a SigV2 presigned URL carries in its query are restored before routing too,
-	// because some routes match on headers.
+	// because some routes match on headers and awsig only signs headers.
 	apiRouter := router.MatcherFunc(escapeQuerySemicolons).MatcherFunc(restoreQueryHeaders).PathPrefix(cmd.SlashSeparator).Subrouter()
 	// UseEncodedPath configures the router to match routes using the raw (percent-encoded) form of
 	// the request path instead of the unescaped one. This is required because object keys which
@@ -395,6 +396,9 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 	// Storj's extensions, which are routed before ListBuckets because their keys aren't S3
 	// subresources.
+	// TODO: SigV2 doesn't sign the attribution and licenses parameters, which S3 doesn't have, so
+	// adding one to a presigned ListBuckets URL turns it into the operation below. Refuse SigV2
+	// for them.
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("attribution", "").HandlerFunc(api.ListBucketsWithAttributionHandler).Name("ListBucketsWithAttribution")
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("licenses", "").HandlerFunc(api.ListLicensesHandler).Name("ListLicenses")
 
@@ -420,10 +424,11 @@ func escapeQuerySemicolons(r *http.Request, _ *mux.RouteMatch) bool {
 
 // restoreQueryHeaders is a matcher that always matches and, for a SigV2 presigned request, sets
 // the x-amz-*, Content-Type and Content-MD5 headers that botocore's HmacV1QueryAuth moves into the
-// query. awsig signs them as headers, so the handlers must also use them as headers, such as by
+// query. S3 signs them like headers, but awsig only signs the request's headers, so restoring them
+// before verification is what gets them signed. The handlers then use them as headers, such as by
 // verifying Content-MD5 or rejecting x-amz-acl. A header that's already set isn't changed, and a
-// key with several values or an invalid value is left alone, because awsig rejects those
-// requests.
+// key with several values or an invalid value is left alone: it stays unsigned in the query, where
+// the handlers don't read it.
 func restoreQueryHeaders(r *http.Request, _ *mux.RouteMatch) bool {
 	if r.Header.Get(xhttp.Authorization) != "" {
 		return true

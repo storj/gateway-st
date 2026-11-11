@@ -1224,6 +1224,14 @@ func TestPresignedV2QueryHeaders(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	require.Contains(t, rec.Body.String(), "<Code>BadDigest</Code>")
 
+	// awsig reads a trailer only from SigV4 streaming payloads.
+	rec = put(&postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket/key", map[string]string{
+		"x-amz-content-sha256": "STREAMING-UNSIGNED-PAYLOAD-TRAILER",
+		"x-amz-trailer":        "x-amz-checksum-crc32",
+	}, data)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "<Code>InvalidRequest</Code>")
+
 	for _, resource := range []string{"/bucket/key?acl", "/bucket?acl"} {
 		rec = put(newBodyObjectLayer(), resource, map[string]string{"x-amz-acl": "public-read"}, nil)
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
@@ -1253,6 +1261,45 @@ func TestRetainUntilDateHeaderLikeS3(t *testing.T) {
 			require.Equal(t, want, resp.Header.Get("X-Amz-Object-Lock-Retain-Until-Date"), "%s %s", method, stored)
 			require.Equal(t, "GOVERNANCE", resp.Header.Get("X-Amz-Object-Lock-Mode"))
 		}
+	}
+}
+
+// TestClockSkewLikeS3 checks requests signed by a client whose clock is ahead. S3 accepted a
+// presigned URL dated up to 15 minutes ahead and refused one dated 16 minutes ahead with 403
+// AccessDenied. It accepted a POST upload dated even six days ahead, but awsig allows only the
+// same 15 minutes.
+func TestClockSkewLikeS3(t *testing.T) {
+	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}
+	for _, tc := range []struct {
+		ahead  time.Duration
+		status int
+	}{
+		{5 * time.Second, http.StatusOK},
+		{14 * time.Minute, http.StatusOK},
+		{16 * time.Minute, http.StatusForbidden},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/bucket/key", nil)
+		presignV4(req, time.Now().Add(tc.ahead))
+		rec := httptest.NewRecorder()
+		newTestRouter(singleObjectLayer(objInfo, "data")).ServeHTTP(rec, req)
+		require.Equal(t, tc.status, rec.Code, "presigned GET %s ahead: %s", tc.ahead, rec.Body)
+		if tc.status == http.StatusForbidden {
+			require.Contains(t, rec.Body.String(), "<Code>AccessDenied</Code>")
+		}
+	}
+
+	for _, tc := range []struct {
+		ahead  time.Duration
+		status int
+	}{
+		{5 * time.Second, http.StatusNoContent},
+		{14 * time.Minute, http.StatusNoContent},
+		{16 * time.Minute, http.StatusForbidden},
+	} {
+		resp := postObjectAt(t, &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}, "/bucket",
+			[]any{map[string]string{"bucket": "bucket"}, map[string]string{"key": "photo.jpg"}},
+			[][2]string{{"key", "photo.jpg"}}, "data", time.Now().Add(tc.ahead))
+		require.Equal(t, tc.status, resp.StatusCode, "POST %s ahead: %s", tc.ahead, resp.Body)
 	}
 }
 

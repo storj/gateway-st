@@ -24,7 +24,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
@@ -523,17 +522,17 @@ var checksumHeaders = map[string]awsig.ChecksumAlgorithm{
 	"X-Amz-Checksum-Crc64nvme": awsig.AlgorithmCRC64NVME,
 	"X-Amz-Checksum-Sha1":      awsig.AlgorithmSHA1,
 	"X-Amz-Checksum-Sha256":    awsig.AlgorithmSHA256,
-	"X-Amz-Checksum-Sha512":    awsig.AlgorithmSHA512,
-	"X-Amz-Checksum-Xxhash64":  awsig.AlgorithmXXHASH64,
-	"X-Amz-Checksum-Xxhash3":   awsig.AlgorithmXXHASH3,
-	"X-Amz-Checksum-Xxhash128": awsig.AlgorithmXXHASH128,
 }
 
 // unimplementedChecksumHeaders are X-Amz-Checksum-<algorithm> headers of algorithms that awsig
 // can't verify. They're rejected with NotImplemented rather than InvalidChecksumAlgorithm, which
 // S3 may answer instead, so that a client sending one sees why its request fails.
 var unimplementedChecksumHeaders = []string{
+	"X-Amz-Checksum-Sha512",
 	"X-Amz-Checksum-Md5",
+	"X-Amz-Checksum-Xxhash64",
+	"X-Amz-Checksum-Xxhash3",
+	"X-Amz-Checksum-Xxhash128",
 }
 
 // checksumHeaderAlgorithm returns the algorithm of an X-Amz-Checksum-<algorithm> header.
@@ -559,12 +558,6 @@ func checksumSize(algorithm awsig.ChecksumAlgorithm) int {
 		return sha1.Size
 	case awsig.AlgorithmSHA256:
 		return sha256.Size
-	case awsig.AlgorithmSHA512:
-		return sha512.Size
-	case awsig.AlgorithmXXHASH64, awsig.AlgorithmXXHASH3:
-		return 8
-	case awsig.AlgorithmXXHASH128:
-		return 16
 	default:
 		return 0
 	}
@@ -677,7 +670,10 @@ func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
 	// A trailing checksum needs a streaming payload with trailers, and such a payload must
 	// declare its trailer.
 	trailer := strings.TrimSpace(h.Get("X-Amz-Trailer"))
-	if (trailer != "") != strings.HasSuffix(h.Get("X-Amz-Content-Sha256"), "-TRAILER") {
+	switch hasTrailer := strings.HasSuffix(h.Get("X-Amz-Content-Sha256"), "-TRAILER"); {
+	case hasTrailer && trailer == "":
+		return nil, apierr.CodeMalformedTrailer
+	case !hasTrailer && trailer != "":
 		return nil, apierr.CodeInvalidRequest
 	}
 	if trailer != "" {

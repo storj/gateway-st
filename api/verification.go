@@ -58,6 +58,13 @@ func (api *API) verifyWithBody(r *http.Request, requireChecksum bool) (awsig.Rea
 		return nil, err
 	}
 
+	// awsig reads a trailer only from a header-signed SigV4 streaming payload, and refuses a
+	// trailing checksum request for any other with an error that isn't one of its typed errors.
+	// A SigV2 request can still declare one in its headers or, presigned, in its query.
+	if !isStreamingSigV4(r) && strings.HasSuffix(r.Header.Get(xhttp.AmzContentSha256), "-TRAILER") {
+		return nil, apierr.CodeInvalidRequest
+	}
+
 	checksumReqs, err := getChecksumRequests(r.Header)
 	if err != nil {
 		return nil, err
