@@ -8,6 +8,11 @@
   description: The bucket does not allow ACLs
   http_status: 400
 
+- name: AnonymousResponseHeaders
+  code: InvalidRequest
+  description: Request specific response headers cannot be used for anonymous GET requests.
+  http_status: 400
+
 - name: AuthorizationHeaderMalformed
   code: AuthorizationHeaderMalformed
   description: The authorization header that you provided is not valid.

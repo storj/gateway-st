@@ -8,6 +8,7 @@ const (
 	CodeNone Code = iota
 	CodeAccessControlListNotSupported
 	CodeAccessDenied
+	CodeAnonymousResponseHeaders
 	CodeAttributesWithPartNumber
 	CodeAttributesWithRange
 	CodeAuthorizationHeaderMalformed
@@ -166,6 +167,11 @@ var codeToResponse = map[Code]Response{
 		Code:           "AccessDenied",
 		Description:    "Access Denied",
 		HTTPStatusCode: http.StatusForbidden,
+	},
+	CodeAnonymousResponseHeaders: {
+		Code:           "InvalidRequest",
+		Description:    "Request specific response headers cannot be used for anonymous GET requests.",
+		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeAttributesWithPartNumber: {
 		Code:           "InvalidArgument",

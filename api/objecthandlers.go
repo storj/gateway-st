@@ -979,7 +979,7 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+	if err := api.verifyObjectRead(r); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -1136,7 +1136,7 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+	if err := api.verifyObjectRead(r); err != nil {
 		api.writeErrorResponseHeadersOnly(r, w, err)
 		return
 	}

@@ -47,7 +47,7 @@ func (api *API) ListObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+	if err := api.verifyRead(r); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -175,7 +175,7 @@ func (api *API) ListObjectsV2Handler(w http.ResponseWriter, r *http.Request) {
 
 	bucketName := mux.Vars(r)["bucket"]
 
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+	if err := api.verifyRead(r); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}

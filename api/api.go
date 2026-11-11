@@ -89,8 +89,9 @@ type API struct {
 	objectAPI objectlayer.ObjectLayer
 	verifier  verifier
 
-	config     Config
-	middleware []mux.MiddlewareFunc
+	config         Config
+	middleware     []mux.MiddlewareFunc
+	anonymousReads bool
 }
 
 // New constructs a new S3-compatible HTTP API.
@@ -145,6 +146,49 @@ func WithMiddleware(middleware ...mux.MiddlewareFunc) Option {
 	return func(api *API) {
 		api.middleware = append(api.middleware, middleware...)
 	}
+}
+
+// WithAnonymousReads lets requests without a signature run GetObject, HeadObject, ListObjects,
+// ListObjectsV2, HeadBucket and GetBucketLocation, the operations minio's handlers allow anyone for
+// a gateway serving a static website. Requests with a signature are still verified.
+func WithAnonymousReads() Option {
+	return func(api *API) {
+		api.anonymousReads = true
+	}
+}
+
+// verifyRead verifies r for an operation that WithAnonymousReads lets anyone run.
+func (api *API) verifyRead(r *http.Request) error {
+	if api.anonymousReads && isAnonymous(r) {
+		return nil
+	}
+	_, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	return err
+}
+
+// verifyObjectRead is verifyRead for GetObject and HeadObject, which refuse response header
+// overrides in unsigned requests before checking anything else, as S3 does whether or not anyone
+// may read the object. Otherwise a public gateway would serve any object with any Content-Type,
+// such as text/html, from its own domain.
+func (api *API) verifyObjectRead(r *http.Request) error {
+	if isAnonymous(r) {
+		query := r.URL.Query()
+		for param := range responseHeaderOverrides {
+			if query.Has(param) {
+				return apierr.CodeAnonymousResponseHeaders
+			}
+		}
+	}
+	return api.verifyRead(r)
+}
+
+// isAnonymous reports whether r has no signature, neither an Authorization header nor a presigned
+// URL's query parameters. An empty Authorization header still counts as one, as in minio.
+func isAnonymous(r *http.Request) bool {
+	if _, ok := r.Header[xhttp.Authorization]; ok {
+		return false
+	}
+	return !slices.ContainsFunc([]string{"X-Amz-Algorithm", "X-Amz-Credential", "X-Amz-Signature", "AWSAccessKeyId", "Signature"}, r.URL.Query().Has)
 }
 
 // ErrorCodeTag is the key of the tag of the request's ReqInfo that holds the code of its error

@@ -25,6 +25,7 @@ func main() {
 	address := flag.String("address", "127.0.0.1:7777", "address to listen on")
 	dir := flag.String("dir", "", "directory to store buckets in (required)")
 	domains := flag.String("domains", "", "comma-separated domains for virtual-hosted-style requests")
+	anonymousReads := flag.Bool("anonymous-reads", false, "let unsigned requests read, like the gateway's --website")
 	flag.Parse()
 
 	// The credentials come from the environment, like the AWS CLI's.
@@ -51,8 +52,13 @@ func main() {
 		config.Domains = strings.Split(*domains, ",")
 	}
 
+	options := []api.Option{api.WithLogger(api.NewZapLogger(logger))}
+	if *anonymousReads {
+		options = append(options, api.WithAnonymousReads())
+	}
+
 	router := mux.NewRouter()
-	api.New(fsobjects.New(*dir), creds, config, api.WithLogger(api.NewZapLogger(logger))).RegisterHandlers(router)
+	api.New(fsobjects.New(*dir), creds, config, options...).RegisterHandlers(router)
 
 	logger.Info("serving", zap.String("address", *address), zap.String("dir", *dir))
 	// TODO: set read timeouts. Without them, a request whose body is shorter than its
