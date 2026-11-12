@@ -448,17 +448,15 @@ func (api *API) GetBucketAclHandler(w http.ResponseWriter, r *http.Request) {
 	acl := &accessControlPolicy{
 		XMLNS: "http://s3.amazonaws.com/doc/2006-03-01/",
 		Owner: cmd.Owner{
-			ID:          defaultOwnerID,
-			DisplayName: defaultOwnerDisplayName,
+			ID: defaultOwnerID,
 		},
 	}
 	acl.AccessControlList.Grants = append(acl.AccessControlList.Grants, grant{
 		Grantee: grantee{
-			XMLNS:       "http://www.w3.org/2001/XMLSchema-instance",
-			XMLXSI:      "CanonicalUser",
-			Type:        "CanonicalUser",
-			ID:          defaultOwnerID,
-			DisplayName: defaultOwnerDisplayName,
+			XMLNS:  "http://www.w3.org/2001/XMLSchema-instance",
+			XMLXSI: "CanonicalUser",
+			Type:   "CanonicalUser",
+			ID:     defaultOwnerID,
 		},
 		Permission: "FULL_CONTROL",
 	})

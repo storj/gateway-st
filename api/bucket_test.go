@@ -268,7 +268,7 @@ func TestListObjectsV2(t *testing.T) {
 
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&fetch-owner=true", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
+	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Owner>")
 
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?list-type=2&continuation-token=dG9rZW4%3D", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
@@ -604,8 +604,8 @@ func TestGetBucketAcl(t *testing.T) {
 	require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
 	require.True(t, strings.HasPrefix(resp.Body, `<?xml version="1.0" encoding="UTF-8"?>`), resp.Body)
 	require.Contains(t, resp.Body, `<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
-	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")
-	require.Contains(t, resp.Body, "<ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Grantee>")
+	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Owner>")
+	require.Contains(t, resp.Body, "<ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Grantee>")
 }
 
 func TestGetBucketLocation(t *testing.T) {
@@ -751,10 +751,10 @@ func TestListObjectVersionsDeleteMarker(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">")
 	require.Contains(t, resp.Body, "<DeleteMarker><Key>key</Key><VersionId>v2</VersionId><IsLatest>true</IsLatest><LastModified>2026-01-02T03:04:05.000Z</LastModified>"+
-		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner></DeleteMarker>")
+		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Owner></DeleteMarker>")
 	require.Contains(t, resp.Body, "<Version><Key>key</Key><VersionId>v1</VersionId><IsLatest>false</IsLatest><LastModified>0001-01-01T00:00:00.000Z</LastModified>"+
 		"<ETag>&#34;etag&#34;</ETag><Size>5</Size><StorageClass>STANDARD</StorageClass>"+
-		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner></Version>")
+		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Owner></Version>")
 }
 
 func TestListMultipartUploads(t *testing.T) {
@@ -769,8 +769,8 @@ func TestListMultipartUploads(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodGet, "/bucket?uploads", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Upload><Key>key</Key><UploadId>upload-id</UploadId>"+
-		"<Initiator><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Initiator>"+
-		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>"+
+		"<Initiator><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Initiator>"+
+		"<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID></Owner>"+
 		"<StorageClass>STANDARD</StorageClass>")
 
 	resp = serve(t, objectAPI, http.MethodGet, "/bucket?uploads&encoding-type=bogus", nil, nil)

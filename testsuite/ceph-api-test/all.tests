@@ -234,7 +234,7 @@ s3tests/functional/test_s3.py::test_bucket_list_marker_not_in_list
 s3tests/functional/test_s3.py::test_bucket_listv2_startafter_not_in_list
 s3tests/functional/test_s3.py::test_bucket_list_marker_after_list
 s3tests/functional/test_s3.py::test_bucket_listv2_startafter_after_list
-s3tests/functional/test_s3.py::test_bucket_list_return_data
+#(S3 no longer returns Owner DisplayName) s3tests/functional/test_s3.py::test_bucket_list_return_data
 #(bucket already exists) s3tests/functional/test_s3.py::test_bucket_list_return_data_versioning
 #(acl) s3tests/functional/test_s3.py::test_bucket_list_objects_anonymous
 #(acl) s3tests/functional/test_s3.py::test_bucket_listv2_objects_anonymous

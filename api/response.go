@@ -53,10 +53,9 @@ import (
 )
 
 const (
-	defaultOwnerID          = "7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c"
-	defaultOwnerDisplayName = "storj"
-	defaultStorageClass     = "STANDARD"
-	iso8601Milli            = "2006-01-02T15:04:05.000Z"
+	defaultOwnerID      = "7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c"
+	defaultStorageClass = "STANDARD"
+	iso8601Milli        = "2006-01-02T15:04:05.000Z"
 )
 
 type mimeType string
@@ -574,8 +573,7 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 			LastModified: object.ModTime.UTC().Format(iso8601Milli),
 			Size:         object.Size,
 			Owner: cmd.Owner{
-				ID:          defaultOwnerID,
-				DisplayName: defaultOwnerDisplayName,
+				ID: defaultOwnerID,
 			},
 		}
 
@@ -629,8 +627,7 @@ func generateListObjectsV2Response(bucketName string, params listObjectsV2Params
 
 		if params.fetchOwner {
 			content.Owner = &cmd.Owner{
-				ID:          defaultOwnerID,
-				DisplayName: defaultOwnerDisplayName,
+				ID: defaultOwnerID,
 			}
 		}
 
@@ -685,8 +682,7 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 				LastModified: object.ModTime.UTC().Format(iso8601Milli),
 				Size:         object.Size,
 				Owner: cmd.Owner{
-					ID:          defaultOwnerID,
-					DisplayName: defaultOwnerDisplayName,
+					ID: defaultOwnerID,
 				},
 			},
 			VersionID:      object.VersionID,
@@ -747,12 +743,10 @@ func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.Li
 			UploadID: upload.UploadID,
 			Key:      s3EncodeName(upload.Object, encodingType),
 			Initiator: cmd.Initiator{
-				ID:          defaultOwnerID,
-				DisplayName: defaultOwnerDisplayName,
+				ID: defaultOwnerID,
 			},
 			Owner: cmd.Owner{
-				ID:          defaultOwnerID,
-				DisplayName: defaultOwnerDisplayName,
+				ID: defaultOwnerID,
 			},
 			StorageClass: defaultStorageClass,
 			Initiated:    upload.Initiated.UTC().Format(iso8601Milli),
@@ -770,12 +764,10 @@ func generateListPartsResponse(partsInfo objectlayer.ListPartsInfo) cmd.ListPart
 		Key:      partsInfo.Object,
 		UploadID: partsInfo.UploadID,
 		Initiator: cmd.Initiator{
-			ID:          defaultOwnerID,
-			DisplayName: defaultOwnerDisplayName,
+			ID: defaultOwnerID,
 		},
 		Owner: cmd.Owner{
-			ID:          defaultOwnerID,
-			DisplayName: defaultOwnerDisplayName,
+			ID: defaultOwnerID,
 		},
 		StorageClass:         defaultStorageClass,
 		PartNumberMarker:     partsInfo.PartNumberMarker,
@@ -803,8 +795,7 @@ func generateListPartsResponse(partsInfo objectlayer.ListPartsInfo) cmd.ListPart
 func generateListBucketsResponse(bucketInfos []objectlayer.BucketInfo, prefix, continuationToken string) listBucketsResponse {
 	resp := listBucketsResponse{
 		Owner: cmd.Owner{
-			ID:          defaultOwnerID,
-			DisplayName: defaultOwnerDisplayName,
+			ID: defaultOwnerID,
 		},
 		ContinuationToken: continuationToken,
 		Prefix:            prefix,
@@ -824,8 +815,7 @@ func generateListBucketsResponse(bucketInfos []objectlayer.BucketInfo, prefix, c
 func generateListBucketsWithAttributionResponse(buckets []objectlayer.BucketWithAttributionInfo) listBucketsWithAttributionResponse {
 	resp := listBucketsWithAttributionResponse{
 		Owner: cmd.Owner{
-			ID:          defaultOwnerID,
-			DisplayName: defaultOwnerDisplayName,
+			ID: defaultOwnerID,
 		},
 	}
 	resp.Buckets.Buckets = make([]bucketWithAttribution, 0, len(buckets))
