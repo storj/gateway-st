@@ -564,7 +564,6 @@ func TestGetBucketAcl(t *testing.T) {
 	resp := serve(t, objectAPI, http.MethodGet, "/bucket?acl", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 	require.Equal(t, "application/xml", resp.Header.Get("Content-Type"))
-	require.Equal(t, "Storj", resp.Header.Get("Server"))
 	require.True(t, strings.HasPrefix(resp.Body, `<?xml version="1.0" encoding="UTF-8"?>`), resp.Body)
 	require.Contains(t, resp.Body, `<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
 	require.Contains(t, resp.Body, "<Owner><ID>7b25a206cc747e61355f1af9395c2e1dc93664b7b64838ca859b245e20dead3c</ID><DisplayName>storj</DisplayName></Owner>")

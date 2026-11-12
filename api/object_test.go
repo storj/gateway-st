@@ -865,7 +865,6 @@ func TestPutAcl(t *testing.T) {
 				}
 				require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 				require.Equal(t, "0", resp.Header.Get("Content-Length"))
-				require.NotEmpty(t, resp.Header.Get("Server"))
 			})
 		}
 	}

@@ -140,7 +140,6 @@ func (api *API) writeResponse(w http.ResponseWriter, r *http.Request, statusCode
 }
 
 func setCommonHeaders(w http.ResponseWriter) {
-	w.Header().Set(xhttp.ServerInfo, "Storj")
 	w.Header().Set(xhttp.AcceptRanges, "bytes")
 	crypto.RemoveSensitiveHeaders(w.Header())
 }
