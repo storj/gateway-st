@@ -106,11 +106,13 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// We read the body because, although we don't use the location provided in the body,
-	// we must return an error if the body contains malformed XML.
+	opts := objectlayer.BucketOptions{
+		LockEnabled: objectLockEnabled,
+	}
+
 	if len(data) != 0 {
 		// Like S3, any root element is accepted, but unknown and repeated elements are refused.
-		// The location and tags aren't used.
+		// The tags aren't used.
 		var config struct {
 			Text               string `xml:",chardata"`
 			LocationConstraint []string
@@ -131,10 +133,9 @@ func (api *API) CreateBucketHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}
-
-	opts := objectlayer.BucketOptions{
-		LockEnabled: objectLockEnabled,
+		if len(config.LocationConstraint) == 1 {
+			opts.Location = config.LocationConstraint[0]
+		}
 	}
 
 	if err := api.objectAPI.MakeBucketWithLocation(ctx, bucket, opts); err != nil {

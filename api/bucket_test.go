@@ -182,6 +182,44 @@ func TestCreateBucketConfigurationLikeS3(t *testing.T) {
 	}
 }
 
+func TestCreateBucketLocation(t *testing.T) {
+	var got cmd.BucketOptions
+	objectAPI := &bucketObjectLayer{
+		fakeObjectLayer: &fakeObjectLayer{},
+		makeBucketWithLocation: func(_ context.Context, _ string, opts cmd.BucketOptions) error {
+			got = opts
+			if opts.Location == "invalid" {
+				return miniogw.ErrBucketInvalidPlacement
+			}
+			return nil
+		},
+	}
+
+	for _, tt := range []struct {
+		name string
+		body []byte
+		want string
+	}{
+		{"no body", nil, ""},
+		{"no location", []byte("<CreateBucketConfiguration></CreateBucketConfiguration>"), ""},
+		{"empty location", []byte("<CreateBucketConfiguration><LocationConstraint></LocationConstraint></CreateBucketConfiguration>"), ""},
+		{"placement", []byte("<CreateBucketConfiguration><LocationConstraint>Poland</LocationConstraint></CreateBucketConfiguration>"), "Poland"},
+		{"region", []byte("<CreateBucketConfiguration><LocationConstraint>us-west-2</LocationConstraint></CreateBucketConfiguration>"), "us-west-2"},
+		{"with tags", []byte("<CreateBucketConfiguration><LocationConstraint>Poland</LocationConstraint><Tags><Tag><Key>a</Key><Value>1</Value></Tag></Tags></CreateBucketConfiguration>"), "Poland"},
+	} {
+		got = cmd.BucketOptions{}
+		header := http.Header{"X-Amz-Bucket-Object-Lock-Enabled": {"true"}}
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket", header, tt.body)
+		require.Equal(t, http.StatusOK, resp.StatusCode, tt.name+": "+resp.Body)
+		require.Equal(t, cmd.BucketOptions{Location: tt.want, LockEnabled: true}, got, tt.name)
+	}
+
+	body := []byte("<CreateBucketConfiguration><LocationConstraint>invalid</LocationConstraint></CreateBucketConfiguration>")
+	resp := serve(t, objectAPI, http.MethodPut, "/bucket", nil, body)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Code>InvalidLocationConstraint</Code>")
+}
+
 func (f *bucketObjectLayer) SetBucketTagging(ctx context.Context, bucket string, t *tags.Tags) error {
 	return f.setBucketTagging(ctx, bucket, t)
 }
