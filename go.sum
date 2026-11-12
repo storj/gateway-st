@@ -1056,8 +1056,8 @@ storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f h1:7XHnDUBI5FE98kdCP1YfEKN9
 storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f/go.mod h1:RdWvp249AGm9FZnVKP88y3hFa7vlx9Jf3Cy1P+4EXIU=
 storj.io/infectious v1.0.1 h1:QxjULudP+FYN+wDHZw+dSphjnOsHsy2YKZNDVxz5HbU=
 storj.io/infectious v1.0.1/go.mod h1:3/J7t+ueWJgLSNjHVqhPBeFEIgnjZyiA8BI54NUTecY=
-storj.io/minio v0.0.0-20261102092559-6949ef5dffd7 h1:/ELOf69R1JhKxMv3Nuwo2f6ZM8PYUx0cYBV+hdivWz0=
-storj.io/minio v0.0.0-20261102092559-6949ef5dffd7/go.mod h1:BI0WZ/yO0xIH3acSlEkeo6OiTPapgUfFONli3JMNnZE=
+storj.io/minio v0.0.0-20261112114603-5349b4571cad h1:bIXd8s2tqzjQzhF+fVNittQnqqsk4LYb7vhWf6tt+T4=
+storj.io/minio v0.0.0-20261112114603-5349b4571cad/go.mod h1:BI0WZ/yO0xIH3acSlEkeo6OiTPapgUfFONli3JMNnZE=
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad h1:HkjZ/RDf2MiY7ENNhDWWHOGa3jE1Q/RfeSp7lK8stK0=
 storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad/go.mod h1:ZS8oCmCdx8/cSCbQBeT3BSAgxqoHPclTerizqn5i+Os=
 storj.io/picobuf v0.0.4 h1:qswHDla+YZ2TovGtMnU4astjvrADSIz84FXRn0qgP6o=
