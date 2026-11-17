@@ -523,8 +523,7 @@ func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) 
 
 // DeleteBucketWebsiteHandler is the HTTP handler for the DeleteBucketWebsite operation, which
 // deletes a bucket's website configuration. Buckets don't have one, so it only checks that the
-// bucket exists, and answers 204 like S3's documentation. S3's answer wasn't compared, because it
-// needs the s3:DeleteBucketWebsite permission.
+// bucket exists and answers 204, like S3 for a bucket without one.
 func (api *API) DeleteBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w)
 

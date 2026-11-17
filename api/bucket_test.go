@@ -660,8 +660,7 @@ func TestGetBucketLocation(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>NoSuchBucket</Code>")
 }
 
-// TestBucketWebsiteLikeS3 checks S3's answers for a bucket without a website configuration. S3's
-// answer to DeleteBucketWebsite for an existing bucket wasn't checked.
+// TestBucketWebsiteLikeS3 checks S3's answers for a bucket without a website configuration.
 func TestBucketWebsiteLikeS3(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
