@@ -333,16 +333,48 @@ func signV4(req *http.Request, body []byte, now time.Time) {
 	}, "\n")
 
 	scope := date + "/" + region + "/" + service + "/aws4_request"
-	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hexSHA256([]byte(canonicalRequest))
-
-	key := []byte("AWS4" + testSecretAccessKey)
-	for _, part := range []string{date, region, service, "aws4_request"} {
-		key = hmacSHA256(key, part)
-	}
-	signature := hex.EncodeToString(hmacSHA256(key, stringToSign))
+	signature := signatureV4(amzDate, scope, canonicalRequest)
 
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+testAccessKeyID+"/"+scope+
 		", SignedHeaders="+signedHeaders+", Signature="+signature)
+}
+
+// presignV4 presigns req like an SDK's presigned URL: with AWS Signature Version 4 query
+// parameters, using the test credentials, signing only the host header and an unsigned payload.
+func presignV4(req *http.Request, now time.Time) {
+	amzDate := now.UTC().Format("20060102T150405Z")
+	scope := amzDate[:8] + "/us-east-1/s3/aws4_request"
+
+	query := req.URL.Query()
+	query.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
+	query.Set("X-Amz-Credential", testAccessKeyID+"/"+scope)
+	query.Set("X-Amz-Date", amzDate)
+	query.Set("X-Amz-Expires", "3600")
+	query.Set("X-Amz-SignedHeaders", "host")
+
+	canonicalRequest := strings.Join([]string{
+		req.Method,
+		req.URL.EscapedPath(),
+		strings.ReplaceAll(query.Encode(), "+", "%20"),
+		"host:" + req.Host + "\n",
+		"host",
+		"UNSIGNED-PAYLOAD",
+	}, "\n")
+
+	query.Set("X-Amz-Signature", signatureV4(amzDate, scope, canonicalRequest))
+	req.URL.RawQuery = query.Encode()
+}
+
+// signatureV4 returns the AWS Signature Version 4 signature of canonicalRequest with the test
+// secret key.
+func signatureV4(amzDate, scope, canonicalRequest string) string {
+	stringToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hexSHA256([]byte(canonicalRequest))
+
+	key := []byte("AWS4" + testSecretAccessKey)
+	for part := range strings.SplitSeq(scope, "/") {
+		key = hmacSHA256(key, part)
+	}
+	return hex.EncodeToString(hmacSHA256(key, stringToSign))
 }
 
 func hexSHA256(b []byte) string {

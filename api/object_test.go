@@ -1217,3 +1217,34 @@ func TestRetainUntilDateHeaderLikeS3(t *testing.T) {
 		}
 	}
 }
+
+// TestUnsignedCopySource checks that an x-amz-copy-source header that isn't signed is refused, so
+// that a PutObject signature, such as a presigned URL's, can't be used to copy another object.
+func TestUnsignedCopySource(t *testing.T) {
+	for name, sign := range map[string]func(*http.Request){
+		"header":    func(req *http.Request) { signV4(req, nil, time.Now()) },
+		"presigned": func(req *http.Request) { presignV4(req, time.Now()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, copySource := range []string{"", "/other/secret"} {
+				objectAPI := putObjectLayer{&fakeObjectLayer{}}
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/bucket/key", nil)
+				req.Header.Set("Content-Length", "0")
+				sign(req)
+				if copySource != "" {
+					req.Header.Set("X-Amz-Copy-Source", copySource)
+				}
+				rec := httptest.NewRecorder()
+				newTestRouter(objectAPI).ServeHTTP(rec, req)
+
+				if copySource == "" {
+					require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+					continue
+				}
+				require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+				require.Contains(t, rec.Body.String(), "<Code>AccessDenied</Code>")
+				require.Empty(t, objectAPI.Calls())
+			}
+		})
+	}
+}
