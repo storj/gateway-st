@@ -649,10 +649,11 @@ func TestCopyObjectStorageClass(t *testing.T) {
 		expStatus int
 		expClass  string
 	}{
-		{target: "/bucket/dst?X-Amz-Storage-Class=GLACIER", expStatus: http.StatusBadRequest},
 		{target: "/bucket/dst?x-amz-storage-class=GLACIER", expStatus: http.StatusBadRequest},
 		{target: "/bucket/dst", header: http.Header{"X-Amz-Storage-Class": {"GLACIER"}}, expStatus: http.StatusBadRequest},
-		{target: "/bucket/dst?X-Amz-Storage-Class=STANDARD", expStatus: http.StatusOK, expClass: "STANDARD"},
+		{target: "/bucket/dst?x-amz-storage-class=STANDARD", expStatus: http.StatusOK, expClass: "STANDARD"},
+		// Like S3, the query parameter is ignored in any other casing.
+		{target: "/bucket/dst?X-Amz-Storage-Class=GLACIER", expStatus: http.StatusOK},
 	} {
 		for _, directive := range []string{"COPY", "REPLACE"} {
 			gotMetadata = nil
@@ -699,6 +700,37 @@ type putObjectLayer struct {
 
 func (putObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
 	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag", VersionID: "version"}, nil
+}
+
+// TestStorageClassInQueryLikeS3 checks that PutObject and CreateMultipartUpload validate a storage
+// class in the query like one in the header. Like S3, a request that isn't presigned only has one
+// in a lowercase parameter, and ignores other casings.
+func TestStorageClassInQueryLikeS3(t *testing.T) {
+	objectAPI := putObjectLayer{&fakeObjectLayer{
+		newMultipartUpload: func(context.Context, string, string, cmd.ObjectOptions) (string, error) { return "id", nil },
+	}}
+
+	for _, target := range []string{"/bucket/key?", "/bucket/key?uploads&"} {
+		method := http.MethodPut
+		if strings.Contains(target, "uploads") {
+			method = http.MethodPost
+		}
+		for _, tt := range []struct {
+			query  string
+			status int
+			code   string
+		}{
+			{"x-amz-storage-class=BOGUS", http.StatusBadRequest, "<Code>InvalidStorageClass</Code>"},
+			{"x-amz-storage-class=BOGUS&X-Amz-Storage-Class=STANDARD", http.StatusBadRequest, "<Code>InvalidStorageClass</Code>"},
+			{"X-Amz-Storage-Class=BOGUS", http.StatusOK, ""},
+			{"X-AMZ-STORAGE-CLASS=BOGUS", http.StatusOK, ""},
+			{"x-amz-storage-class=REDUCED_REDUNDANCY", http.StatusNotImplemented, "<Code>NotImplemented</Code>"},
+		} {
+			resp := serve(t, objectAPI, method, target+tt.query, http.Header{"Content-Length": {"0"}}, nil)
+			require.Equal(t, tt.status, resp.StatusCode, "%s %s%s: %s", method, target, tt.query, resp.Body)
+			require.Contains(t, resp.Body, tt.code)
+		}
+	}
 }
 
 func TestPutObjectVersionID(t *testing.T) {

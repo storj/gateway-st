@@ -152,7 +152,8 @@ func ExtractMetadataFromQuery(reqURL *url.URL, metadata map[string]string) {
 					tracked = true
 				}
 			}
-		} else if canonKey == amzStorageClass {
+		} else if key == "x-amz-storage-class" {
+			// Without a presigned URL, S3 ignores the storage class in any other casing.
 			trackKey(key, canonKey)
 			tracked = true
 		}

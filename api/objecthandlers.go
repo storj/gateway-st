@@ -560,7 +560,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateStorageClass(r.Header.Get(xhttp.AmzStorageClass)); err != nil {
+	if err := validateStorageClass(requestStorageClass(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -1716,8 +1716,8 @@ const (
 )
 
 // requestStorageClass returns the storage class of a request, from the X-Amz-Storage-Class
-// header or query parameter. It is extracted like extractMetadata does, so the query parameter
-// name is case-insensitive and the header takes precedence.
+// header or query parameter. It is extracted like extractMetadata does, so the header takes
+// precedence.
 func requestStorageClass(r *http.Request) string {
 	metadata := make(map[string]string)
 	ExtractMetadataFromQuery(r.URL, metadata)
@@ -1816,7 +1816,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := validateStorageClass(r.Header.Get(xhttp.AmzStorageClass)); err != nil {
+	if err := validateStorageClass(requestStorageClass(r)); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}

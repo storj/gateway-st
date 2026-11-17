@@ -56,13 +56,17 @@ func TestExtractMetadataFromQuery(t *testing.T) {
 			expectedMeta: fullMeta,
 		},
 		{
-			name:  "Non-presigned: only storage class and user metadata extracted",
+			name:  "Non-presigned: only user metadata and a lowercase storage class extracted",
 			query: fullMetaQuery,
 			expectedMeta: map[string]string{
-				"X-Amz-Meta-Key":      "amzMeta",
-				"X-Minio-Meta-Key":    "minioMeta",
-				"X-Amz-Storage-Class": "STANDARD",
+				"X-Amz-Meta-Key":   "amzMeta",
+				"X-Minio-Meta-Key": "minioMeta",
 			},
+		},
+		{
+			name:         "Non-presigned: lowercase storage class extracted, other casings ignored",
+			query:        "x-amz-storage-class=BOGUS&X-Amz-Storage-Class=STANDARD&X-AMZ-STORAGE-CLASS=STANDARD",
+			expectedMeta: map[string]string{"X-Amz-Storage-Class": "BOGUS"},
 		},
 		{
 			name:         "Duplicate keys, same casing: values joined with comma",
