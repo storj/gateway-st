@@ -1639,8 +1639,6 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metadata = objectlock.FilterObjectLockMetadata(metadata, true, true)
-	// FilterObjectLockMetadata misses the lowercase legal hold key that our object layer uses.
-	delete(metadata, strings.ToLower(objectlock.AmzObjectLockLegalHold))
 	crypto.RemoveSensitiveEntries(metadata)
 	srcInfo.UserDefined = metadata
 

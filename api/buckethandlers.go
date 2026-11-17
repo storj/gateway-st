@@ -523,8 +523,8 @@ func (api *API) GetBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) 
 
 // DeleteBucketWebsiteHandler is the HTTP handler for the DeleteBucketWebsite operation, which
 // deletes a bucket's website configuration. Buckets don't have one, so it only checks that the
-// bucket exists, and answers 204 like minio's handlers and S3's documentation. S3's answer wasn't
-// compared, because it needs the s3:DeleteBucketWebsite permission.
+// bucket exists, and answers 204 like S3's documentation. S3's answer wasn't compared, because it
+// needs the s3:DeleteBucketWebsite permission.
 func (api *API) DeleteBucketWebsiteHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w)
 
@@ -573,7 +573,7 @@ func (api *API) GetBucketLocationHandler(w http.ResponseWriter, r *http.Request)
 // GetBucketLoggingHandler is the HTTP handler for the GetBucketLogging operation,
 // which returns the logging status of a bucket.
 //
-// This is a dummy handler. It always returns an empty Location response.
+// This is a dummy handler. It always returns a logging status without LoggingEnabled.
 func (api *API) GetBucketLoggingHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w)
 
@@ -622,7 +622,7 @@ func (api *API) GetBucketNotificationConfigurationHandler(w http.ResponseWriter,
 }
 
 // GetObjectLockConfigurationHandler is the HTTP handler for the GetObjectLockConfiguration operation,
-// which sets a bucket's Object Lock configuration.
+// which returns a bucket's Object Lock configuration.
 func (api *API) GetObjectLockConfigurationHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w)
 
