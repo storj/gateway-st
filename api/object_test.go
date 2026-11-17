@@ -1196,14 +1196,16 @@ func TestPresignedV2QueryHeaders(t *testing.T) {
 }
 
 // TestRetainUntilDateHeaderLikeS3 checks the x-amz-object-lock-retain-until-date header that S3
-// returned: in milliseconds, which are left out if they are zero.
+// returned: in milliseconds, which are left out if they are zero. A fraction of a millisecond is
+// rounded up, like GetObjectRetention's RetainUntilDate.
 func TestRetainUntilDateHeaderLikeS3(t *testing.T) {
 	for stored, want := range map[string]string{
 		"2100-01-02T03:04:05Z":           "2100-01-02T03:04:05Z",
 		"2100-01-02T03:04:05.123Z":       "2100-01-02T03:04:05.123Z",
 		"2100-01-02T03:04:05.1Z":         "2100-01-02T03:04:05.100Z",
-		"2100-01-02T03:04:05.123456789Z": "2100-01-02T03:04:05.123Z",
-		"2100-01-02T03:04:05.000456Z":    "2100-01-02T03:04:05Z",
+		"2100-01-02T03:04:05.123456789Z": "2100-01-02T03:04:05.124Z",
+		"2100-01-02T03:04:05.000456Z":    "2100-01-02T03:04:05.001Z",
+		"2100-01-02T03:04:05.999999Z":    "2100-01-02T03:04:06Z",
 		"2100-01-02T05:04:05.5+02:00":    "2100-01-02T03:04:05.500Z",
 		"not a date":                     "not a date",
 	} {

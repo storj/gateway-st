@@ -250,17 +250,22 @@ type objectRetentionResponse struct {
 	RetainUntilDate string                    `xml:"RetainUntilDate,omitempty"`
 }
 
-// newObjectRetentionResponse encodes r's RetainUntilDate in milliseconds, like S3. Dates are
-// truncated to the millisecond when they're set, but older objects may have a fraction of one, so
-// it's rounded up: a client can then delete the object once the reported date has passed, and
-// setting the reported date again doesn't shorten a compliance mode retention.
+// newObjectRetentionResponse encodes r's RetainUntilDate in milliseconds, like S3.
 func newObjectRetentionResponse(r *objectlayer.ObjectRetention) objectRetentionResponse {
 	resp := objectRetentionResponse{Mode: r.Mode}
 	if date := r.RetainUntilDate.Time; !date.IsZero() {
-		if rounded := date.Truncate(time.Millisecond); rounded.Before(date) {
-			date = rounded.Add(time.Millisecond)
-		}
-		resp.RetainUntilDate = date.UTC().Format(iso8601Milli)
+		resp.RetainUntilDate = roundUpRetainUntil(date).UTC().Format(iso8601Milli)
 	}
 	return resp
+}
+
+// roundUpRetainUntil rounds a retain until date up to the millisecond, which S3 reports it in.
+// Dates are truncated to the millisecond when they're set, but older objects may have a fraction
+// of one. Rounding up means a client can delete the object once the reported date has passed, and
+// setting the reported date again doesn't shorten a compliance mode retention.
+func roundUpRetainUntil(date time.Time) time.Time {
+	if rounded := date.Truncate(time.Millisecond); rounded.Before(date) {
+		return rounded.Add(time.Millisecond)
+	}
+	return date
 }

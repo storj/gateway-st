@@ -870,7 +870,7 @@ func formatRetainUntilHeader(stored string) string {
 	if err != nil {
 		return stored
 	}
-	date = date.UTC()
+	date = roundUpRetainUntil(date).UTC()
 	formatted := date.Format("2006-01-02T15:04:05")
 	if millis := date.Nanosecond() / int(time.Millisecond); millis != 0 {
 		formatted += fmt.Sprintf(".%03d", millis)
