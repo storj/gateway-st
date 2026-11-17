@@ -124,7 +124,7 @@ func TestSlowDownRetryAfter(t *testing.T) {
 func TestDeleteObjectsPerKeyStorageError(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
 		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
-			return nil, []cmd.DeleteObjectsError{{ObjectName: "key", Error: cmd.ObjectNotFound{}}}, nil
+			return nil, []cmd.DeleteObjectsError{{ObjectName: "key", Error: cmd.PrefixAccessDenied{}}}, nil
 		},
 	}
 	body := []byte("<Delete><Object><Key>key</Key></Object></Delete>")
@@ -133,7 +133,7 @@ func TestDeleteObjectsPerKeyStorageError(t *testing.T) {
 
 	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Contains(t, resp.Body, "<Error><Key>key</Key><Code>NoSuchKey</Code>")
+	require.Contains(t, resp.Body, "<Error><Key>key</Key><Code>AccessDenied</Code>")
 }
 
 func TestInvalidContentMD5(t *testing.T) {

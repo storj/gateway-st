@@ -1114,6 +1114,10 @@ func (api *API) DeleteObjectsHandler(w http.ResponseWriter, r *http.Request) {
 
 	var internalErrs []error
 	for _, deleteErr := range apiDeleteErrs {
+		if isDeletedNotFound(deleteErr.Error) {
+			deletedObjects = append(deletedObjects, objectlayer.DeletedObject{ObjectName: deleteErr.ObjectName, VersionID: deleteErr.VersionID})
+			continue
+		}
 		resp, ok := errToResponse(deleteErr.Error)
 		if !ok {
 			internalErrs = append(internalErrs, deleteErr.Error)

@@ -1420,6 +1420,13 @@ func isETagEqual(a, b string) bool {
 	return a != "" && a == b
 }
 
+// isDeletedNotFound reports whether err is the object layer's answer to deleting an object or
+// version that doesn't exist, which S3 reports as deleted.
+func isDeletedNotFound(err error) bool {
+	return errors.Is(err, apierr.CodeNoSuchKey) || errors.Is(err, apierr.CodeNoSuchVersion) ||
+		errors.As(err, &objectlayer.ObjectNotFound{}) || errors.As(err, &objectlayer.VersionNotFound{})
+}
+
 // DeleteObjectHandler is the HTTP handler for the DeleteObject operation, which deletes an object
 // or one of its versions.
 func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
@@ -1454,9 +1461,7 @@ func (api *API) DeleteObjectHandler(w http.ResponseWriter, r *http.Request) {
 		BypassGovernanceRetention: objectlock.IsObjectLockGovernanceBypassSet(r.Header),
 	})
 	if err != nil {
-		// Like S3, deleting an object that doesn't exist succeeds.
-		if !errors.Is(err, apierr.CodeNoSuchKey) && !errors.Is(err, apierr.CodeNoSuchVersion) &&
-			!errors.As(err, &objectlayer.ObjectNotFound{}) && !errors.As(err, &objectlayer.VersionNotFound{}) {
+		if !isDeletedNotFound(err) {
 			api.writeErrorResponse(w, r, err)
 			return
 		}

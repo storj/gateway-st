@@ -591,6 +591,33 @@ func TestDeleteObjectsLimits(t *testing.T) {
 	require.Contains(t, resp.Body, "<Code>MalformedXML</Code>")
 }
 
+// TestDeleteObjectsNotFound checks that objects and versions the object layer reports as not found
+// are reported as deleted, like DeleteObject does.
+func TestDeleteObjectsNotFound(t *testing.T) {
+	const versionID = "00000000000000000000000000000001"
+	objectAPI := &fakeObjectLayer{
+		deleteObjects: func(_ context.Context, bucket string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+			return nil, []cmd.DeleteObjectsError{
+				{ObjectName: "missing", Error: cmd.ObjectNotFound{Bucket: bucket, Object: "missing"}},
+				{ObjectName: "versioned", VersionID: versionID, Error: cmd.VersionNotFound{Bucket: bucket, Object: "versioned", VersionID: versionID}},
+				{ObjectName: "locked", Error: cmd.PrefixAccessDenied{Bucket: bucket, Object: "locked"}},
+			}, nil
+		},
+	}
+
+	body := "<Delete><Object><Key>missing</Key></Object><Object><Key>versioned</Key><VersionId>" + versionID +
+		"</VersionId></Object><Object><Key>locked</Key></Object></Delete>"
+	sum := md5.Sum([]byte(body))
+	header := http.Header{"Content-Md5": {base64.StdEncoding.EncodeToString(sum[:])}}
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket?delete", header, []byte(body))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Deleted><Key>missing</Key></Deleted>")
+	require.Contains(t, resp.Body, "<Deleted><Key>versioned</Key><VersionId>"+versionID+"</VersionId></Deleted>")
+	require.Contains(t, resp.Body, "<Error><Key>locked</Key><Code>AccessDenied</Code>")
+	require.NotContains(t, resp.Body, "<Error><Key>missing</Key>")
+	require.NotContains(t, resp.Body, "<Error><Key>versioned</Key>")
+}
+
 func TestGetBucketAcl(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
