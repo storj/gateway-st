@@ -301,16 +301,20 @@ func TestGetAndHeadObjectLikeS3(t *testing.T) {
 		require.Empty(t, resp.Header.Get("X-Amz-Storage-Class"), method)
 	}
 
-	// The conditions are evaluated before the part number.
-	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key?partNumber=2", http.Header{"If-Match": {`"other"`}}, nil)
-	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode)
-	resp = serve(t, objectAPI, http.MethodHead, "/bucket/key?partNumber=2", http.Header{"If-None-Match": {`"etag"`}}, nil)
-	require.Equal(t, http.StatusNotModified, resp.StatusCode)
-	resp = serve(t, objectAPI, http.MethodHead, "/bucket/key?partNumber=2", nil, nil)
-	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode)
+	// The object and the conditions are checked before the part number.
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		resp := serve(t, objectAPI, method, "/bucket/key?partNumber=2", http.Header{"If-Match": {`"other"`}}, nil)
+		require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode, method)
+		resp = serve(t, objectAPI, method, "/bucket/key?partNumber=2", http.Header{"If-None-Match": {`"etag"`}}, nil)
+		require.Equal(t, http.StatusNotModified, resp.StatusCode, method)
+		resp = serve(t, objectAPI, method, "/bucket/key?partNumber=2", nil, nil)
+		require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, method)
+		resp = serve(t, objectAPI, method, "/bucket/missing?partNumber=2", nil, nil)
+		require.Equal(t, http.StatusNotFound, resp.StatusCode, method)
+	}
 
 	objInfo.UserDefined = map[string]string{"X-Amz-Storage-Class": "GLACIER_IR"}
-	resp = serve(t, singleObjectLayer(objInfo, "0123456789"), http.MethodHead, "/bucket/key", nil, nil)
+	resp := serve(t, singleObjectLayer(objInfo, "0123456789"), http.MethodHead, "/bucket/key", nil, nil)
 	require.Equal(t, "GLACIER_IR", resp.Header.Get("X-Amz-Storage-Class"))
 
 	// A missing version is reported as such, even when the key doesn't exist.

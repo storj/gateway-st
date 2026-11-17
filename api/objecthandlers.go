@@ -999,13 +999,6 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parts past the first are rejected before the object layer starts a download. HeadObject
-	// rejects them in checkPreconditions.
-	if opts.PartNumber > 1 {
-		api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumber)
-		return
-	}
-
 	var preconditionFailed bool
 	opts.CheckPrecondFn = func(objInfo objectlayer.ObjectInfo) bool {
 		preconditionFailed = api.checkPreconditions(w, r, objInfo, opts)

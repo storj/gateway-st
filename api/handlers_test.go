@@ -1025,14 +1025,6 @@ func TestGetInvalidPartNumber(t *testing.T) {
 			require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
 		})
 	}
-
-	// GetObject rejects the part before the object layer starts a download.
-	objectAPI.getObjectNInfo = func(context.Context, string, string, *cmd.HTTPRangeSpec, http.Header, cmd.LockType, cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
-		t.Fatal("the object layer was called")
-		return nil, nil
-	}
-	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?partNumber=2", nil, nil)
-	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode, resp.Body)
 }
 
 func TestObjectMetadataHeaders(t *testing.T) {
