@@ -35,4 +35,6 @@ type S3CompatibilityConfig struct {
 	MinPartSize                  int64  `help:"minimum part size for multipart uploads" default:"5242880"` // 5 MiB
 	DeleteObjectsConcurrency     int    `help:"how many objects to delete in parallel with DeleteObjects" default:"100"`
 	UnsupportedListingDeadline   string `help:"if set, projects created after this date using self-managed encryption are no longer allowed to use arbitrary prefixes and delimiters (in RFC3339 format)" default:""`
+	ObjectChecksums              bool   `help:"store the checksums that objects are uploaded with, which the satellite must allow (metainfo.checksums-enabled)" default:"false"`
+	DefaultChecksumAlgorithm     string `help:"algorithm of the checksum stored with objects uploaded without one if object-checksums is on: CRC32, CRC32C, CRC64NVME, or empty for none" default:"CRC64NVME"`
 }

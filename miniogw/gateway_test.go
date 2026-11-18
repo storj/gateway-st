@@ -32,3 +32,25 @@ func TestVerifyIfNoneMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultChecksumAlgorithm(t *testing.T) {
+	for _, tt := range []struct {
+		algorithm string
+		valid     bool
+	}{
+		{"", true},
+		{"CRC32", true},
+		{"CRC32C", true},
+		{"CRC64NVME", true},
+		{"SHA1", false},
+		{"SHA256", false},
+		{"FOO", false},
+	} {
+		_, err := NewStorjGateway(S3CompatibilityConfig{ObjectChecksums: true, DefaultChecksumAlgorithm: tt.algorithm}).NewObjectLayer()
+		if tt.valid {
+			require.NoError(t, err, tt.algorithm)
+		} else {
+			require.Error(t, err, tt.algorithm)
+		}
+	}
+}

@@ -473,7 +473,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return objectlayer.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	return minioVersionedObjectInfo(bucket, obj), nil
+	return layer.minioVersionedObjectInfo(bucket, obj), nil
 }
 
 func minioMultipartInfo(bucket string, object *uplink.UploadInfo) objectlayer.MultipartInfo {

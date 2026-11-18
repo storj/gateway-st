@@ -333,10 +333,26 @@ func (gateway *Gateway) NewObjectLayer() (minioobjectlayer.ObjectLayer, error) {
 		}
 	}
 
+	defaultChecksumAlgorithm, err := objectlayer.ParseChecksumAlgorithm(gateway.compatibilityConfig.DefaultChecksumAlgorithm)
+	if err != nil {
+		return nil, errs.New("failed to parse DefaultChecksumAlgorithm: %w", err)
+	}
+	// Uploads in parts without a requested algorithm get full object checksums, like S3, which
+	// only CRC algorithms can combine from the parts' checksums.
+	switch defaultChecksumAlgorithm {
+	case objectlayer.ChecksumAlgorithmNone, objectlayer.ChecksumAlgorithmCRC32, objectlayer.ChecksumAlgorithmCRC32C, objectlayer.ChecksumAlgorithmCRC64NVME:
+	default:
+		return nil, errs.New("DefaultChecksumAlgorithm must be CRC32, CRC32C, CRC64NVME or empty, not %s", gateway.compatibilityConfig.DefaultChecksumAlgorithm)
+	}
+	if !gateway.compatibilityConfig.ObjectChecksums {
+		defaultChecksumAlgorithm = objectlayer.ChecksumAlgorithmNone
+	}
+
 	return &gatewayLayer{
 		compatibilityConfig:        gateway.compatibilityConfig,
 		copyObjectPartConfig:       copConfig,
 		unsupportedListingDeadline: unsupportedListingDeadline,
+		defaultChecksumAlgorithm:   defaultChecksumAlgorithm,
 	}, nil
 }
 
@@ -349,6 +365,8 @@ type gatewayLayer struct {
 	compatibilityConfig        S3CompatibilityConfig
 	copyObjectPartConfig       copyObjectPartConfig
 	unsupportedListingDeadline time.Time
+	// defaultChecksumAlgorithm is ChecksumAlgorithmNone unless object checksums are on.
+	defaultChecksumAlgorithm objectlayer.ChecksumAlgorithm
 }
 
 // Shutdown is a no-op.
@@ -647,7 +665,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 		return nil, convertReadError(err, bucket, object, opts.VersionID)
 	}
 
-	objectInfo := minioVersionedObjectInfo(bucket, download.Info())
+	objectInfo := layer.minioVersionedObjectInfo(bucket, download.Info())
 	downloadCloser := func() { _ = download.Close() }
 
 	r := newComplainingReader(download, ctxCredentialsToTags(ctx))
@@ -734,7 +752,7 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 		return objectlayer.ObjectInfo{}, convertReadError(err, bucket, objectPath, opts.VersionID)
 	}
 
-	return minioVersionedObjectInfo(bucket, object), nil
+	return layer.minioVersionedObjectInfo(bucket, object), nil
 }
 
 // convertReadError is ConvertError for reads of a single object. The
@@ -819,7 +837,13 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
-	size, err := sync2.Copy(ctx, upload, data)
+	requestedChecksum := opts.ChecksumAlgorithm
+	if !layer.compatibilityConfig.ObjectChecksums {
+		requestedChecksum = objectlayer.ChecksumAlgorithmNone
+	}
+	checksum := objectlayer.NewPutChecksum(data, requestedChecksum, layer.defaultChecksumAlgorithm)
+
+	size, err := sync2.Copy(ctx, upload, checksum.Reader())
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
@@ -857,6 +881,22 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
+	objectChecksum, err := checksum.Checksum()
+	if err != nil {
+		err = errs.Combine(err, upload.Abort())
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
+	}
+	if objectChecksum.Algorithm != objectlayer.ChecksumAlgorithmNone {
+		err = upload.SetChecksum(metaclient.ObjectChecksum{
+			Algorithm: checksumAlgorithmToStorj[objectChecksum.Algorithm],
+			Value:     []byte(objectChecksum.Value),
+		})
+		if err != nil {
+			err = errs.Combine(err, upload.Abort())
+			return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
+		}
+	}
+
 	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
 	if err != nil {
 		abortErr := upload.Abort()
@@ -869,7 +909,7 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
-	return minioVersionedObjectInfo(bucket, upload.Info()), nil
+	return layer.minioVersionedObjectInfo(bucket, upload.Info()), nil
 }
 
 func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo objectlayer.ObjectInfo, srcOpts, destOpts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
@@ -1012,7 +1052,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		object.Custom = uplink.CustomMetadata(srcInfo.UserDefined)
 	}
 
-	return minioVersionedObjectInfo(destBucket, object), nil
+	return layer.minioVersionedObjectInfo(destBucket, object), nil
 }
 
 func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
@@ -1050,7 +1090,7 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		}
 	}
 
-	return minioVersionedObjectInfo(bucket, object), nil
+	return layer.minioVersionedObjectInfo(bucket, object), nil
 }
 
 func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts objectlayer.ObjectOptions) (deletedObjects []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
@@ -1253,7 +1293,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
-		return minioVersionedObjectInfo(bucket, object), nil
+		return layer.minioVersionedObjectInfo(bucket, object), nil
 	}
 
 	newMetadata := object.Custom.Clone()
@@ -1272,7 +1312,7 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	return minioVersionedObjectInfo(bucket, object), nil
+	return layer.minioVersionedObjectInfo(bucket, object), nil
 }
 
 func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath string, opts objectlayer.ObjectOptions) (t *tags.Tags, err error) {
@@ -1332,7 +1372,7 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok {
-		return minioVersionedObjectInfo(bucket, object), nil
+		return layer.minioVersionedObjectInfo(bucket, object), nil
 	}
 
 	newMetadata := object.Custom.Clone()
@@ -1347,7 +1387,7 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
-	return minioVersionedObjectInfo(bucket, object), nil
+	return layer.minioVersionedObjectInfo(bucket, object), nil
 }
 
 // GetBucketVersioning retrieves versioning configuration of a bucket.
@@ -1847,7 +1887,7 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.IncompleteBody{Bucket: bucketName, Object: object, Err: err}
 	case errors.Is(err, versioned.ErrFailedPrecondition):
 		return ErrFailedPrecondition
-	case errors.Is(err, versioned.ErrUnimplemented), errors.Is(err, bucket.ErrUnimplemented):
+	case errors.Is(err, versioned.ErrUnimplemented), errors.Is(err, bucket.ErrUnimplemented), errors.Is(err, versioned.ErrChecksumsUnsupported):
 		return minio.NotImplemented{Message: err.Error()}
 	case errors.Is(err, syscall.ECONNRESET):
 		// This specific error happens when the satellite shuts down or is
@@ -2056,7 +2096,7 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) objectlayer.Obj
 	}
 }
 
-func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) objectlayer.ObjectInfo {
+func (layer *gatewayLayer) minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) objectlayer.ObjectInfo {
 	if object == nil {
 		object = &versioned.VersionedObject{}
 	}
@@ -2089,7 +2129,36 @@ func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) 
 	minioObject.VersionID = encodeVersionID(object.Version)
 	minioObject.DeleteMarker = object.IsDeleteMarker
 	minioObject.IsLatest = object.IsLatest
+	// Without object checksums, stored checksums aren't reported either, like before the gateway
+	// stored any.
+	if algorithm, ok := checksumAlgorithmFromStorj[object.Checksum.Algorithm]; ok && layer.compatibilityConfig.ObjectChecksums {
+		minioObject.Checksum = objectlayer.Checksum{
+			Algorithm: algorithm,
+			Composite: object.Checksum.IsComposite,
+			Value:     string(object.Checksum.Value),
+		}
+	}
+
 	return minioObject
+}
+
+var (
+	checksumAlgorithmToStorj = map[objectlayer.ChecksumAlgorithm]storj.ObjectChecksumAlgorithm{
+		objectlayer.ChecksumAlgorithmCRC32:     storj.ObjectChecksumAlgorithmCRC32,
+		objectlayer.ChecksumAlgorithmCRC32C:    storj.ObjectChecksumAlgorithmCRC32C,
+		objectlayer.ChecksumAlgorithmCRC64NVME: storj.ObjectChecksumAlgorithmCRC64NVME,
+		objectlayer.ChecksumAlgorithmSHA1:      storj.ObjectChecksumAlgorithmSHA1,
+		objectlayer.ChecksumAlgorithmSHA256:    storj.ObjectChecksumAlgorithmSHA256,
+	}
+	checksumAlgorithmFromStorj = invertMap(checksumAlgorithmToStorj)
+)
+
+func invertMap[K, V comparable](m map[K]V) map[V]K {
+	inverted := make(map[V]K, len(m))
+	for k, v := range m {
+		inverted[v] = k
+	}
+	return inverted
 }
 
 func parseTTL(userDefined map[string]string) (time.Time, error) {

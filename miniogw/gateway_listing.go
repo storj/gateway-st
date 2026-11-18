@@ -156,7 +156,7 @@ func (layer *gatewayLayer) listObjectsFast(
 		if item.IsPrefix {
 			prefixes = append(prefixes, key)
 		} else {
-			object := minioVersionedObjectInfo(bucket, item)
+			object := layer.minioVersionedObjectInfo(bucket, item)
 			object.Name = key
 			objects = append(objects, object)
 		}
@@ -198,7 +198,7 @@ func (layer *gatewayLayer) listObjectsSingle(
 				return nil, nil, "", err
 			}
 		} else {
-			objects = append(objects, minioVersionedObjectInfo(bucket, object))
+			objects = append(objects, layer.minioVersionedObjectInfo(bucket, object))
 
 			if limit == 1 {
 				return prefixes, objects, object.Key, nil
@@ -310,7 +310,7 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 			if limit == 0 {
 				return prefixes, objects, nextContinuationToken
 			}
-			objects = append(objects, minioVersionedObjectInfo(bucket, item))
+			objects = append(objects, layer.minioVersionedObjectInfo(bucket, item))
 			nextContinuationToken = item.Key
 			limit--
 			continue
@@ -712,7 +712,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		if item.IsPrefix {
 			prefixes = append(prefixes, key)
 		} else {
-			object := minioVersionedObjectInfo(bucket, item)
+			object := layer.minioVersionedObjectInfo(bucket, item)
 			object.Name = key
 			objects = append(objects, object)
 		}
