@@ -4,7 +4,6 @@
 package miniogw
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -385,39 +384,20 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		return minio.ObjectInfo{}, err
 	}
 
-	// Listed upload IDs lack some fields, such as the object lock settings, so
-	// compare the stream IDs that they carry instead of the IDs themselves.
-	id, ok := parseUploadID(uploadID)
-	if !ok {
-		return minio.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
+	// The satellite commits whatever upload the ID points to, so reject IDs
+	// that belong to another key.
+	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+		return minio.ObjectInfo{}, err
 	}
 
-	metadata := uplink.CustomMetadata{}
-	// TODO we can think about batching this request with ListUploadParts
-	uploads := project.ListUploads(ctx, bucket, &uplink.ListUploadsOptions{
-		Prefix: object,
-		Custom: true,
-	})
-	found := false
-	for uploads.Next() {
-		upload := uploads.Item()
-		if upload.Key != object {
-			continue
+	userData, err := versioned.GetUploadMetadata(ctx, project, bucket, object, uploadID)
+	if err != nil {
+		if errors.Is(err, uplink.ErrObjectNotFound) {
+			return minio.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 		}
-		if listed, ok := parseUploadID(upload.UploadID); ok && bytes.Equal(listed.StreamId, id.StreamId) {
-			metadata = upload.Custom
-			found = true
-			break
-		}
-	}
-	if err := uploads.Err(); err != nil {
 		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
-	// The satellite commits whatever upload the ID points to, so reject IDs
-	// that belong to another key (see checkUploadID).
-	if !found {
-		return minio.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
-	}
+	metadata := userData.Custom
 
 	var idx int
 	list := project.ListUploadParts(ctx, bucket, object, uploadID, nil)

@@ -3627,6 +3627,9 @@ func TestCompleteMultipartUpload(t *testing.T) {
 
 		require.Equal(t, completeInfo.ETag, obj.ETag)
 		require.Equal(t, expectedMetadata, obj.UserDefined)
+
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, testFile, uploadID, completeParts, minio.ObjectOptions{})
+		require.ErrorIs(t, err, minio.InvalidUploadID{Bucket: testBucket, Object: testFile, UploadID: uploadID})
 	})
 }
 
