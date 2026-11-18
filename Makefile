@@ -112,11 +112,10 @@ lint-testsuite-do:
 
 ##@ Verification/Cross-Vet
 
-# TODO(artur): add windows/arm and windows/arm64 once upstream supports them.
 CROSS_VET_PLATFORMS := \
 	linux/386 linux/amd64 linux/arm linux/arm64 \
 	freebsd/386 freebsd/amd64 freebsd/arm freebsd/arm64 \
-	windows/386 windows/amd64 \
+	windows/386 windows/amd64 windows/arm64 \
 	darwin/amd64 darwin/arm64
 
 .PHONY: cross-vet
