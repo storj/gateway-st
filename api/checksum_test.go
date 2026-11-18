@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api/internal/fsobjects"
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 )
@@ -455,4 +456,97 @@ func TestXMLBodyChecksumPriorityLikeS3(t *testing.T) {
 	}, []byte("hello"))
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>XAmzContentSHA256Mismatch</Code>")
+}
+
+// TestObjectChecksums checks the answers of S3 to puts and reads of objects with checksums.
+func TestObjectChecksums(t *testing.T) {
+	objectAPI := fsobjects.New(t.TempDir())
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket", nil, nil).StatusCode)
+
+	data := []byte("hello world")
+	const crc32Value = "DUoRhQ=="
+	put := serve(t, objectAPI, http.MethodPut, "/bucket/crc32", http.Header{"X-Amz-Checksum-Crc32": {crc32Value}}, data)
+	require.Equal(t, http.StatusOK, put.StatusCode, put.Body)
+	require.Equal(t, crc32Value, put.Header.Get("X-Amz-Checksum-Crc32"))
+	require.Equal(t, "FULL_OBJECT", put.Header.Get("X-Amz-Checksum-Type"))
+	// Like S3, fsobjects stores a CRC64NVME checksum with an object put without one.
+	const crc64nvmeValue = "jSnVw/bqjr4="
+	put = serve(t, objectAPI, http.MethodPut, "/bucket/none", nil, data)
+	require.Equal(t, http.StatusOK, put.StatusCode, put.Body)
+	require.Equal(t, crc64nvmeValue, put.Header.Get("X-Amz-Checksum-Crc64nvme"))
+	require.Equal(t, "FULL_OBJECT", put.Header.Get("X-Amz-Checksum-Type"))
+	head := serve(t, objectAPI, http.MethodHead, "/bucket/none", http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}, nil)
+	require.Equal(t, http.StatusOK, head.StatusCode)
+	require.Equal(t, crc64nvmeValue, head.Header.Get("X-Amz-Checksum-Crc64nvme"))
+
+	enabled := http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}
+	with := func(h http.Header, kv ...string) http.Header {
+		h = h.Clone()
+		for i := 0; i < len(kv); i += 2 {
+			h.Set(kv[i], kv[i+1])
+		}
+		return h
+	}
+	for _, tc := range []struct {
+		name     string
+		method   string
+		target   string
+		header   http.Header
+		status   int
+		checksum bool
+	}{
+		{"HEAD without mode", http.MethodHead, "/bucket/crc32", nil, http.StatusOK, false},
+		{"HEAD mode ENABLED", http.MethodHead, "/bucket/crc32", enabled, http.StatusOK, true},
+		{"HEAD mode lowercase", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"enabled"}}, http.StatusOK, true},
+		{"HEAD mode DISABLED", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}}, http.StatusBadRequest, false},
+		{"HEAD mode empty", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {""}}, http.StatusBadRequest, false},
+		{"HEAD mode DISABLED missing key", http.MethodHead, "/bucket/missing", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}}, http.StatusNotFound, false},
+		{"HEAD mode DISABLED If-None-Match match", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "If-None-Match": {`"5eb63bbbe01eeed093cb22bb8f5acdc3"`}}, http.StatusBadRequest, false},
+		{"HEAD range from 1", http.MethodHead, "/bucket/crc32", with(enabled, "Range", "bytes=1-"), http.StatusPartialContent, false},
+		{"HEAD range exact length", http.MethodHead, "/bucket/crc32", with(enabled, "Range", "bytes=0-10"), http.StatusPartialContent, true},
+		{"HEAD partNumber=1", http.MethodHead, "/bucket/crc32?partNumber=1", enabled, http.StatusPartialContent, true},
+		{"GET without mode", http.MethodGet, "/bucket/crc32", nil, http.StatusOK, false},
+		{"GET mode ENABLED", http.MethodGet, "/bucket/crc32", enabled, http.StatusOK, true},
+		{"GET mode with spaces", http.MethodGet, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {" ENABLED "}}, http.StatusOK, true},
+		{"GET mode two values", http.MethodGet, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"ENABLED,ENABLED"}}, http.StatusBadRequest, false},
+		{"GET mode DISABLED missing key", http.MethodGet, "/bucket/missing", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}}, http.StatusBadRequest, false},
+		{"GET mode DISABLED versionId=bad", http.MethodGet, "/bucket/crc32?versionId=bad", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}}, http.StatusBadRequest, false},
+		{"GET range from 1", http.MethodGet, "/bucket/crc32", with(enabled, "Range", "bytes=1-"), http.StatusPartialContent, false},
+		{"GET range 0-1", http.MethodGet, "/bucket/crc32", with(enabled, "Range", "bytes=0-1"), http.StatusPartialContent, false},
+		{"GET range whole", http.MethodGet, "/bucket/crc32", with(enabled, "Range", "bytes=0-"), http.StatusPartialContent, true},
+		{"GET range past the end", http.MethodGet, "/bucket/crc32", with(enabled, "Range", "bytes=0-100"), http.StatusPartialContent, true},
+		{"GET range suffix longer", http.MethodGet, "/bucket/crc32", with(enabled, "Range", "bytes=-100"), http.StatusPartialContent, true},
+		{"GET range invalid syntax", http.MethodGet, "/bucket/crc32", with(enabled, "Range", "bytes=x-"), http.StatusOK, true},
+		{"GET partNumber=1", http.MethodGet, "/bucket/crc32?partNumber=1", enabled, http.StatusPartialContent, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := serve(t, objectAPI, tc.method, tc.target, tc.header, nil)
+			require.Equal(t, tc.status, resp.StatusCode, resp.Body)
+			if tc.status == http.StatusBadRequest && tc.method == http.MethodGet {
+				require.Contains(t, resp.Body, "<Message>Value for x-amz-checksum-mode header is invalid.</Message>")
+			}
+			if tc.checksum {
+				require.Equal(t, crc32Value, resp.Header.Get("X-Amz-Checksum-Crc32"))
+				require.Equal(t, "FULL_OBJECT", resp.Header.Get("X-Amz-Checksum-Type"))
+			} else {
+				require.Empty(t, resp.Header.Get("X-Amz-Checksum-Crc32"))
+				require.Empty(t, resp.Header.Get("X-Amz-Checksum-Type"))
+			}
+		})
+	}
+
+	t.Run("GetObjectAttributes", func(t *testing.T) {
+		resp := serve(t, objectAPI, http.MethodGet, "/bucket/crc32?attributes", http.Header{"X-Amz-Object-Attributes": {"StorageClass,ObjectSize,Checksum,ETag"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, `<ETag>5eb63bbbe01eeed093cb22bb8f5acdc3</ETag><Checksum><ChecksumCRC32>DUoRhQ==</ChecksumCRC32><ChecksumType>FULL_OBJECT</ChecksumType></Checksum><StorageClass>STANDARD</StorageClass><ObjectSize>11</ObjectSize>`)
+
+		// The mode isn't checked.
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/crc32?attributes", http.Header{"X-Amz-Object-Attributes": {"Checksum"}, "X-Amz-Checksum-Mode": {"DISABLED"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, `<Checksum><ChecksumCRC32>DUoRhQ==</ChecksumCRC32>`)
+
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/none?attributes", http.Header{"X-Amz-Object-Attributes": {"Checksum"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, `<Checksum><ChecksumCRC64NVME>jSnVw/bqjr4=</ChecksumCRC64NVME><ChecksumType>FULL_OBJECT</ChecksumType></Checksum>`)
+	})
 }

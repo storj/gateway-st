@@ -602,6 +602,9 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 		UserDefined: metadata,
 	}
+	if _, algorithm, ok := requestedChecksum(r.Header); ok {
+		opts.ChecksumAlgorithm = objectChecksumAlgorithms[algorithm]
+	}
 
 	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
 	if err != nil {
@@ -629,6 +632,9 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
 	if setChecksumHeaders(w, r.Header, body) {
 		w.Header().Set("X-Amz-Checksum-Type", "FULL_OBJECT")
+	} else {
+		// Like S3, a checksum stored without being requested, such as a default one, is returned.
+		setObjectChecksumHeaders(w, objInfo, nil)
 	}
 	if objInfo.VersionID != "" {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
@@ -785,18 +791,21 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 
 	// ObjectSize is a pointer so that a requested size of 0 is still encoded.
 	var resp struct {
-		XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ GetObjectAttributesResponse"`
-		ETag         string   `xml:",omitempty"`
-		StorageClass string   `xml:",omitempty"`
-		ObjectSize   *int64   `xml:",omitempty"`
+		XMLName      xml.Name            `xml:"http://s3.amazonaws.com/doc/2006-03-01/ GetObjectAttributesResponse"`
+		ETag         string              `xml:",omitempty"`
+		Checksum     *attributesChecksum `xml:",omitempty"`
+		StorageClass string              `xml:",omitempty"`
+		ObjectSize   *int64              `xml:",omitempty"`
 	}
-	// TODO: Checksum and ObjectParts are accepted but omitted, because the object layer doesn't
-	// store checksums or parts (ceph's test_get_*multipart_object_attributes and
-	// test_get_checksum_object_attributes).
+	// TODO: ObjectParts is accepted but omitted, because the object layer doesn't report parts
+	// (ceph's test_get_*multipart_object_attributes).
 	for _, name := range names {
 		switch name {
 		case xhttp.ETag:
 			resp.ETag = objInfo.ETag
+		case xhttp.Checksum:
+			// Unlike GetObject and HeadObject, X-Amz-Checksum-Mode isn't needed, nor checked.
+			resp.Checksum = newAttributesChecksum(objInfo.Checksum)
 		case xhttp.StorageClass:
 			resp.StorageClass = storageclass.STANDARD
 			if objInfo.StorageClass != "" {
@@ -823,6 +832,37 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	api.writeSuccessResponseXML(w, r, encodedResp)
+}
+
+// attributesChecksum is the Checksum element of a GetObjectAttributes response.
+type attributesChecksum struct {
+	ChecksumCRC32     string `xml:",omitempty"`
+	ChecksumCRC32C    string `xml:",omitempty"`
+	ChecksumCRC64NVME string `xml:",omitempty"`
+	ChecksumSHA1      string `xml:",omitempty"`
+	ChecksumSHA256    string `xml:",omitempty"`
+	ChecksumType      string
+}
+
+// newAttributesChecksum returns the Checksum element of an object's checksum, or nil if the object
+// has none.
+func newAttributesChecksum(checksum objectlayer.Checksum) *attributesChecksum {
+	element := attributesChecksum{ChecksumType: checksumType(checksum)}
+	switch checksum.Algorithm {
+	case objectlayer.ChecksumAlgorithmCRC32:
+		element.ChecksumCRC32 = checksum.Value
+	case objectlayer.ChecksumAlgorithmCRC32C:
+		element.ChecksumCRC32C = checksum.Value
+	case objectlayer.ChecksumAlgorithmCRC64NVME:
+		element.ChecksumCRC64NVME = checksum.Value
+	case objectlayer.ChecksumAlgorithmSHA1:
+		element.ChecksumSHA1 = checksum.Value
+	case objectlayer.ChecksumAlgorithmSHA256:
+		element.ChecksumSHA256 = checksum.Value
+	default:
+		return nil
+	}
+	return &element
 }
 
 // GetObjectLegalHoldHandler is the HTTP handler for the GetObjectLegalHold operation,
@@ -1061,6 +1101,10 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(err)
 		return
 	}
+	// getObjectReadOptions has checked the mode.
+	if enabled, _ := checksumMode(r.Header); enabled {
+		setObjectChecksumHeaders(w, reader.ObjInfo, rangeSpec)
+	}
 	setResponseHeaderOverrides(w, r.URL.Query())
 
 	dw := &deferredStatusWriter{ResponseWriter: w, status: http.StatusOK}
@@ -1164,6 +1208,14 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Unlike GetObject, HeadObject checks the mode once the object is found, like S3.
+	// TODO: S3 reports an unsatisfiable range before an invalid mode.
+	checksumEnabled, err := checksumMode(r.Header)
+	if err != nil {
+		api.writeErrorResponseHeadersOnly(r, w, err)
+		return
+	}
+
 	if api.checkPreconditions(w, r, objInfo, opts) {
 		return
 	}
@@ -1180,6 +1232,9 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		maps.Copy(w.Header(), errorHeader)
 		api.writeErrorResponseHeadersOnly(r, w, err)
 		return
+	}
+	if checksumEnabled {
+		setObjectChecksumHeaders(w, objInfo, rangeSpec)
 	}
 	setResponseHeaderOverrides(w, r.URL.Query())
 
@@ -1209,6 +1264,14 @@ func getObjectReadOptions(r *http.Request) (opts objectlayer.ObjectOptions, err 
 			errResp.ArgumentName = xhttp.PartNumber
 			errResp.ArgumentValue = partNumberStr
 			return objectlayer.ObjectOptions{}, errResp
+		}
+	}
+
+	// GetObject checks the checksum mode here, after the part number and before the version ID,
+	// like S3.
+	if r.Method == http.MethodGet {
+		if _, err := checksumMode(r.Header); err != nil {
+			return objectlayer.ObjectOptions{}, err
 		}
 	}
 

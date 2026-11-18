@@ -766,13 +766,13 @@ s3tests/functional/test_s3.py::test_get_bucket_policy_status
 #(encryption) s3tests/functional/test_s3.py::test_sse_s3_encrypted_upload_1mb
 #(encryption) s3tests/functional/test_s3.py::test_sse_s3_encrypted_upload_8mb
 #(torrent) s3tests/functional/test_s3.py::test_get_object_torrent
-#(checksums) s3tests/functional/test_s3.py::test_object_checksum_sha256
+#(matches S3: a malformed checksum is InvalidRequest, not BadDigest) s3tests/functional/test_s3.py::test_object_checksum_sha256
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_sha512
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_xxhash3
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_xxhash64
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_xxhash128
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_md5
-#(checksums) s3tests/functional/test_s3.py::test_object_checksum_crc64nvme
+#(matches S3: a malformed checksum is InvalidRequest, not BadDigest) s3tests/functional/test_s3.py::test_object_checksum_crc64nvme
 #(checksums) s3tests/functional/test_s3.py::test_multipart_checksum_sha256
 #(checksums) s3tests/functional/test_s3.py::test_multipart_reupload_checksum_and_etag
 #(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_sha256
@@ -901,7 +901,7 @@ s3tests/functional/test_s3.py::test_get_bucket_policy_status
 #(todo: GetObjectAttributes ObjectParts) s3tests/functional/test_s3.py::test_get_multipart_object_attributes
 #(todo: GetObjectAttributes ObjectParts) s3tests/functional/test_s3.py::test_get_paginated_multipart_object_attributes
 #(todo: GetObjectAttributes ObjectParts) s3tests/functional/test_s3.py::test_get_single_multipart_object_attributes
-#(checksums) s3tests/functional/test_s3.py::test_get_checksum_object_attributes
+s3tests/functional/test_s3.py::test_get_checksum_object_attributes
 s3tests/functional/test_s3.py::test_get_versioned_object_attributes
 #(encryption) s3tests/functional/test_s3.py::test_get_sse_c_encrypted_object_attributes
 #(version id in unversioned bucket) s3tests/functional/test_s3.py::test_get_object_attributes

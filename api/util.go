@@ -753,25 +753,82 @@ func getChecksumRequests(h http.Header) ([]awsig.ChecksumRequest, error) {
 	return reqs, nil
 }
 
-// setChecksumHeaders sets the X-Amz-Checksum-<algorithm> response headers for the checksums
-// that the request header h asked to verify while reading a request body and reports whether
-// it set any. The SHA-256 of a signed payload isn't echoed unless it was asked for.
+// requestedChecksum returns the X-Amz-Checksum-<algorithm> header or trailer of a request whose
+// body is verified with getChecksumRequests, which allows at most one, and its algorithm.
+func requestedChecksum(h http.Header) (header string, algorithm awsig.ChecksumAlgorithm, ok bool) {
+	trailer := http.CanonicalHeaderKey(strings.TrimSpace(h.Get("X-Amz-Trailer")))
+	for header, algorithm := range checksumHeaders {
+		if _, requested := h[header]; requested || header == trailer {
+			return header, algorithm, true
+		}
+	}
+	return "", 0, false
+}
+
+// setChecksumHeaders sets the X-Amz-Checksum-<algorithm> response header for the checksum that
+// the request header h asked to verify while reading a request body and reports whether it set
+// it. The SHA-256 of a signed payload isn't echoed unless it was asked for.
 func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader) (set bool) {
+	header, algorithm, ok := requestedChecksum(h)
+	if !ok {
+		return false
+	}
 	sums, err := body.Checksums()
 	if err != nil {
 		return false
 	}
-	trailer := http.CanonicalHeaderKey(strings.TrimSpace(h.Get("X-Amz-Trailer")))
-	for header, algorithm := range checksumHeaders {
-		if _, requested := h[header]; !requested && header != trailer {
-			continue
-		}
-		if sum, ok := sums[algorithm]; ok {
-			w.Header().Set(header, base64.StdEncoding.EncodeToString(sum))
-			set = true
+	sum, ok := sums[algorithm]
+	if !ok {
+		return false
+	}
+	w.Header().Set(header, base64.StdEncoding.EncodeToString(sum))
+	return true
+}
+
+// objectChecksumAlgorithms maps the algorithms of the checksums that objects can be stored with.
+var objectChecksumAlgorithms = map[awsig.ChecksumAlgorithm]objectlayer.ChecksumAlgorithm{
+	awsig.AlgorithmCRC32:     objectlayer.ChecksumAlgorithmCRC32,
+	awsig.AlgorithmCRC32C:    objectlayer.ChecksumAlgorithmCRC32C,
+	awsig.AlgorithmCRC64NVME: objectlayer.ChecksumAlgorithmCRC64NVME,
+	awsig.AlgorithmSHA1:      objectlayer.ChecksumAlgorithmSHA1,
+	awsig.AlgorithmSHA256:    objectlayer.ChecksumAlgorithmSHA256,
+}
+
+// checksumMode returns whether a GetObject or HeadObject request asks for the object's checksum.
+// Like S3, ENABLED is the only value, in any case and with surrounding spaces.
+func checksumMode(h http.Header) (enabled bool, err error) {
+	values, ok := h["X-Amz-Checksum-Mode"]
+	if !ok {
+		return false, nil
+	}
+	if len(values) != 1 || !strings.EqualFold(strings.TrimSpace(values[0]), "ENABLED") {
+		return false, apierr.Response{Code: "InvalidRequest", Description: "Value for x-amz-checksum-mode header is invalid.", HTTPStatusCode: http.StatusBadRequest}
+	}
+	return true, nil
+}
+
+// setObjectChecksumHeaders sets the headers of an object's checksum, which S3 only returns with
+// the whole object, even for a range that covers it.
+func setObjectChecksumHeaders(w http.ResponseWriter, objInfo objectlayer.ObjectInfo, rangeSpec *objectlayer.HTTPRangeSpec) {
+	if objInfo.Checksum.Algorithm == objectlayer.ChecksumAlgorithmNone {
+		return
+	}
+	if rangeSpec != nil {
+		start, length, err := rangeOffsetLength(rangeSpec, objInfo.Size)
+		if err != nil || start != 0 || length != objInfo.Size {
+			return
 		}
 	}
-	return set
+	w.Header().Set(xAmzChecksumPrefix+objInfo.Checksum.Algorithm.String(), objInfo.Checksum.Value)
+	w.Header().Set("X-Amz-Checksum-Type", checksumType(objInfo.Checksum))
+}
+
+// checksumType returns the S3 type of a checksum.
+func checksumType(checksum objectlayer.Checksum) string {
+	if checksum.Composite {
+		return "COMPOSITE"
+	}
+	return "FULL_OBJECT"
 }
 
 // s3EncodeName encodes name if encodingType asks for url encoding. Like S3, a space is encoded as
