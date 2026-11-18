@@ -58,6 +58,10 @@ type Checksum struct {
 	Value string
 }
 
+// ErrCopyChecksumAlgorithm is the error of CopyObject for a checksum algorithm other than the
+// source's, which would need the data to compute.
+var ErrCopyChecksumAlgorithm = NotImplemented{Message: "Specifying a checksum algorithm for the destination object that differs from that of the source object is not supported."}
+
 // ParseChecksumAlgorithm returns the algorithm named name, in any case. An empty name is
 // ChecksumAlgorithmNone.
 func ParseChecksumAlgorithm(name string) (ChecksumAlgorithm, error) {

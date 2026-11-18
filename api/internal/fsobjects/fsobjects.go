@@ -991,6 +991,9 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 			return objectlayer.ObjectInfo{}, err
 		}
 		latest := &meta.Versions[0]
+		if dstOpts.ChecksumAlgorithm != objectlayer.ChecksumAlgorithmNone && dstOpts.ChecksumAlgorithm != latest.Checksum.Algorithm {
+			return objectlayer.ObjectInfo{}, objectlayer.ErrCopyChecksumAlgorithm
+		}
 		latest.UserDefined = copyMetadata(srcInfo.UserDefined, latest.UserDefined)
 		if err := l.writeObject(srcBucket, meta); err != nil {
 			return objectlayer.ObjectInfo{}, err
@@ -1010,6 +1013,10 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
+	if dstOpts.ChecksumAlgorithm != objectlayer.ChecksumAlgorithmNone && dstOpts.ChecksumAlgorithm != src.Checksum.Algorithm {
+		_ = f.Close()
+		return objectlayer.ObjectInfo{}, objectlayer.ErrCopyChecksumAlgorithm
+	}
 	tmp, size, err := l.writeTemp(dstBucket, f)
 	_ = f.Close()
 	if err != nil {
@@ -1026,6 +1033,7 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 		UserDefined: metadata,
 		Retention:   newRetention(dstOpts.Retention),
 		LegalHold:   newLegalHold(dstOpts.LegalHold),
+		Checksum:    src.Checksum,
 	}, dstOpts.IfNoneMatch)
 }
 

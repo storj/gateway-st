@@ -84,7 +84,8 @@ type ObjectOptions struct {
 	// Quiet is whether only errors are reported, used by DeleteObjects.
 	Quiet bool
 	// ChecksumAlgorithm is the algorithm of the checksum that the object is put with, which the
-	// data computes, used by PutObject.
+	// data computes, used by PutObject. CopyObject refuses a copy whose source has a checksum
+	// with another algorithm with ErrCopyChecksumAlgorithm.
 	ChecksumAlgorithm ChecksumAlgorithm
 }
 
