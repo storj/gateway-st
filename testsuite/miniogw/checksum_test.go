@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"hash/crc64"
+	"io"
 	"slices"
 	"testing"
 
@@ -647,5 +648,124 @@ func TestMultipartChecksums(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, objectlayer.Checksum{}, info.Checksum)
 		})
+	})
+}
+
+func TestObjectParts(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+		sat.API.Metainfo.Endpoint.TestingSetChecksumsEnabled(true)
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{Access: upl.Access[sat.ID()]})
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		config := defaultS3CompatibilityConfig
+		config.ObjectChecksums = true
+		layer, err := miniogw.NewStorjGateway(config).NewObjectLayer()
+		require.NoError(t, err)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+		config.ObjectChecksums = false
+		off, err := miniogw.NewStorjGateway(config).NewObjectLayer()
+		require.NoError(t, err)
+		defer func() { require.NoError(t, off.Shutdown(ctx)) }()
+
+		parts := [][]byte{testrand.BytesInt(10 * memory.KiB.Int()), testrand.BytesInt(memory.KiB.Int()), []byte("hello world")}
+		crc32Of := func(data []byte) string {
+			return base64.StdEncoding.EncodeToString(binary.BigEndian.AppendUint32(nil, crc32.ChecksumIEEE(data)))
+		}
+
+		created, err := layer.NewMultipartUpload(ctx, testBucket, "multipart", objectlayer.ObjectOptions{ChecksumAlgorithm: objectlayer.ChecksumAlgorithmCRC32})
+		require.NoError(t, err)
+		uploadID := created.UploadID
+		var completeParts []objectlayer.CompletePart
+		for i, part := range parts {
+			info, err := layer.PutObjectPart(ctx, testBucket, "multipart", uploadID, i+1, newChecksumReader(part), objectlayer.ObjectOptions{ChecksumAlgorithm: objectlayer.ChecksumAlgorithmCRC32})
+			require.NoError(t, err)
+			completeParts = append(completeParts, objectlayer.CompletePart{PartNumber: i + 1, ETag: info.ETag, Checksum: info.Checksum})
+		}
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, "multipart", uploadID, completeParts, objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+
+		wantPart := objectlayer.ObjectPart{
+			PartNumber: 2,
+			Offset:     int64(len(parts[0])),
+			Size:       int64(len(parts[1])),
+			Checksum:   objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: crc32Of(parts[1])},
+		}
+
+		whole, err := layer.GetObjectInfo(ctx, testBucket, "multipart", objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+		require.NotEmpty(t, whole.Checksum.Value)
+		info, err := layer.GetObjectInfo(ctx, testBucket, "multipart", objectlayer.ObjectOptions{PartNumber: 2})
+		require.NoError(t, err)
+		require.Equal(t, 3, info.PartsCount)
+		require.Equal(t, []objectlayer.ObjectPart{wantPart}, info.Parts)
+		// A part read reports the object's checksum, which the api package sends for an only part.
+		require.Equal(t, whole.Checksum, info.Checksum)
+
+		reader, err := layer.GetObjectNInfo(ctx, testBucket, "multipart", nil, nil, 0, objectlayer.ObjectOptions{PartNumber: 2})
+		require.NoError(t, err)
+		require.Equal(t, []objectlayer.ObjectPart{wantPart}, reader.ObjInfo.Parts)
+		data, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		require.NoError(t, reader.Close())
+		require.Equal(t, parts[1], data)
+
+		// Without object checksums, neither the object nor its parts have checksums.
+		info, err = off.GetObjectInfo(ctx, testBucket, "multipart", objectlayer.ObjectOptions{PartNumber: 2})
+		require.NoError(t, err)
+		require.Equal(t, objectlayer.Checksum{}, info.Checksum)
+		require.Equal(t, []objectlayer.ObjectPart{{PartNumber: 2, Offset: wantPart.Offset, Size: wantPart.Size}}, info.Parts)
+
+		// A part that doesn't exist is left for the caller to answer.
+		info, err = layer.GetObjectInfo(ctx, testBucket, "multipart", objectlayer.ObjectOptions{PartNumber: 4})
+		require.NoError(t, err)
+		require.Equal(t, 3, info.PartsCount)
+		require.Empty(t, info.Parts)
+
+		info, err = layer.GetObjectInfo(ctx, testBucket, "multipart", objectlayer.ObjectOptions{
+			ObjectParts: &objectlayer.ObjectPartsOptions{PartNumberMarker: 1, MaxParts: 1},
+		})
+		require.NoError(t, err)
+		require.Equal(t, []objectlayer.ObjectPart{wantPart}, info.Parts)
+		require.True(t, info.PartsTruncated)
+
+		// An empty part reads as empty, at the end of the object.
+		created, err = layer.NewMultipartUpload(ctx, testBucket, "empty-part", objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+		completeParts = nil
+		for i, part := range [][]byte{parts[0], nil} {
+			info, err := layer.PutObjectPart(ctx, testBucket, "empty-part", created.UploadID, i+1, newChecksumReader(part), objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			completeParts = append(completeParts, objectlayer.CompletePart{PartNumber: i + 1, ETag: info.ETag})
+		}
+		_, err = layer.CompleteMultipartUpload(ctx, testBucket, "empty-part", created.UploadID, completeParts, objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+		reader, err = layer.GetObjectNInfo(ctx, testBucket, "empty-part", nil, nil, 0, objectlayer.ObjectOptions{PartNumber: 2})
+		require.NoError(t, err)
+		require.Len(t, reader.ObjInfo.Parts, 1)
+		require.Zero(t, reader.ObjInfo.Parts[0].Size)
+		data, err = io.ReadAll(reader)
+		require.NoError(t, err)
+		require.NoError(t, reader.Close())
+		require.Empty(t, data)
+
+		// An object that wasn't uploaded in parts has none, and part 1 is the entire object.
+		_, err = layer.PutObject(ctx, testBucket, "single", newChecksumReader(parts[2]), objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+		reader, err = layer.GetObjectNInfo(ctx, testBucket, "single", nil, nil, 0, objectlayer.ObjectOptions{PartNumber: 1})
+		require.NoError(t, err)
+		require.Zero(t, reader.ObjInfo.PartsCount)
+		data, err = io.ReadAll(reader)
+		require.NoError(t, err)
+		require.NoError(t, reader.Close())
+		require.Equal(t, parts[2], data)
 	})
 }

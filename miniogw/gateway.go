@@ -660,12 +660,38 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 		return nil, ConvertError(err, bucket, object)
 	}
 
+	var objectInfo objectlayer.ObjectInfo
+	// TODO: reading a part costs an object lookup, a segment listing and the download, where
+	// uplink and the satellite downloading a part by its number would cost one request.
+	if opts.PartNumber > 0 {
+		var listed *versioned.VersionedObject
+		var parts []objectlayer.ObjectPart
+		listed, parts, err = layer.objectParts(ctx, project, bucket, object, version)
+		if err != nil {
+			return nil, convertReadError(err, bucket, object, opts.VersionID)
+		}
+		objectInfo = layer.minioVersionedObjectInfo(bucket, listed)
+		objectlayer.SelectParts(&objectInfo, parts, opts)
+		switch {
+		case len(objectInfo.Parts) == 1:
+			downloadOpts = &versioned.DownloadObjectOptions{Offset: objectInfo.Parts[0].Offset, Length: objectInfo.Parts[0].Size}
+		case objectInfo.PartsCount > 0 || opts.PartNumber > 1:
+			// The part doesn't exist, which the caller decides how to answer. Part 1 of an object
+			// that wasn't uploaded in parts is the entire object.
+			return objectlayer.NewGetObjectReader(strings.NewReader(""), objectInfo, opts, func() {})
+		}
+		// The version whose parts were listed is downloaded, rather than a newer latest one.
+		version = listed.Version
+	}
+
 	download, err := versioned.DownloadObject(ctx, project, bucket, object, version, downloadOpts)
 	if err != nil {
 		return nil, convertReadError(err, bucket, object, opts.VersionID)
 	}
 
-	objectInfo := layer.minioVersionedObjectInfo(bucket, download.Info())
+	if opts.PartNumber == 0 {
+		objectInfo = layer.minioVersionedObjectInfo(bucket, download.Info())
+	}
 	downloadCloser := func() { _ = download.Close() }
 
 	r := newComplainingReader(download, ctxCredentialsToTags(ctx))
@@ -745,6 +771,18 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
+	// Parts cost another request, so they're only listed when asked for.
+	if opts.PartNumber > 0 || opts.ObjectParts != nil {
+		object, parts, err := layer.objectParts(ctx, project, bucket, objectPath, version)
+		if err != nil {
+			err = checkBucketError(ctx, project, bucket, objectPath, err)
+			return objectlayer.ObjectInfo{}, convertReadError(err, bucket, objectPath, opts.VersionID)
+		}
+		info := layer.minioVersionedObjectInfo(bucket, object)
+		objectlayer.SelectParts(&info, parts, opts)
+		return info, nil
+	}
+
 	object, err := versioned.StatObject(ctx, project, bucket, objectPath, version)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
@@ -753,6 +791,40 @@ func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath
 	}
 
 	return layer.minioVersionedObjectInfo(bucket, object), nil
+}
+
+// objectParts returns an object version, or its latest version if version is nil, and its parts in
+// order, which are empty for an object that wasn't uploaded in parts. The parts only have checksums
+// with object checksums on.
+//
+// TODO: it looks the object up, even when the caller already has, because uplink lists the parts
+// by the stream ID, which uplink doesn't return with the object.
+func (layer *gatewayLayer) objectParts(ctx context.Context, project *uplink.Project, bucket, key string, version []byte) (_ *versioned.VersionedObject, _ []objectlayer.ObjectPart, err error) {
+	defer mon.Task()(&ctx)(&err)
+
+	iter, err := versioned.ListObjectParts(ctx, project, bucket, key, version, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	object := iter.Info()
+	algorithm := checksumAlgorithmFromStorj[object.Checksum.Algorithm]
+
+	var parts []objectlayer.ObjectPart
+	var offset int64
+	for iter.Next() {
+		item := iter.Item()
+		// The segments of an object that wasn't uploaded in parts are in part 0.
+		if item.PartNumber == 0 {
+			continue
+		}
+		part := objectlayer.ObjectPart{PartNumber: int(item.PartNumber), Offset: offset, Size: item.Size}
+		if len(item.Checksum) > 0 && layer.compatibilityConfig.ObjectChecksums {
+			part.Checksum = objectlayer.Checksum{Algorithm: algorithm, Value: string(item.Checksum)}
+		}
+		parts = append(parts, part)
+		offset += item.Size
+	}
+	return object, parts, iter.Err()
 }
 
 // convertReadError is ConvertError for reads of a single object. The
