@@ -138,7 +138,8 @@ type versionMeta struct {
 	Data      string            `json:",omitempty"`
 	Retention *versionRetention `json:",omitempty"`
 	// LegalHold is set for the versions in a bucket with object lock enabled.
-	LegalHold *bool `json:",omitempty"`
+	LegalHold *bool                `json:",omitempty"`
+	Checksum  objectlayer.Checksum `json:",omitzero"`
 }
 
 type versionRetention struct {
@@ -462,6 +463,7 @@ func objectInfo(bucket, key string, version versionMeta, latest bool) objectlaye
 		VersionID:    version.VersionID,
 		IsLatest:     latest,
 		DeleteMarker: version.DeleteMarker,
+		Checksum:     version.Checksum,
 	}
 }
 
@@ -902,7 +904,9 @@ func (l *Layer) PutObject(ctx context.Context, bucket, object string, data *obje
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	tmp, size, err := l.writeTemp(bucket, data)
+	// Like S3 and miniogw by default, an object put without a checksum gets a CRC64NVME one.
+	checksum := objectlayer.NewPutChecksum(data, opts.ChecksumAlgorithm, objectlayer.ChecksumAlgorithmCRC64NVME)
+	tmp, size, err := l.writeTemp(bucket, checksum.Reader())
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
@@ -923,12 +927,19 @@ func (l *Layer) PutObject(ctx context.Context, bucket, object string, data *obje
 		return objectlayer.ObjectInfo{}, err
 	}
 
+	objectChecksum, err := checksum.Checksum()
+	if err != nil {
+		_ = os.Remove(tmp)
+		return objectlayer.ObjectInfo{}, err
+	}
+
 	return l.commitObject(bucket, object, tmp, versionMeta{
 		Size:        size,
 		ETag:        etag,
 		UserDefined: moveTagging(opts.UserDefined),
 		Retention:   newRetention(opts.Retention),
 		LegalHold:   newLegalHold(opts.LegalHold),
+		Checksum:    objectChecksum,
 	}, opts.IfNoneMatch)
 }
 

@@ -51,6 +51,7 @@ type ObjectInfo struct {
 	UserDefined map[string]string
 	// UserTags is the object's tags, URL-encoded.
 	UserTags string
+	Checksum Checksum
 }
 
 // CheckPreconditionFn is called with the object before it's read, and returns whether a
@@ -82,6 +83,9 @@ type ObjectOptions struct {
 	CheckPrecondFn CheckPreconditionFn
 	// Quiet is whether only errors are reported, used by DeleteObjects.
 	Quiet bool
+	// ChecksumAlgorithm is the algorithm of the checksum that the object is put with, which the
+	// data computes, used by PutObject.
+	ChecksumAlgorithm ChecksumAlgorithm
 }
 
 // PostPolicyForm is the policy of a POST upload.

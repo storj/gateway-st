@@ -65,8 +65,9 @@ func fullObjectInfo(t *testing.T) objectlayer.ObjectInfo {
 		StorageClass:    "STANDARD",
 		UserDefined:     map[string]string{"key": "value"},
 		UserTags:        "tag=value",
+		Checksum:        objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: "DUoRhQ=="},
 	}
-	// Every field must survive the adapter, so a new one has to be added here.
+	// Every field must be checked, so a new one has to be added here.
 	v := reflect.ValueOf(info)
 	for i := range v.NumField() {
 		require.False(t, v.Field(i).IsZero(), "ObjectInfo.%s isn't set", v.Type().Field(i).Name)
@@ -86,8 +87,11 @@ func TestObjectInfoRoundTrip(t *testing.T) {
 
 	copied, err := layer.CopyObject(ctx, "bucket", "object", "bucket", "copy", minioInfo, minio.ObjectOptions{}, minio.ObjectOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, info, fake.srcInfo)
 	assert.Equal(t, minioInfo, copied)
+
+	// minio's ObjectInfo can't carry the checksum.
+	info.Checksum = objectlayer.Checksum{}
+	assert.Equal(t, info, fake.srcInfo)
 }
 
 func TestObjectOptions(t *testing.T) {
