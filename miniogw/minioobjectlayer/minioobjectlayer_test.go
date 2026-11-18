@@ -66,6 +66,9 @@ func fullObjectInfo(t *testing.T) objectlayer.ObjectInfo {
 		UserDefined:     map[string]string{"key": "value"},
 		UserTags:        "tag=value",
 		Checksum:        objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: "DUoRhQ=="},
+		PartsCount:      2,
+		Parts:           []objectlayer.ObjectPart{{PartNumber: 1, Size: 1}},
+		PartsTruncated:  true,
 	}
 	// Every field must be checked, so a new one has to be added here.
 	v := reflect.ValueOf(info)
@@ -89,8 +92,9 @@ func TestObjectInfoRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, minioInfo, copied)
 
-	// minio's ObjectInfo can't carry the checksum.
+	// minio's ObjectInfo can't carry the checksum or the parts.
 	info.Checksum = objectlayer.Checksum{}
+	info.PartsCount, info.Parts, info.PartsTruncated = 0, nil, false
 	assert.Equal(t, info, fake.srcInfo)
 }
 
@@ -130,7 +134,6 @@ func TestObjectOptions(t *testing.T) {
 		LegalHold:                 &legalHold,
 		IfNoneMatch:               []string{"*"},
 		UserDefined:               map[string]string{"key": "value"},
-		PartNumber:                3,
 		Quiet:                     true,
 	}, fake.opts)
 }

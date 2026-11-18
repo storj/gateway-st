@@ -42,3 +42,29 @@ func TestGetObjectReader(t *testing.T) {
 		assert.Equal(t, []string{"download", "project"}, order)
 	})
 }
+
+func TestSelectParts(t *testing.T) {
+	parts := []objectlayer.ObjectPart{
+		{PartNumber: 1, Offset: 0, Size: 5},
+		{PartNumber: 3, Offset: 5, Size: 5},
+		{PartNumber: 4, Offset: 10, Size: 1},
+	}
+	selected := func(parts []objectlayer.ObjectPart, opts objectlayer.ObjectOptions) objectlayer.ObjectInfo {
+		var info objectlayer.ObjectInfo
+		objectlayer.SelectParts(&info, parts, opts)
+		return info
+	}
+
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3, Parts: parts[1:2]}, selected(parts, objectlayer.ObjectOptions{PartNumber: 3}))
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3}, selected(parts, objectlayer.ObjectOptions{PartNumber: 2}))
+	assert.Equal(t, objectlayer.ObjectInfo{}, selected(nil, objectlayer.ObjectOptions{PartNumber: 1}))
+
+	page := func(marker, maxParts int) objectlayer.ObjectOptions {
+		return objectlayer.ObjectOptions{ObjectParts: &objectlayer.ObjectPartsOptions{PartNumberMarker: marker, MaxParts: maxParts}}
+	}
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3, Parts: parts}, selected(parts, page(0, 1000)))
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3, Parts: parts[:1], PartsTruncated: true}, selected(parts, page(0, 1)))
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3, Parts: parts[1:2], PartsTruncated: true}, selected(parts, page(1, 1)))
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3}, selected(parts, page(4, 1000)))
+	assert.Equal(t, objectlayer.ObjectInfo{PartsCount: 3}, selected(parts, page(0, 0)))
+}

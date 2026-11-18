@@ -52,6 +52,57 @@ type ObjectInfo struct {
 	// UserTags is the object's tags, URL-encoded.
 	UserTags string
 	Checksum Checksum
+	// PartsCount is the number of parts of an object that was uploaded in parts, or 0. It's only
+	// reported when ObjectOptions asks for parts.
+	PartsCount int
+	// Parts are the parts that ObjectOptions asks for: the one that PartNumber names, if it
+	// exists, or a page of them.
+	Parts []ObjectPart
+	// PartsTruncated is whether there are parts after the page in Parts.
+	PartsTruncated bool
+}
+
+// ObjectPart is a part of an object that was uploaded in parts.
+type ObjectPart struct {
+	PartNumber int
+	// Offset is where the part starts in the object.
+	Offset int64
+	Size   int64
+	// Checksum is the part's checksum, with the object's algorithm.
+	Checksum Checksum
+}
+
+// ObjectPartsOptions asks for a page of an object's parts.
+type ObjectPartsOptions struct {
+	// PartNumberMarker is the part number that the page starts after.
+	PartNumberMarker int
+	MaxParts         int
+}
+
+// SelectParts sets the parts of info that opts asks for from parts, which are all of an object's
+// parts in order, and are empty for an object that wasn't uploaded in parts.
+func SelectParts(info *ObjectInfo, parts []ObjectPart, opts ObjectOptions) {
+	info.PartsCount = len(parts)
+	switch {
+	case opts.PartNumber > 0:
+		for _, part := range parts {
+			if part.PartNumber == opts.PartNumber {
+				info.Parts = []ObjectPart{part}
+			}
+		}
+	case opts.ObjectParts != nil && opts.ObjectParts.MaxParts > 0:
+		// Like S3, a page that can't hold any parts isn't truncated.
+		for _, part := range parts {
+			if part.PartNumber <= opts.ObjectParts.PartNumberMarker {
+				continue
+			}
+			if len(info.Parts) == opts.ObjectParts.MaxParts {
+				info.PartsTruncated = true
+				break
+			}
+			info.Parts = append(info.Parts, part)
+		}
+	}
 }
 
 // CheckPreconditionFn is called with the object before it's read, and returns whether a
@@ -77,8 +128,12 @@ type ObjectOptions struct {
 	IfNoneMatch []string
 	// UserDefined is the metadata of the object to write.
 	UserDefined map[string]string
-	// PartNumber is the part to read, used by GetObjectNInfo and GetObjectInfo.
+	// PartNumber is the part to read, used by GetObjectNInfo and GetObjectInfo. GetObjectNInfo
+	// reads only the part of an object that was uploaded in parts, and the entire object
+	// otherwise.
 	PartNumber int
+	// ObjectParts asks GetObjectInfo for a page of the object's parts.
+	ObjectParts *ObjectPartsOptions
 	// CheckPrecondFn is used by GetObjectNInfo.
 	CheckPrecondFn CheckPreconditionFn
 	// Quiet is whether only errors are reported, used by DeleteObjects.

@@ -322,6 +322,9 @@ func fromMinioObjectInfo(info minio.ObjectInfo) objectlayer.ObjectInfo {
 	}
 }
 
+// fromMinioObjectOptions returns opts as objectlayer.ObjectOptions. The part number is dropped,
+// because minio's handlers read parts as ranges of the entire object, which they take objects
+// from the layer to be.
 func fromMinioObjectOptions(opts minio.ObjectOptions) objectlayer.ObjectOptions {
 	var conditions []objectlayer.PostPolicyCondition
 	if opts.PostPolicy.Conditions.Items != nil {
@@ -350,7 +353,6 @@ func fromMinioObjectOptions(opts minio.ObjectOptions) objectlayer.ObjectOptions 
 		LegalHold:                 opts.LegalHold,
 		IfNoneMatch:               opts.IfNoneMatch,
 		UserDefined:               opts.UserDefined,
-		PartNumber:                opts.PartNumber,
 		CheckPrecondFn:            checkPrecondFn,
 		Quiet:                     opts.Quiet,
 	}

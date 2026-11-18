@@ -140,6 +140,39 @@ type versionMeta struct {
 	// LegalHold is set for the versions in a bucket with object lock enabled.
 	LegalHold *bool                `json:",omitempty"`
 	Checksum  objectlayer.Checksum `json:",omitzero"`
+	// Parts are the parts of a version that was uploaded in parts, in order.
+	Parts []versionPart `json:",omitempty"`
+}
+
+type versionPart struct {
+	PartNumber int
+	Size       int64
+	// Checksum is the base64-encoded checksum, with the version's algorithm.
+	Checksum string `json:",omitempty"`
+}
+
+// versionParts returns the stored form of parts.
+func versionParts(parts []objectlayer.ObjectPart) []versionPart {
+	var stored []versionPart
+	for _, part := range parts {
+		stored = append(stored, versionPart{PartNumber: part.PartNumber, Size: part.Size, Checksum: part.Checksum.Value})
+	}
+	return stored
+}
+
+// objectParts returns the parts of a version.
+func objectParts(version versionMeta) []objectlayer.ObjectPart {
+	var parts []objectlayer.ObjectPart
+	var offset int64
+	for _, part := range version.Parts {
+		objectPart := objectlayer.ObjectPart{PartNumber: part.PartNumber, Offset: offset, Size: part.Size}
+		if part.Checksum != "" {
+			objectPart.Checksum = objectlayer.Checksum{Algorithm: version.Checksum.Algorithm, Value: part.Checksum}
+		}
+		parts = append(parts, objectPart)
+		offset += part.Size
+	}
+	return parts
 }
 
 type versionRetention struct {
@@ -857,21 +890,21 @@ func (l *Layer) SetBucketNotificationConfig(ctx context.Context, bucket string, 
 
 // openObject returns the information of the version versionID of key, or of its latest version if
 // versionID is empty, and its open data file.
-func (l *Layer) openObject(bucket, key, versionID string) (objectlayer.ObjectInfo, *os.File, error) {
+func (l *Layer) openObject(bucket, key, versionID string) (objectlayer.ObjectInfo, []objectlayer.ObjectPart, *os.File, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	meta, i, err := l.readVersion(bucket, key, versionID)
 	if err != nil {
-		return objectlayer.ObjectInfo{}, nil, err
+		return objectlayer.ObjectInfo{}, nil, nil, err
 	}
 	f, err := os.Open(filepath.Join(l.objectsDir(bucket), meta.Versions[i].Data))
-	return objectInfo(bucket, key, meta.Versions[i], i == 0), f, err
+	return objectInfo(bucket, key, meta.Versions[i], i == 0), objectParts(meta.Versions[i]), f, err
 }
 
 // GetObjectNInfo returns a reader of an object's range.
 func (l *Layer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *objectlayer.HTTPRangeSpec, h http.Header, lockType objectlayer.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
-	info, f, err := l.openObject(bucket, object, opts.VersionID)
+	info, _, f, err := l.openObject(bucket, object, opts.VersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -893,7 +926,9 @@ func (l *Layer) GetObjectInfo(ctx context.Context, bucket, object string, opts o
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
-	return objectInfo(bucket, object, meta.Versions[i], i == 0), nil
+	info := objectInfo(bucket, object, meta.Versions[i], i == 0)
+	objectlayer.SelectParts(&info, objectParts(meta.Versions[i]), opts)
+	return info, nil
 }
 
 // PutObject uploads an object.
@@ -1012,7 +1047,7 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	src, f, err := l.openObject(srcBucket, srcObject, srcInfo.VersionID)
+	src, srcParts, f, err := l.openObject(srcBucket, srcObject, srcInfo.VersionID)
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
@@ -1037,6 +1072,8 @@ func (l *Layer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket,
 		Retention:   newRetention(dstOpts.Retention),
 		LegalHold:   newLegalHold(dstOpts.LegalHold),
 		Checksum:    src.Checksum,
+		// Like miniogw's server-side copy, the copy keeps the source's parts.
+		Parts: versionParts(srcParts),
 	}, dstOpts.IfNoneMatch)
 }
 
@@ -1396,7 +1433,7 @@ func (l *Layer) PutObjectPart(ctx context.Context, bucket, object, uploadID stri
 
 // CopyObjectPart uploads a range of an object as a part. A negative length copies until the end.
 func (l *Layer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
-	info, f, err := l.openObject(srcBucket, srcObject, srcOpts.VersionID)
+	info, _, f, err := l.openObject(srcBucket, srcObject, srcOpts.VersionID)
 	if err != nil {
 		return objectlayer.PartInfo{}, err
 	}
@@ -1487,8 +1524,10 @@ func (l *Layer) CompleteMultipartUpload(ctx context.Context, bucket, object, upl
 	}
 
 	stored := make([]objectlayer.PartChecksum, len(ids))
+	completedParts := make([]versionPart, len(ids))
 	for i, id := range ids {
 		stored[i] = objectlayer.PartChecksum{Value: meta.Parts[id].Checksum, Size: meta.Parts[id].Size}
+		completedParts[i] = versionPart{PartNumber: id, Size: meta.Parts[id].Size, Checksum: meta.Parts[id].Checksum}
 	}
 	checksum, err := objectlayer.CompleteChecksum(meta.Checksum, parts, stored, opts)
 	if err != nil {
@@ -1520,6 +1559,7 @@ func (l *Layer) CompleteMultipartUpload(ctx context.Context, bucket, object, upl
 		Retention:   meta.Retention,
 		LegalHold:   meta.LegalHold,
 		Checksum:    checksum,
+		Parts:       completedParts,
 	}, opts.IfNoneMatch)
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
