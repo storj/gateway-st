@@ -805,6 +805,34 @@ var objectChecksumAlgorithms = map[awsig.ChecksumAlgorithm]objectlayer.ChecksumA
 	awsig.AlgorithmSHA256:    objectlayer.ChecksumAlgorithmSHA256,
 }
 
+// copyChecksumAlgorithm returns the algorithm that a CopyObject request asks the copy's checksum to
+// have with X-Amz-Checksum-Algorithm, or ChecksumAlgorithmNone for the source's. Like S3, the name
+// is trimmed and in any case.
+func copyChecksumAlgorithm(h http.Header) (objectlayer.ChecksumAlgorithm, error) {
+	name := strings.TrimSpace(h.Get("X-Amz-Checksum-Algorithm"))
+	if name == "" {
+		return objectlayer.ChecksumAlgorithmNone, nil
+	}
+	algorithm, err := checksumHeaderAlgorithm(xAmzChecksumPrefix + name)
+	switch {
+	case errors.Is(err, apierr.CodeChecksumsUnsupported):
+		return objectlayer.ChecksumAlgorithmNone, err
+	case err != nil:
+		// S3's message lists every algorithm it supports, so this one lists the gateway's.
+		names := make([]string, 0, len(objectChecksumAlgorithms))
+		for _, algorithm := range objectChecksumAlgorithms {
+			names = append(names, algorithm.String())
+		}
+		slices.Sort(names)
+		return objectlayer.ChecksumAlgorithmNone, apierr.Response{
+			Code:           "InvalidRequest",
+			Description:    "Checksum algorithm provided is unsupported. Please try again with any of the valid types: [" + strings.Join(names, ", ") + "]",
+			HTTPStatusCode: http.StatusBadRequest,
+		}
+	}
+	return objectChecksumAlgorithms[algorithm], nil
+}
+
 // checksumMode returns whether a GetObject or HeadObject request asks for the object's checksum.
 // Like S3, ENABLED is the only value, in any case and with surrounding spaces.
 func checksumMode(h http.Header) (enabled bool, err error) {

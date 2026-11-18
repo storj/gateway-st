@@ -786,11 +786,11 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 
 	// ObjectSize is a pointer so that a requested size of 0 is still encoded.
 	var resp struct {
-		XMLName      xml.Name            `xml:"http://s3.amazonaws.com/doc/2006-03-01/ GetObjectAttributesResponse"`
-		ETag         string              `xml:",omitempty"`
-		Checksum     *attributesChecksum `xml:",omitempty"`
-		StorageClass string              `xml:",omitempty"`
-		ObjectSize   *int64              `xml:",omitempty"`
+		XMLName      xml.Name          `xml:"http://s3.amazonaws.com/doc/2006-03-01/ GetObjectAttributesResponse"`
+		ETag         string            `xml:",omitempty"`
+		Checksum     *checksumElements `xml:",omitempty"`
+		StorageClass string            `xml:",omitempty"`
+		ObjectSize   *int64            `xml:",omitempty"`
 	}
 	// TODO: ObjectParts is accepted but omitted, because the object layer doesn't report parts
 	// (ceph's test_get_*multipart_object_attributes).
@@ -800,7 +800,7 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 			resp.ETag = objInfo.ETag
 		case xhttp.Checksum:
 			// Unlike GetObject and HeadObject, X-Amz-Checksum-Mode isn't needed, nor checked.
-			resp.Checksum = newAttributesChecksum(objInfo.Checksum)
+			resp.Checksum = newChecksumElements(objInfo.Checksum)
 		case xhttp.StorageClass:
 			resp.StorageClass = storageclass.STANDARD
 			if objInfo.StorageClass != "" {
@@ -829,8 +829,9 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 	api.writeSuccessResponseXML(w, r, encodedResp)
 }
 
-// attributesChecksum is the Checksum element of a GetObjectAttributes response.
-type attributesChecksum struct {
+// checksumElements are the elements of an object's checksum in the Checksum element of a
+// GetObjectAttributes response and in a CopyObjectResult.
+type checksumElements struct {
 	ChecksumCRC32     string `xml:",omitempty"`
 	ChecksumCRC32C    string `xml:",omitempty"`
 	ChecksumCRC64NVME string `xml:",omitempty"`
@@ -839,10 +840,9 @@ type attributesChecksum struct {
 	ChecksumType      string
 }
 
-// newAttributesChecksum returns the Checksum element of an object's checksum, or nil if the object
-// has none.
-func newAttributesChecksum(checksum objectlayer.Checksum) *attributesChecksum {
-	element := attributesChecksum{ChecksumType: checksumType(checksum)}
+// newChecksumElements returns the elements of an object's checksum, or nil if the object has none.
+func newChecksumElements(checksum objectlayer.Checksum) *checksumElements {
+	element := checksumElements{ChecksumType: checksumType(checksum)}
 	switch checksum.Algorithm {
 	case objectlayer.ChecksumAlgorithmCRC32:
 		element.ChecksumCRC32 = checksum.Value
@@ -1607,6 +1607,13 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Like S3, the checksum algorithm is checked before the other headers and the copy source.
+	checksumAlgorithm, err := copyChecksumAlgorithm(r.Header)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
 	// Like S3, the conditions are checked before the copy source.
 	if api.rejectUnsupportedConditions(w, r, true) {
 		return
@@ -1715,7 +1722,8 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	srcInfo.UserDefined = metadata
 
 	dstOpts := objectlayer.ObjectOptions{
-		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
+		IfNoneMatch:       r.Header.Values(xhttp.IfNoneMatch),
+		ChecksumAlgorithm: checksumAlgorithm,
 	}
 
 	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
@@ -1739,9 +1747,10 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	encodedResp, err := encodeResponse(cmd.CopyObjectResponse{
-		ETag:         `"` + objInfo.ETag + `"`,
-		LastModified: objInfo.ModTime.UTC().Format(iso8601Milli),
+	encodedResp, err := encodeResponse(copyObjectResponse{
+		ETag:             `"` + objInfo.ETag + `"`,
+		LastModified:     objInfo.ModTime.UTC().Format(iso8601Milli),
+		checksumElements: newChecksumElements(objInfo.Checksum),
 	})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

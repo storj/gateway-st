@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -574,4 +575,53 @@ func TestListChecksums(t *testing.T) {
 	// Of the two versions and the delete marker, only the versions have checksums.
 	resp := serve(t, objectAPI, http.MethodGet, "/bucket?versions", nil, nil)
 	require.Equal(t, 2, strings.Count(resp.Body, "<ChecksumAlgorithm>"))
+}
+
+// TestCopyObjectChecksums checks that, like S3, a copy keeps its source's checksum and
+// returns it, and how the requested checksum algorithm is checked. Unlike S3, which computes a
+// checksum with another algorithm, the gateway refuses one, and it lists only the algorithms it
+// supports.
+func TestCopyObjectChecksums(t *testing.T) {
+	objectAPI := fsobjects.New(t.TempDir())
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket", nil, nil).StatusCode)
+	data := []byte("hello world")
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/crc32", http.Header{"X-Amz-Checksum-Crc32": {"DUoRhQ=="}}, data).StatusCode)
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/none", nil, data).StatusCode)
+
+	const (
+		crc32Result     = `<ETag>&#34;5eb63bbbe01eeed093cb22bb8f5acdc3&#34;</ETag><ChecksumCRC32>DUoRhQ==</ChecksumCRC32><ChecksumType>FULL_OBJECT</ChecksumType></CopyObjectResult>`
+		crc64nvmeResult = `<ChecksumCRC64NVME>jSnVw/bqjr4=</ChecksumCRC64NVME><ChecksumType>FULL_OBJECT</ChecksumType></CopyObjectResult>`
+	)
+	for _, tc := range []struct {
+		name, dst, src string
+		header         http.Header
+		status         int
+		body           string
+	}{
+		{"crc32", "copy", "crc32", nil, http.StatusOK, crc32Result},
+		{"default", "copy-none", "none", nil, http.StatusOK, crc64nvmeResult},
+		{"same algorithm", "copy-same", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}}, http.StatusOK, crc32Result},
+		{"algorithm with spaces", "copy-spaces", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {" crc32 "}}, http.StatusOK, crc32Result},
+		{"empty algorithm", "copy-empty", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {""}}, http.StatusOK, crc32Result},
+		{"checksum value header", "copy-value", "crc32", http.Header{"X-Amz-Checksum-Crc32": {"DUoRhQ=="}}, http.StatusOK, crc32Result},
+		{"onto itself", "crc32", "crc32", http.Header{"X-Amz-Metadata-Directive": {"REPLACE"}}, http.StatusOK, crc32Result},
+		{"invalid algorithm", "copy-invalid", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"MD4"}}, http.StatusBadRequest, "Checksum algorithm provided is unsupported. Please try again with any of the valid types: [CRC32, CRC32C, CRC64NVME, SHA1, SHA256]"},
+		{"invalid algorithm missing source", "copy-invalid", "missing", http.Header{"X-Amz-Checksum-Algorithm": {"MD4"}}, http.StatusBadRequest, "Checksum algorithm provided is unsupported."},
+		{"invalid algorithm invalid metadata directive", "copy-invalid", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"MD4"}, "X-Amz-Metadata-Directive": {"BAD"}}, http.StatusBadRequest, "Checksum algorithm provided is unsupported."},
+		{"unsupported algorithm", "copy-sha512", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"SHA512"}}, http.StatusNotImplemented, "<Code>NotImplemented</Code>"},
+		{"different algorithm", "copy-sha256", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"SHA256"}}, http.StatusNotImplemented, "Specifying a checksum algorithm for the destination object that differs from that of the source object is not supported."},
+		{"different algorithm onto itself", "crc32", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"SHA1"}, "X-Amz-Metadata-Directive": {"REPLACE"}}, http.StatusNotImplemented, "Specifying a checksum algorithm for the destination object that differs from that of the source object is not supported."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			header := http.Header{"X-Amz-Copy-Source": {"/bucket/" + tc.src}}
+			maps.Copy(header, tc.header)
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/"+tc.dst, header, nil)
+			require.Equal(t, tc.status, resp.StatusCode, resp.Body)
+			require.Contains(t, resp.Body, tc.body)
+		})
+	}
+
+	head := serve(t, objectAPI, http.MethodHead, "/bucket/copy", http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}, nil)
+	require.Equal(t, http.StatusOK, head.StatusCode)
+	require.Equal(t, "DUoRhQ==", head.Header.Get("X-Amz-Checksum-Crc32"))
 }

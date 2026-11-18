@@ -57,6 +57,14 @@ type accessControlPolicy struct {
 	} `xml:"AccessControlList"`
 }
 
+// copyObjectResponse is cmd.CopyObjectResponse with the copy's checksum, if it has one.
+type copyObjectResponse struct {
+	XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CopyObjectResult"`
+	LastModified string
+	ETag         string
+	*checksumElements
+}
+
 // listObjectsResponse is cmd.ListObjectsResponse with objects that have checksums.
 type listObjectsResponse struct {
 	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
