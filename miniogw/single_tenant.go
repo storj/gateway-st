@@ -22,6 +22,7 @@ import (
 	"storj.io/minio/pkg/event"
 	"storj.io/minio/pkg/tags"
 	"storj.io/uplink"
+	privateProject "storj.io/uplink/private/project"
 )
 
 type singleTenantGateway struct {
@@ -47,6 +48,13 @@ func NewSingleTenantGateway(log *zap.Logger, access *uplink.Access, config uplin
 func (g *singleTenantGateway) Name() string { return g.gateway.Name() }
 
 func (g *singleTenantGateway) NewGatewayLayer(authCredentials auth.Credentials) (minio.ObjectLayer, error) {
+	var publicProjectID string
+	if id, err := privateProject.GetPublicID(minio.GlobalContext, g.config, g.access); err != nil {
+		g.log.Warn("failed to get the public project ID", zap.Error(err))
+	} else {
+		publicProjectID = id.String()
+	}
+
 	project, err := g.config.OpenProject(minio.GlobalContext, g.access)
 	if err != nil {
 		return nil, errs.Wrap(err)
@@ -58,8 +66,8 @@ func (g *singleTenantGateway) NewGatewayLayer(authCredentials auth.Credentials) 
 		logger:  g.log,
 		project: project,
 		credentialsInfo: CredentialsInfo{
-			Access: g.access,
-			// TODO(artur): fill the PublicProjectID field as well
+			Access:          g.access,
+			PublicProjectID: publicProjectID,
 		},
 		layer:   layer,
 		website: g.website,

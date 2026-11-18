@@ -22,6 +22,7 @@ import (
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/pkg/auth"
+	privateProject "storj.io/uplink/private/project"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -34,7 +35,14 @@ func (flags GatewayFlags) runAPI(ctx context.Context) (err error) {
 	if err != nil {
 		return Error.Wrap(err)
 	}
-	project, err := flags.newUplinkConfig(ctx).OpenProject(ctx, access)
+	uplinkConfig := flags.newUplinkConfig(ctx)
+	var publicProjectID string
+	if id, err := privateProject.GetPublicID(ctx, uplinkConfig, access); err != nil {
+		zap.L().Warn("failed to get the public project ID", zap.Error(err))
+	} else {
+		publicProjectID = id.String()
+	}
+	project, err := uplinkConfig.OpenProject(ctx, access)
 	if err != nil {
 		return Error.Wrap(err)
 	}
@@ -79,7 +87,7 @@ func (flags GatewayFlags) runAPI(ctx context.Context) (err error) {
 	router := mux.NewRouter()
 	api.New(objectLayer, credentials{flags.Minio.AccessKey: flags.Minio.SecretKey}, config, options...).RegisterHandlers(router)
 
-	info := miniogw.CredentialsInfo{Access: access}
+	info := miniogw.CredentialsInfo{Access: access, PublicProjectID: publicProjectID}
 	server := &http.Server{
 		// miniogw finds the project in the request's context.
 		Handler: corsHandler(allowedOrigins, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

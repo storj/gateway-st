@@ -44,6 +44,7 @@ import (
 	"storj.io/common/processgroup"
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
+	"storj.io/common/uuid"
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
@@ -657,4 +658,64 @@ func randomVersionID() string {
 	version := testrand.UUID()
 	binary.BigEndian.PutUint64(version[:8], uint64(rand.Uint32()))
 	return hex.EncodeToString(version.Bytes())
+}
+
+// TestPublicProjectID checks that the gateway binary knows the public ID of the project of its access
+// grant, which UploadPartCopy's enabled combinations can name.
+func TestPublicProjectID(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 0, UplinkCount: 1,
+	}, func(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet) {
+		gw := newTestGateway(t, ctx, planet, binaryGateway)
+		defer gw.close(t)
+
+		access := planet.Uplinks[0].Access[planet.Satellites[0].ID()]
+		publicProjectID := planet.Uplinks[0].Projects[0].PublicID
+
+		for _, handlers := range []struct {
+			name  string
+			flags []string
+		}{
+			{name: "minio"},
+			{name: "api", flags: []string{"--experimental-api"}},
+		} {
+			for _, combination := range []struct {
+				projectID uuid.UUID
+				enabled   bool
+			}{
+				{projectID: publicProjectID, enabled: true},
+				{projectID: testrand.UUID(), enabled: false},
+			} {
+				t.Run(fmt.Sprintf("%s/%t", handlers.name, combination.enabled), func(t *testing.T) {
+					accessKey, secretKey := base58.Encode(testrand.BytesInt(20)), base58.Encode(testrand.BytesInt(20))
+					address := gw.serveBinary(t, access, accessKey, secretKey, append([]string{
+						"--s3.upload-part-copy.enable",
+						"--s3.upload-part-copy.enabled-combinations", combination.projectID.String() + ":*",
+					}, handlers.flags...)...)
+					client := createS3Client(address, accessKey, secretKey)
+
+					bucket := testrand.BucketName()
+					require.NoError(t, createBucket(ctx, client, bucket, false, false))
+					_, err := putObject(ctx, client, bucket, "source", bytes.NewReader([]byte("data")))
+					require.NoError(t, err)
+
+					upload, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{Bucket: new(bucket), Key: new("destination")})
+					require.NoError(t, err)
+
+					_, err = client.UploadPartCopy(ctx, &s3.UploadPartCopyInput{
+						Bucket:     new(bucket),
+						Key:        new("destination"),
+						UploadId:   upload.UploadId,
+						PartNumber: new(int32(1)),
+						CopySource: new(copySource(bucket, "source", "")),
+					})
+					if combination.enabled {
+						require.NoError(t, err)
+					} else {
+						requireS3Error(t, err, http.StatusNotImplemented, "NotImplemented")
+					}
+				})
+			}
+		}
+	})
 }
