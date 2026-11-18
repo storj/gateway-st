@@ -544,11 +544,11 @@ func errorAs[T error](err error) bool {
 	return errors.As(err, &target)
 }
 
-func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo objectlayer.ListObjectsInfo) cmd.ListObjectsResponse {
+func generateListObjectsResponse(bucketName string, params listObjectsParams, listInfo objectlayer.ListObjectsInfo) listObjectsResponse {
 	// S3 encodes Prefix too, although botocore doesn't decode it in ListObjects responses.
-	data := cmd.ListObjectsResponse{
+	data := listObjectsResponse{
 		Name:           bucketName,
-		Contents:       make([]cmd.Object, 0, len(listInfo.Objects)),
+		Contents:       make([]listObject, 0, len(listInfo.Objects)),
 		EncodingType:   params.encodingType,
 		Prefix:         s3EncodeName(params.prefix, params.encodingType),
 		Marker:         s3EncodeName(params.marker, params.encodingType),
@@ -568,7 +568,7 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 			continue
 		}
 
-		content := cmd.Object{
+		content := listObject{
 			Key:          s3EncodeName(object.Name, params.encodingType),
 			LastModified: object.ModTime.UTC().Format(iso8601Milli),
 			Size:         object.Size,
@@ -576,6 +576,7 @@ func generateListObjectsResponse(bucketName string, params listObjectsParams, li
 				ID: defaultOwnerID,
 			},
 		}
+		content.ChecksumAlgorithm, content.ChecksumType = listChecksum(object.Checksum)
 
 		if object.ETag != "" {
 			content.ETag = "\"" + object.ETag + "\""
@@ -624,6 +625,7 @@ func generateListObjectsV2Response(bucketName string, params listObjectsV2Params
 			LastModified: object.ModTime.UTC().Format(iso8601Milli),
 			Size:         object.Size,
 		}
+		content.ChecksumAlgorithm, content.ChecksumType = listChecksum(object.Checksum)
 
 		if params.fetchOwner {
 			content.Owner = &cmd.Owner{
@@ -704,7 +706,9 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 			content.VersionID = nullVersionID
 		}
 
-		data.Versions = append(data.Versions, objectVersion(content))
+		version := objectVersion{ObjectVersion: content}
+		version.ChecksumAlgorithm, version.ChecksumType = listChecksum(object.Checksum)
+		data.Versions = append(data.Versions, version)
 	}
 
 	for _, prefix := range listInfo.Prefixes {
@@ -714,6 +718,15 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 	}
 
 	return data
+}
+
+// listChecksum returns the ChecksumAlgorithm and ChecksumType elements of an object in a listing,
+// which are empty if the object has no checksum.
+func listChecksum(checksum objectlayer.Checksum) (string, string) {
+	if checksum.Algorithm == objectlayer.ChecksumAlgorithmNone {
+		return "", ""
+	}
+	return checksum.Algorithm.String(), checksumType(checksum)
 }
 
 func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.ListMultipartsInfo, encodingType string) cmd.ListMultipartUploadsResponse {

@@ -57,6 +57,34 @@ type accessControlPolicy struct {
 	} `xml:"AccessControlList"`
 }
 
+// listObjectsResponse is cmd.ListObjectsResponse with objects that have checksums.
+type listObjectsResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
+
+	Name           string
+	Prefix         string
+	Marker         string
+	NextMarker     string `xml:"NextMarker,omitempty"`
+	MaxKeys        int
+	Delimiter      string `xml:"Delimiter,omitempty"`
+	IsTruncated    bool
+	Contents       []listObject
+	CommonPrefixes []cmd.CommonPrefix
+	EncodingType   string `xml:"EncodingType,omitempty"`
+}
+
+// listObject is cmd.Object with a checksum and without user metadata.
+type listObject struct {
+	Key               string
+	LastModified      string
+	ETag              string
+	ChecksumAlgorithm string `xml:",omitempty"`
+	ChecksumType      string `xml:",omitempty"`
+	Size              int64
+	Owner             cmd.Owner
+	StorageClass      string
+}
+
 // listObjectsV2Response is cmd.ListObjectsV2Response with objects whose owner is optional.
 type listObjectsV2Response struct {
 	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
@@ -75,14 +103,16 @@ type listObjectsV2Response struct {
 	EncodingType          string `xml:"EncodingType,omitempty"`
 }
 
-// listObjectsV2Object is cmd.Object whose owner is only encoded when requested with fetch-owner.
+// listObjectsV2Object is listObject whose owner is only encoded when requested with fetch-owner.
 type listObjectsV2Object struct {
-	Key          string
-	LastModified string
-	ETag         string
-	Size         int64
-	Owner        *cmd.Owner `xml:",omitempty"`
-	StorageClass string
+	Key               string
+	LastModified      string
+	ETag              string
+	ChecksumAlgorithm string `xml:",omitempty"`
+	ChecksumType      string `xml:",omitempty"`
+	Size              int64
+	Owner             *cmd.Owner `xml:",omitempty"`
+	StorageClass      string
 }
 
 // listVersionsResponse is cmd.ListVersionsResponse whose delete markers only contain the
@@ -104,9 +134,13 @@ type listVersionsResponse struct {
 	EncodingType        string `xml:"EncodingType,omitempty"`
 }
 
-// objectVersion is cmd.ObjectVersion that is encoded as a Version or DeleteMarker element
-// containing only the elements S3 returns for it.
-type objectVersion cmd.ObjectVersion
+// objectVersion is cmd.ObjectVersion with a checksum that is encoded as a Version or DeleteMarker
+// element containing only the elements S3 returns for it.
+type objectVersion struct {
+	cmd.ObjectVersion
+	ChecksumAlgorithm string
+	ChecksumType      string
+}
 
 // MarshalXML implements xml.Marshaler.
 func (o objectVersion) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
@@ -133,15 +167,17 @@ func (o objectVersion) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 	// Unlike in DeleteMarker, S3 puts Owner last in Version.
 	start.Name.Local = "Version"
 	return e.EncodeElement(struct {
-		Key          string
-		VersionID    string `xml:"VersionId"`
-		IsLatest     bool
-		LastModified string
-		ETag         string
-		Size         int64
-		StorageClass string
-		Owner        cmd.Owner
-	}{o.Key, o.VersionID, o.IsLatest, o.LastModified, o.ETag, o.Size, o.StorageClass, o.Owner}, start)
+		Key               string
+		VersionID         string `xml:"VersionId"`
+		IsLatest          bool
+		LastModified      string
+		ETag              string
+		ChecksumAlgorithm string `xml:",omitempty"`
+		ChecksumType      string `xml:",omitempty"`
+		Size              int64
+		StorageClass      string
+		Owner             cmd.Owner
+	}{o.Key, o.VersionID, o.IsLatest, o.LastModified, o.ETag, o.ChecksumAlgorithm, o.ChecksumType, o.Size, o.StorageClass, o.Owner}, start)
 }
 
 // listBucketsResponse is cmd.ListBucketsResponse with pagination.

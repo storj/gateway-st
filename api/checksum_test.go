@@ -550,3 +550,28 @@ func TestObjectChecksums(t *testing.T) {
 		require.Contains(t, resp.Body, `<Checksum><ChecksumCRC64NVME>jSnVw/bqjr4=</ChecksumCRC64NVME><ChecksumType>FULL_OBJECT</ChecksumType></Checksum>`)
 	})
 }
+
+// TestListChecksums checks that, like S3, listings report the algorithm and type of each
+// object's checksum, but not of delete markers.
+func TestListChecksums(t *testing.T) {
+	objectAPI := fsobjects.New(t.TempDir())
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket", nil, nil).StatusCode)
+	versioning := []byte(`<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`)
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket?versioning", http.Header{"Content-Md5": {base64MD5(versioning)}}, versioning).StatusCode)
+
+	data := []byte("hello world")
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/crc32", http.Header{"X-Amz-Checksum-Crc32": {"DUoRhQ=="}}, data).StatusCode)
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/deleted", nil, data).StatusCode)
+	require.Equal(t, http.StatusNoContent, serve(t, objectAPI, http.MethodDelete, "/bucket/deleted", nil, nil).StatusCode)
+
+	const crc32Elements = `<ETag>&#34;5eb63bbbe01eeed093cb22bb8f5acdc3&#34;</ETag><ChecksumAlgorithm>CRC32</ChecksumAlgorithm><ChecksumType>FULL_OBJECT</ChecksumType><Size>11</Size>`
+	for _, target := range []string{"/bucket", "/bucket?list-type=2", "/bucket?versions"} {
+		resp := serve(t, objectAPI, http.MethodGet, target, nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, crc32Elements, target)
+	}
+
+	// Of the two versions and the delete marker, only the versions have checksums.
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket?versions", nil, nil)
+	require.Equal(t, 2, strings.Count(resp.Body, "<ChecksumAlgorithm>"))
+}
