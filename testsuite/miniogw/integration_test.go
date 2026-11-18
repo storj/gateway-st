@@ -222,6 +222,7 @@ type testGateway struct {
 	ctx    *testcontext.Context
 	planet *testplanet.Planet
 	exe    string                       // binaryGateway
+	flags  []string                     // binaryGateway
 	layer  minioobjectlayer.ObjectLayer // apiGateway
 
 	stops []func() error
@@ -246,9 +247,14 @@ func runIntegrationTest(t *testing.T, planetConfig testplanet.Config, test func(
 // test's cleanups would run.
 func newTestGateway(t *testing.T, ctx *testcontext.Context, planet *testplanet.Planet, kind gatewayKind) *testGateway {
 	gw := &testGateway{kind: kind, ctx: ctx, planet: planet}
+	// Store checksums where the satellite allows them, like a deployment configured for them.
+	checksums := planet.Satellites[0].Config.Metainfo.ChecksumsEnabled
 	switch kind {
 	case binaryGateway:
 		gw.exe = ctx.CompileAt("../..", "storj.io/gateway")
+		if checksums {
+			gw.flags = append(gw.flags, "--s3.object-checksums")
+		}
 	case apiGateway:
 		// The gateway binary's defaults, so that both kinds of gateway behave alike.
 		layer, err := miniogw.NewStorjGateway(miniogw.S3CompatibilityConfig{
@@ -257,6 +263,8 @@ func newTestGateway(t *testing.T, ctx *testcontext.Context, planet *testplanet.P
 			MaxUploadsLimit:          1000,
 			MinPartSize:              5 << 20,
 			DeleteObjectsConcurrency: 100,
+			ObjectChecksums:          checksums,
+			DefaultChecksumAlgorithm: "CRC64NVME",
 		}).NewObjectLayer()
 		require.NoError(t, err)
 		gw.layer = layer
@@ -278,7 +286,7 @@ func (gw *testGateway) close(t *testing.T) {
 func (gw *testGateway) serve(t *testing.T, access *uplink.Access) (address, accessKey, secretKey string) {
 	accessKey, secretKey = base58.Encode(testrand.BytesInt(20)), base58.Encode(testrand.BytesInt(20))
 	if gw.kind == binaryGateway {
-		return gw.serveBinary(t, access, accessKey, secretKey), accessKey, secretKey
+		return gw.serveBinary(t, access, accessKey, secretKey, gw.flags...), accessKey, secretKey
 	}
 
 	project, err := gw.planet.Uplinks[0].Config.OpenProject(gw.ctx, access)
@@ -545,7 +553,7 @@ func getObjectData(ctx context.Context, client *s3.Client, bucket, key, versionI
 }
 
 // putObjectMultipart uploads an object in a multipart upload created with input, with a part for
-// each of parts.
+// each of parts. The parts are uploaded with input's checksum algorithm.
 func putObjectMultipart(ctx context.Context, client *s3.Client, input *s3.CreateMultipartUploadInput, parts ...[]byte) (*s3.CompleteMultipartUploadOutput, error) {
 	upload, err := client.CreateMultipartUpload(ctx, input)
 	if err != nil {
@@ -556,16 +564,25 @@ func putObjectMultipart(ctx context.Context, client *s3.Client, input *s3.Create
 	for i, part := range parts {
 		partNumber := int32(i + 1)
 		resp, err := client.UploadPart(ctx, &s3.UploadPartInput{
-			Bucket:     input.Bucket,
-			Key:        input.Key,
-			UploadId:   upload.UploadId,
-			PartNumber: new(partNumber),
-			Body:       bytes.NewReader(part),
+			Bucket:            input.Bucket,
+			Key:               input.Key,
+			UploadId:          upload.UploadId,
+			PartNumber:        new(partNumber),
+			Body:              bytes.NewReader(part),
+			ChecksumAlgorithm: input.ChecksumAlgorithm,
 		})
 		if err != nil {
 			return nil, err
 		}
-		completed = append(completed, types.CompletedPart{ETag: resp.ETag, PartNumber: new(partNumber)})
+		completed = append(completed, types.CompletedPart{
+			ETag:              resp.ETag,
+			PartNumber:        new(partNumber),
+			ChecksumCRC32:     resp.ChecksumCRC32,
+			ChecksumCRC32C:    resp.ChecksumCRC32C,
+			ChecksumCRC64NVME: resp.ChecksumCRC64NVME,
+			ChecksumSHA1:      resp.ChecksumSHA1,
+			ChecksumSHA256:    resp.ChecksumSHA256,
+		})
 	}
 
 	return client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
