@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -352,7 +353,7 @@ func testCopyObjectPart(t *testing.T, enabledCombinations []string, projectID, b
 			require.NoError(t, err)
 
 			require.Equal(t, i+1, info.PartNumber)
-			// require.NotEmpty(t, info.LastModified) -- TODO(artur): not set?
+			require.WithinDuration(t, time.Now(), info.LastModified, time.Minute)
 			require.Equal(t, md5Hex(data[offset:offset+length]), info.ETag)
 			require.Equal(t, length, info.Size)
 			require.Equal(t, length, info.ActualSize)

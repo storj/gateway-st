@@ -182,8 +182,13 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	partInfo := dst.Info()
 	return minio.PartInfo{
-		PartNumber:   int(partInfo.PartNumber),
-		LastModified: partInfo.Modified,
+		PartNumber: int(partInfo.PartNumber),
+		// uplink doesn't report when the satellite committed the part, which was just now.
+		//
+		// TODO: this can differ from the time ListParts reports by the commit's round trip and
+		// any clock skew. Reading the part back would fix that but costs another satellite
+		// request, which we don't want. Better would be uplink returning the commit time.
+		LastModified: time.Now(),
 		ETag:         string(partInfo.ETag),
 		Size:         partInfo.Size,
 		ActualSize:   partInfo.Size,
