@@ -19,6 +19,7 @@ import (
 	"storj.io/common/grant"
 	"storj.io/common/storj"
 	"storj.io/eventkit"
+	"storj.io/gateway/api/objectlayer"
 	minio "storj.io/minio/cmd"
 	"storj.io/uplink"
 	"storj.io/uplink/private/access"
@@ -108,7 +109,7 @@ func (layer *gatewayLayer) listObjectsFast(
 	startAfter string,
 ) (
 	prefixes []string,
-	objects []minio.ObjectInfo,
+	objects []objectlayer.ObjectInfo,
 	nextContinuationToken string,
 	err error,
 ) {
@@ -176,7 +177,7 @@ func (layer *gatewayLayer) listObjectsSingle(
 	startAfter string,
 ) (
 	prefixes []string,
-	objects []minio.ObjectInfo,
+	objects []objectlayer.ObjectInfo,
 	nextContinuationToken string,
 	err error,
 ) {
@@ -280,7 +281,7 @@ func (layer *gatewayLayer) itemsToPrefixesAndObjects(
 	maxKeys int,
 ) (
 	prefixes []string,
-	objects []minio.ObjectInfo,
+	objects []objectlayer.ObjectInfo,
 	nextContinuationToken string,
 ) {
 	sort.Slice(items, func(i, j int) bool {
@@ -343,7 +344,7 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 	startAfter string,
 ) (
 	prefixes []string,
-	objects []minio.ObjectInfo,
+	objects []objectlayer.ObjectInfo,
 	nextContinuationToken string,
 	err error,
 ) {
@@ -502,7 +503,7 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 // always list exhaustively to achieve full S3 compatibility. Use at
 // your own risk.
 //
-// If maxKeys is 0, it will return an empty minio.ListObjectsV2Info,
+// If maxKeys is 0, it will return an empty objectlayer.ListObjectsV2Info,
 // which later translates into a result that is compatible with AWS S3,
 // or the error of the bucket.
 func (layer *gatewayLayer) listObjectsGeneral(
@@ -511,25 +512,25 @@ func (layer *gatewayLayer) listObjectsGeneral(
 	bucket, prefix, continuationToken, delimiter string,
 	maxKeys int,
 	startAfter string,
-) (_ minio.ListObjectsV2Info, err error) {
+) (_ objectlayer.ListObjectsV2Info, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if maxKeys == 0 {
 		// Stat the bucket anyway, so that bucket and permission errors are reported.
 		_, err := project.StatBucket(ctx, bucket)
-		return minio.ListObjectsV2Info{}, err
+		return objectlayer.ListObjectsV2Info{}, err
 	}
 
 	var (
 		prefixes []string
-		objects  []minio.ObjectInfo
+		objects  []objectlayer.ObjectInfo
 		token    string
 	)
 
 	supportedPrefix := prefix == "" || strings.HasSuffix(prefix, "/")
 	supportedDelimiter := delimiter == "" || delimiter == "/"
 
-	exhaustiveListing := func() (prefixes []string, objects []minio.ObjectInfo, token string, err error) {
+	exhaustiveListing := func() (prefixes []string, objects []objectlayer.ObjectInfo, token string, err error) {
 		if err = layer.validateListing(ctx, supportedPrefix, supportedDelimiter); err != nil {
 			return nil, nil, "", err
 		}
@@ -550,7 +551,7 @@ func (layer *gatewayLayer) listObjectsGeneral(
 			maxKeys,
 			startAfter)
 		if err != nil {
-			return minio.ListObjectsV2Info{}, err
+			return objectlayer.ListObjectsV2Info{}, err
 		}
 	} else if !supportedPrefix {
 		prefixes, objects, token, err = layer.listObjectsSingle(
@@ -560,23 +561,23 @@ func (layer *gatewayLayer) listObjectsGeneral(
 			maxKeys,
 			startAfter)
 		if err != nil {
-			return minio.ListObjectsV2Info{}, err
+			return objectlayer.ListObjectsV2Info{}, err
 		}
 		// Prefix optimization did not work; we need to fall back to exhaustive.
 		if prefixes == nil && objects == nil {
 			prefixes, objects, token, err = exhaustiveListing()
 			if err != nil {
-				return minio.ListObjectsV2Info{}, err
+				return objectlayer.ListObjectsV2Info{}, err
 			}
 		}
 	} else {
 		prefixes, objects, token, err = exhaustiveListing()
 		if err != nil {
-			return minio.ListObjectsV2Info{}, err
+			return objectlayer.ListObjectsV2Info{}, err
 		}
 	}
 
-	return minio.ListObjectsV2Info{
+	return objectlayer.ListObjectsV2Info{
 		IsTruncated:           token != "",
 		ContinuationToken:     continuationToken,
 		NextContinuationToken: token,
@@ -591,22 +592,22 @@ func (layer *gatewayLayer) listObjectsGeneral(
 // NOTE: For ListObjects (v1), AWS S3 returns NextMarker only if you have
 // delimiter request parameter specified; MinIO always returns NextMarker.
 // ListObjects does what MinIO does.
-func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (_ minio.ListObjectsInfo, err error) {
+func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (_ objectlayer.ListObjectsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ListObjectsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ListObjectsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ListObjectsInfo{}, err
+		return objectlayer.ListObjectsInfo{}, err
 	}
 
 	// For V1, marker is V2's startAfter and continuationToken does not exist.
 	v2, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, "", delimiter, maxKeys, marker)
 
-	result := minio.ListObjectsInfo{
+	result := objectlayer.ListObjectsInfo{
 		IsTruncated: v2.IsTruncated,
 		NextMarker:  v2.NextContinuationToken,
 		Objects:     v2.Objects,
@@ -617,16 +618,16 @@ func (layer *gatewayLayer) ListObjects(ctx context.Context, bucket, prefix, mark
 }
 
 // ListObjectsV2 calls listObjectsGeneral.
-func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (_ minio.ListObjectsV2Info, err error) {
+func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (_ objectlayer.ListObjectsV2Info, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ListObjectsV2Info{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ListObjectsV2Info{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ListObjectsV2Info{}, err
+		return objectlayer.ListObjectsV2Info{}, err
 	}
 
 	result, err := layer.listObjectsGeneral(ctx, project, bucket, prefix, continuationToken, delimiter, maxKeys, startAfter)
@@ -635,30 +636,30 @@ func (layer *gatewayLayer) ListObjectsV2(ctx context.Context, bucket, prefix, co
 }
 
 // ListObjectVersions returns information about all versions of the objects in a bucket.
-func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (_ minio.ListObjectVersionsInfo, err error) {
+func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (_ objectlayer.ListObjectVersionsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ListObjectVersionsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ListObjectVersionsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	if len(marker) == 0 && len(versionMarker) != 0 {
-		return minio.ListObjectVersionsInfo{}, ErrVersionIDMarkerWithoutKeyMarker(bucket)
+		return objectlayer.ListObjectVersionsInfo{}, ErrVersionIDMarkerWithoutKeyMarker(bucket)
 	}
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListObjectVersionsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
+		return objectlayer.ListObjectVersionsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ListObjectVersionsInfo{}, err
+		return objectlayer.ListObjectVersionsInfo{}, err
 	}
 
 	if maxKeys == 0 {
 		// Stat the bucket anyway, so that bucket and permission errors are reported.
 		_, err := project.StatBucket(ctx, bucket)
-		return minio.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
+		return objectlayer.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
 	}
 
 	// [1/2] We begin listing with an optimization for prefixes that aren't
@@ -668,7 +669,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 
 	version, err := decodeVersionID(versionMarker)
 	if err != nil {
-		return minio.ListObjectVersionsInfo{}, err
+		return objectlayer.ListObjectVersionsInfo{}, err
 	}
 
 	recursive := delimiter == ""
@@ -683,11 +684,11 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		Limit:         limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit),
 	})
 	if err != nil {
-		return minio.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
+		return objectlayer.ListObjectVersionsInfo{}, ConvertError(err, bucket, "")
 	}
 
 	var prefixes []string
-	var objects []minio.ObjectInfo
+	var objects []objectlayer.ObjectInfo
 	var nextMarker, nextVersionIDMarker string
 	for _, item := range items {
 		key := item.Key
@@ -722,7 +723,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		}
 	}
 
-	return minio.ListObjectVersionsInfo{
+	return objectlayer.ListObjectVersionsInfo{
 		IsTruncated:         more,
 		NextMarker:          nextMarker,
 		NextVersionIDMarker: nextVersionIDMarker,

@@ -33,10 +33,10 @@ import (
 
 func TestPreconditionPrecedence(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "src", ModTime: modTime, Size: 10, ETag: "etag"}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", ModTime: modTime, Size: 10, ETag: "etag"}
 	objectAPI := singleObjectLayer(objInfo, "0123456789")
-	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime}, nil
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime}, nil
 	}
 
 	before := modTime.Add(-time.Hour).Format(http.TimeFormat)
@@ -84,15 +84,15 @@ func TestPreconditionPrecedence(t *testing.T) {
 }
 
 func TestGetEmptyObjectSuffixRange(t *testing.T) {
-	objInfo := cmd.ObjectInfo{
+	objInfo := objectlayer.ObjectInfo{
 		Bucket: "bucket", Name: "key", ModTime: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), ETag: "etag",
 		ContentEncoding: "gzip",
 		UserDefined:     map[string]string{"X-Amz-Meta-Foo": "bar"},
 	}
 	objectAPI := singleObjectLayer(objInfo, "")
 	// Like the real object layer, don't check the range against the object size.
-	objectAPI.getObjectNInfo = func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
-		return cmd.NewGetObjectReaderFromReader(strings.NewReader(""), objInfo, opts)
+	objectAPI.getObjectNInfo = func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
+		return objectlayer.NewGetObjectReader(strings.NewReader(""), objInfo, opts, func() {})
 	}
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
@@ -109,10 +109,10 @@ func TestGetEmptyObjectSuffixRange(t *testing.T) {
 }
 
 func TestGetObjectFirstReadClientAbort(t *testing.T) {
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}
 	objectAPI := &fakeObjectLayer{
-		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
-			return cmd.NewGetObjectReaderFromReader(iotest.ErrReader(context.Canceled), objInfo, opts)
+		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
+			return objectlayer.NewGetObjectReader(iotest.ErrReader(context.Canceled), objInfo, opts, func() {})
 		},
 	}
 
@@ -124,9 +124,9 @@ func TestGetObjectFirstReadClientAbort(t *testing.T) {
 
 func TestPreconditionsWithoutModTime(t *testing.T) {
 	// Dates are ignored without a modification time, but ETags aren't.
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
-	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag"}, nil
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag"}, nil
 	}
 	future := time.Now().Add(time.Hour).Format(http.TimeFormat)
 
@@ -158,9 +158,9 @@ func TestPreconditionsWithoutModTime(t *testing.T) {
 // TestPreconditionsWithoutETag checks that an object without an ETag, such as one uploaded with
 // uplink, matches no ETag, not even an empty one.
 func TestPreconditionsWithoutETag(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
-	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject}, nil
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject}, nil
 	}
 
 	for _, tt := range []struct {
@@ -197,7 +197,7 @@ func TestPreconditionsWithoutETag(t *testing.T) {
 // TestIfRangeLikeS3 checks the responses that S3 returned for If-Range values on GetObject and
 // HeadObject, for a satisfiable and an unsatisfiable range.
 func TestIfRangeLikeS3(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}, "0123456789")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}, "0123456789")
 
 	for _, tt := range []struct {
 		name                       string
@@ -231,10 +231,10 @@ func TestIfRangeLikeS3(t *testing.T) {
 // GetObject, HeadObject and the source of CopyObject.
 func TestPreconditionsLikeS3(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "src", ModTime: modTime, Size: 10, ETag: "etag"}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", ModTime: modTime, Size: 10, ETag: "etag"}
 	objectAPI := singleObjectLayer(objInfo, "0123456789")
-	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime}, nil
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime}, nil
 	}
 	future := time.Now().Add(48 * time.Hour).UTC().Format(http.TimeFormat)
 
@@ -273,7 +273,7 @@ func TestPreconditionsLikeS3(t *testing.T) {
 // TestGetAndHeadObjectLikeS3 checks the responses that S3 returned for the same requests.
 func TestGetAndHeadObjectLikeS3(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ModTime: modTime, Size: 10, ETag: "etag",
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", ModTime: modTime, Size: 10, ETag: "etag",
 		UserDefined: map[string]string{"X-Amz-Storage-Class": "STANDARD"}}
 	objectAPI := singleObjectLayer(objInfo, "0123456789")
 
@@ -318,10 +318,10 @@ func TestGetAndHeadObjectLikeS3(t *testing.T) {
 	require.Equal(t, "GLACIER_IR", resp.Header.Get("X-Amz-Storage-Class"))
 
 	// A missing version is reported as such, even when the key doesn't exist.
-	missing := &fakeObjectLayer{getObjectInfo: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-		return cmd.ObjectInfo{}, cmd.ObjectNotFound{Bucket: bucket, Object: object}
+	missing := &fakeObjectLayer{getObjectInfo: func(_ context.Context, bucket, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+		return objectlayer.ObjectInfo{}, cmd.ObjectNotFound{Bucket: bucket, Object: object}
 	}}
-	missing.getObjectNInfo = func(ctx context.Context, bucket, object string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+	missing.getObjectNInfo = func(ctx context.Context, bucket, object string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
 		_, err := missing.getObjectInfo(ctx, bucket, object, opts)
 		return nil, err
 	}
@@ -376,8 +376,8 @@ func TestCopyObjectLikeS3(t *testing.T) {
 		{cmd.ObjectNotFound{Bucket: "bucket", Object: "src"}, http.StatusNotFound, "NoSuchVersion"},
 		{cmd.MethodNotAllowed{Bucket: "bucket", Object: "src"}, http.StatusBadRequest, "InvalidRequest"},
 	} {
-		objectAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{}, tt.err
+		objectAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{}, tt.err
 		}}
 		header := http.Header{"X-Amz-Copy-Source": {"/bucket/src?versionId=" + version}}
 		for _, target := range []string{"/bucket/dst", "/bucket/dst?partNumber=1&uploadId=id"} {
@@ -430,8 +430,8 @@ func TestObjectLockHeadersLikeS3(t *testing.T) {
 		{http.Header{lockMode: {"GOVERNANCE"}, lockHold: {"MAYBE"}}, both},
 		{http.Header{lockDate: {"soon"}, lockHold: {"MAYBE"}}, both},
 	} {
-		copyAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{}, nil
+		copyAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{}, nil
 		}}
 		for _, target := range []string{"/bucket/key", "/bucket/key?uploads", "/bucket/dst"} {
 			method, header := http.MethodPut, tt.header.Clone()
@@ -471,10 +471,10 @@ func TestCompleteMultipartUploadDuplicatePart(t *testing.T) {
 
 // TestCompleteMultipartUploadLikeS3 checks the responses that S3 returned for the same requests.
 func TestCompleteMultipartUploadLikeS3(t *testing.T) {
-	var got []cmd.CompletePart
-	objectAPI := &fakeObjectLayer{completeMultipartUpload: func(_ context.Context, _, _, _ string, parts []cmd.CompletePart, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	var got []objectlayer.CompletePart
+	objectAPI := &fakeObjectLayer{completeMultipartUpload: func(_ context.Context, _, _, _ string, parts []objectlayer.CompletePart, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 		got = parts
-		return cmd.ObjectInfo{ETag: "etag"}, nil
+		return objectlayer.ObjectInfo{ETag: "etag"}, nil
 	}}
 	complete := func(query, body string) response {
 		return serve(t, objectAPI, http.MethodPost, "/bucket/key?"+query, nil, []byte(body))
@@ -545,14 +545,14 @@ func TestCompleteMultipartUploadLikeS3(t *testing.T) {
 	got = nil
 	resp = complete("uploadId=id", "<CompleteMultipartUpload>\n <Part> <PartNumber>1</PartNumber> <ETag>a</ETag> <ChecksumCRC32/> </Part>\n</CompleteMultipartUpload>")
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
+	require.Equal(t, []objectlayer.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
 
 	// Any root element, part number whitespace and leading zeros, and the checksum elements are
 	// accepted.
 	resp = complete("uploadId=id", "<Complete><Part><PartNumber> 01 </PartNumber><ETag>a</ETag>"+
 		"<ChecksumCRC32>AAAAAA==</ChecksumCRC32></Part></Complete>")
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
+	require.Equal(t, []objectlayer.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
 }
 
 // TestUploadPartHeadersLikeS3 checks the responses that S3 returned for the same requests.
@@ -636,11 +636,11 @@ func TestUploadPartHeadersLikeS3(t *testing.T) {
 }
 
 func TestCopyObjectStorageClass(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag"}, "data")
 	var gotMetadata map[string]string
-	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, srcInfo objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 		gotMetadata = srcInfo.UserDefined
-		return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag"}, nil
+		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag"}, nil
 	}
 
 	for _, tt := range []struct {
@@ -673,9 +673,9 @@ type taggingObjectLayer struct {
 	gotTags string
 }
 
-func (l *taggingObjectLayer) PutObjectTags(_ context.Context, bucket, object, tags string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (l *taggingObjectLayer) PutObjectTags(_ context.Context, bucket, object, tags string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	l.gotTags = tags
-	return cmd.ObjectInfo{Bucket: bucket, Name: object}, nil
+	return objectlayer.ObjectInfo{Bucket: bucket, Name: object}, nil
 }
 
 func TestPutObjectTaggingUnknownContentLength(t *testing.T) {
@@ -698,8 +698,8 @@ type putObjectLayer struct {
 	*fakeObjectLayer
 }
 
-func (putObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag", VersionID: "version"}, nil
+func (putObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+	return objectlayer.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag", VersionID: "version"}, nil
 }
 
 // TestStorageClassInQueryLikeS3 checks that PutObject and CreateMultipartUpload validate a storage
@@ -707,7 +707,7 @@ func (putObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd
 // in a lowercase parameter, and ignores other casings.
 func TestStorageClassInQueryLikeS3(t *testing.T) {
 	objectAPI := putObjectLayer{&fakeObjectLayer{
-		newMultipartUpload: func(context.Context, string, string, cmd.ObjectOptions) (string, error) { return "id", nil },
+		newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (string, error) { return "id", nil },
 	}}
 
 	for _, target := range []string{"/bucket/key?", "/bucket/key?uploads&"} {
@@ -832,12 +832,12 @@ type retentionObjectLayer struct {
 	retention *objectlock.ObjectRetention
 }
 
-func (l *retentionObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (l *retentionObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd.PutObjReader, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	l.retention = opts.Retention
-	return cmd.ObjectInfo{Bucket: bucket, Name: object}, nil
+	return objectlayer.ObjectInfo{Bucket: bucket, Name: object}, nil
 }
 
-func (l *retentionObjectLayer) SetObjectRetention(_ context.Context, _, _, _ string, opts cmd.ObjectOptions) error {
+func (l *retentionObjectLayer) SetObjectRetention(_ context.Context, _, _, _ string, opts objectlayer.ObjectOptions) error {
 	l.retention = opts.Retention
 	return nil
 }
@@ -888,20 +888,20 @@ func TestPutObjectStreamingWithoutContentLength(t *testing.T) {
 
 type copyPartObjectLayer struct {
 	*fakeObjectLayer
-	gotSrcInfo cmd.ObjectInfo
+	gotSrcInfo objectlayer.ObjectInfo
 }
 
-func (l *copyPartObjectLayer) CopyObjectPart(_ context.Context, _, _, _, _, _ string, partID int, _, _ int64, srcInfo cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+func (l *copyPartObjectLayer) CopyObjectPart(_ context.Context, _, _, _, _, _ string, partID int, _, _ int64, srcInfo objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
 	l.gotSrcInfo = srcInfo
-	return cmd.PartInfo{PartNumber: partID, ETag: "partetag"}, nil
+	return objectlayer.PartInfo{PartNumber: partID, ETag: "partetag"}, nil
 }
 
 func TestUploadPartCopySource(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	small := cmd.ObjectInfo{Bucket: "bucket", Name: "small", ModTime: modTime, Size: 10, ETag: "etag"}
-	large := cmd.ObjectInfo{Bucket: "bucket", Name: "large", ModTime: modTime, Size: 5<<30 + 1, ETag: "etag"}
+	small := objectlayer.ObjectInfo{Bucket: "bucket", Name: "small", ModTime: modTime, Size: 10, ETag: "etag"}
+	large := objectlayer.ObjectInfo{Bucket: "bucket", Name: "large", ModTime: modTime, Size: 5<<30 + 1, ETag: "etag"}
 	objectAPI := &copyPartObjectLayer{fakeObjectLayer: &fakeObjectLayer{
-		getObjectInfo: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		getObjectInfo: func(_ context.Context, _, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			if object == large.Name {
 				return large, nil
 			}
@@ -930,7 +930,7 @@ func TestUploadPartCopySource(t *testing.T) {
 		}, expStatus: http.StatusOK},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			objectAPI.gotSrcInfo = cmd.ObjectInfo{}
+			objectAPI.gotSrcInfo = objectlayer.ObjectInfo{}
 			resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload", tt.header, nil)
 			require.Equal(t, tt.expStatus, resp.StatusCode, resp.Body)
 			if tt.expCode != "" {
@@ -943,7 +943,7 @@ func TestUploadPartCopySource(t *testing.T) {
 }
 
 func TestGetObjectAcl(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", ModTime: time.Now()}, "")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", ModTime: time.Now()}, "")
 
 	resp := serve(t, objectAPI, http.MethodGet, "/bucket/key?acl", nil, nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
@@ -997,9 +997,9 @@ func TestObjectAclVersionID(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 	for _, method := range []string{http.MethodGet, http.MethodPut} {
 		var got string
-		objectAPI := &fakeObjectLayer{getObjectInfo: func(_ context.Context, _, _ string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		objectAPI := &fakeObjectLayer{getObjectInfo: func(_ context.Context, _, _ string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			got = opts.VersionID
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		}}
 		resp := serve(t, objectAPI, method, "/bucket/key?acl&versionId="+versionID, http.Header{"X-Amz-Acl": {"private"}}, nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
@@ -1016,13 +1016,13 @@ type versionedCopyPartLayer struct {
 	copied        string
 }
 
-func (l *versionedCopyPartLayer) CopyObjectPart(_ context.Context, _, _, _, _, _ string, partID int, _, _ int64, _ cmd.ObjectInfo, srcOpts, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+func (l *versionedCopyPartLayer) CopyObjectPart(_ context.Context, _, _, _, _, _ string, partID int, _, _ int64, _ objectlayer.ObjectInfo, srcOpts, _ objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
 	version := srcOpts.VersionID
 	if version == "" {
 		version = l.latestVersion
 	}
 	l.copied = l.versions[version]
-	return cmd.PartInfo{PartNumber: partID, ETag: "partetag"}, nil
+	return objectlayer.PartInfo{PartNumber: partID, ETag: "partetag"}, nil
 }
 
 func TestUploadPartCopySourceVersion(t *testing.T) {
@@ -1035,8 +1035,8 @@ func TestUploadPartCopySourceVersion(t *testing.T) {
 				versions:        map[string]string{oldVersion: "old contents", newVersion: "new contents"},
 				latestVersion:   oldVersion,
 			}
-			layer.getObjectInfo = func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-				info := cmd.ObjectInfo{VersionID: oldVersion, ETag: "old-etag", Size: 12, ModTime: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
+			layer.getObjectInfo = func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+				info := objectlayer.ObjectInfo{VersionID: oldVersion, ETag: "old-etag", Size: 12, ModTime: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
 				// Another writer replaces the source after stat but before the part download.
 				layer.latestVersion = newVersion
 				return info, nil
@@ -1191,8 +1191,8 @@ func TestUnparsableXMLIsMalformed(t *testing.T) {
 func TestGetObjectTaggingVersionID(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 	objectAPI := &fakeObjectLayer{
-		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{VersionID: versionID, UserDefined: map[string]string{"s3:tags": "a=1"}}, nil
+		getObjectInfo: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{VersionID: versionID, UserDefined: map[string]string{"s3:tags": "a=1"}}, nil
 		},
 	}
 
@@ -1205,8 +1205,8 @@ func TestGetObjectTaggingVersionID(t *testing.T) {
 
 func TestGetObjectTaggingOrder(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{UserDefined: map[string]string{"s3:tags": "a=1&b=2&c=3&d=4&e=5&f=6&g=7&h=8&i=9&j=10"}}, nil
+		getObjectInfo: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{UserDefined: map[string]string{"s3:tags": "a=1&b=2&c=3&d=4&e=5&f=6&g=7&h=8&i=9&j=10"}}, nil
 		},
 	}
 
@@ -1223,10 +1223,10 @@ func TestGetObjectTaggingOrder(t *testing.T) {
 func TestReadDeleteMarkerVersion(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 	objectAPI := &fakeObjectLayer{
-		getObjectInfo: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{}, cmd.MethodNotAllowed{Bucket: bucket, Object: object}
+		getObjectInfo: func(_ context.Context, bucket, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{}, cmd.MethodNotAllowed{Bucket: bucket, Object: object}
 		},
-		getObjectNInfo: func(_ context.Context, bucket, object string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, _ cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+		getObjectNInfo: func(_ context.Context, bucket, object string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, _ objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
 			return nil, cmd.MethodNotAllowed{Bucket: bucket, Object: object}
 		},
 	}
@@ -1340,7 +1340,7 @@ func TestRetainUntilDateHeaderLikeS3(t *testing.T) {
 		"2100-01-02T05:04:05.5+02:00":    "2100-01-02T03:04:05.500Z",
 		"not a date":                     "not a date",
 	} {
-		objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag", ModTime: time.Now(),
+		objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4, ETag: "etag", ModTime: time.Now(),
 			UserDefined: map[string]string{"X-Amz-Object-Lock-Mode": "GOVERNANCE", "x-amz-object-lock-retain-until-date": stored}}
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			resp := serve(t, singleObjectLayer(objInfo, "data"), method, "/bucket/key", nil, nil)
@@ -1356,7 +1356,7 @@ func TestRetainUntilDateHeaderLikeS3(t *testing.T) {
 // AccessDenied. It accepted a POST upload dated even six days ahead, but awsig allows only the
 // same 15 minutes.
 func TestClockSkewLikeS3(t *testing.T) {
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}
 	for _, tc := range []struct {
 		ahead  time.Duration
 		status int

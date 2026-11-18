@@ -38,20 +38,20 @@ type bucketObjectLayer struct {
 	makeBucketWithLocation func(ctx context.Context, bucket string, opts cmd.BucketOptions) error
 	setBucketTagging       func(ctx context.Context, bucket string, t *tags.Tags) error
 	getBucketInfo          func(ctx context.Context, bucket string) (cmd.BucketInfo, error)
-	listObjects            func(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (cmd.ListObjectsInfo, error)
-	listObjectVersions     func(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (cmd.ListObjectVersionsInfo, error)
-	listObjectsV2          func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error)
+	listObjects            func(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (objectlayer.ListObjectsInfo, error)
+	listObjectVersions     func(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (objectlayer.ListObjectVersionsInfo, error)
+	listObjectsV2          func(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (objectlayer.ListObjectsV2Info, error)
 }
 
-func (f *bucketObjectLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (cmd.ListObjectsInfo, error) {
+func (f *bucketObjectLayer) ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (objectlayer.ListObjectsInfo, error) {
 	return f.listObjects(ctx, bucket, prefix, marker, delimiter, maxKeys)
 }
 
-func (f *bucketObjectLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (cmd.ListObjectVersionsInfo, error) {
+func (f *bucketObjectLayer) ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (objectlayer.ListObjectVersionsInfo, error) {
 	return f.listObjectVersions(ctx, bucket, prefix, marker, versionMarker, delimiter, maxKeys)
 }
 
-func (f *bucketObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (cmd.ListObjectsV2Info, error) {
+func (f *bucketObjectLayer) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (objectlayer.ListObjectsV2Info, error) {
 	return f.listObjectsV2(ctx, bucket, prefix, continuationToken, delimiter, maxKeys, fetchOwner, startAfter)
 }
 
@@ -254,9 +254,9 @@ func TestListObjectsV2(t *testing.T) {
 	var gotToken string
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
-		listObjectsV2: func(_ context.Context, _, _, continuationToken, _ string, _ int, _ bool, _ string) (cmd.ListObjectsV2Info, error) {
+		listObjectsV2: func(_ context.Context, _, _, continuationToken, _ string, _ int, _ bool, _ string) (objectlayer.ListObjectsV2Info, error) {
 			gotToken = continuationToken
-			return cmd.ListObjectsV2Info{Objects: []cmd.ObjectInfo{{Name: "key"}}}, nil
+			return objectlayer.ListObjectsV2Info{Objects: []objectlayer.ObjectInfo{{Name: "key"}}}, nil
 		},
 	}
 
@@ -293,10 +293,10 @@ func (l *putTagsLayer) SetBucketTagging(_ context.Context, _ string, t *tags.Tag
 	return nil
 }
 
-func (l *putTagsLayer) PutObjectTags(_ context.Context, bucket, object, t string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (l *putTagsLayer) PutObjectTags(_ context.Context, bucket, object, t string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	var err error
 	l.got, err = tags.ParseObjectTags(t)
-	return cmd.ObjectInfo{Bucket: bucket, Name: object}, err
+	return objectlayer.ObjectInfo{Bucket: bucket, Name: object}, err
 }
 
 // TestPutTaggingLikeS3 checks the responses that S3 returned for the same requests.
@@ -520,8 +520,8 @@ func TestBackendEOFIsInternalError(t *testing.T) {
 	// an incomplete request body, even as the IncompleteBody miniogw.ConvertError makes of it.
 	for _, eof := range []error{io.EOF, io.ErrUnexpectedEOF} {
 		objectAPI := &fakeObjectLayer{
-			getObjectInfo: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-				return cmd.ObjectInfo{}, miniogw.ConvertError(fmt.Errorf("download: %w", eof), bucket, object)
+			getObjectInfo: func(_ context.Context, bucket, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+				return objectlayer.ObjectInfo{}, miniogw.ConvertError(fmt.Errorf("download: %w", eof), bucket, object)
 			},
 		}
 
@@ -535,9 +535,9 @@ type copyingPutObjectLayer struct {
 	*fakeObjectLayer
 }
 
-func (copyingPutObjectLayer) PutObject(_ context.Context, bucket, object string, data *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (copyingPutObjectLayer) PutObject(_ context.Context, bucket, object string, data *cmd.PutObjReader, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	_, err := io.Copy(io.Discard, data)
-	return cmd.ObjectInfo{}, miniogw.ConvertError(err, bucket, object)
+	return objectlayer.ObjectInfo{}, miniogw.ConvertError(err, bucket, object)
 }
 
 func TestTruncatedBodyIsIncompleteBody(t *testing.T) {
@@ -554,7 +554,7 @@ func TestTruncatedBodyIsIncompleteBody(t *testing.T) {
 
 func TestDeleteObjectsLimits(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			deleted := make([]cmd.DeletedObject, len(objects))
 			for i, object := range objects {
 				deleted[i] = cmd.DeletedObject{ObjectName: object.ObjectName}
@@ -596,7 +596,7 @@ func TestDeleteObjectsLimits(t *testing.T) {
 func TestDeleteObjectsNotFound(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, bucket string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, bucket string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			return nil, []cmd.DeleteObjectsError{
 				{ObjectName: "missing", Error: cmd.ObjectNotFound{Bucket: bucket, Object: "missing"}},
 				{ObjectName: "versioned", VersionID: versionID, Error: cmd.VersionNotFound{Bucket: bucket, Object: "versioned", VersionID: versionID}},
@@ -739,17 +739,17 @@ func TestListMaxKeysClamped(t *testing.T) {
 	var got int
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
-		listObjects: func(_ context.Context, _, _, _, _ string, maxKeys int) (cmd.ListObjectsInfo, error) {
+		listObjects: func(_ context.Context, _, _, _, _ string, maxKeys int) (objectlayer.ListObjectsInfo, error) {
 			got = maxKeys
-			return cmd.ListObjectsInfo{}, nil
+			return objectlayer.ListObjectsInfo{}, nil
 		},
-		listObjectsV2: func(_ context.Context, _, _, _, _ string, maxKeys int, _ bool, _ string) (cmd.ListObjectsV2Info, error) {
+		listObjectsV2: func(_ context.Context, _, _, _, _ string, maxKeys int, _ bool, _ string) (objectlayer.ListObjectsV2Info, error) {
 			got = maxKeys
-			return cmd.ListObjectsV2Info{}, nil
+			return objectlayer.ListObjectsV2Info{}, nil
 		},
-		listObjectVersions: func(_ context.Context, _, _, _, _, _ string, maxKeys int) (cmd.ListObjectVersionsInfo, error) {
+		listObjectVersions: func(_ context.Context, _, _, _, _, _ string, maxKeys int) (objectlayer.ListObjectVersionsInfo, error) {
 			got = maxKeys
-			return cmd.ListObjectVersionsInfo{}, nil
+			return objectlayer.ListObjectVersionsInfo{}, nil
 		},
 	}
 
@@ -765,8 +765,8 @@ func TestListMaxKeysClamped(t *testing.T) {
 func TestListObjectVersionsDeleteMarker(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
-		listObjectVersions: func(context.Context, string, string, string, string, string, int) (cmd.ListObjectVersionsInfo, error) {
-			return cmd.ListObjectVersionsInfo{Objects: []cmd.ObjectInfo{
+		listObjectVersions: func(context.Context, string, string, string, string, string, int) (objectlayer.ListObjectVersionsInfo, error) {
+			return objectlayer.ListObjectVersionsInfo{Objects: []objectlayer.ObjectInfo{
 				{Name: "key", VersionID: "v2", IsLatest: true, DeleteMarker: true, ModTime: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
 				{Name: "key", VersionID: "v1", ETag: "etag", Size: 5},
 			}}, nil
@@ -785,9 +785,9 @@ func TestListObjectVersionsDeleteMarker(t *testing.T) {
 
 func TestListMultipartUploads(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		listMultipartUploads: func(context.Context, string, string, string, string, string, int) (cmd.ListMultipartsInfo, error) {
-			return cmd.ListMultipartsInfo{
-				Uploads: []cmd.MultipartInfo{{Object: "key", UploadID: "upload-id"}},
+		listMultipartUploads: func(context.Context, string, string, string, string, string, int) (objectlayer.ListMultipartsInfo, error) {
+			return objectlayer.ListMultipartsInfo{
+				Uploads: []objectlayer.MultipartInfo{{Object: "key", UploadID: "upload-id"}},
 			}, nil
 		},
 	}
@@ -819,8 +819,8 @@ func TestListEmptyEncodingTypeLikeS3(t *testing.T) {
 func TestListObjectsLikeS3(t *testing.T) {
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
-		listObjects: func(context.Context, string, string, string, string, int) (cmd.ListObjectsInfo, error) {
-			return cmd.ListObjectsInfo{IsTruncated: true, NextMarker: "a/1", Objects: []cmd.ObjectInfo{{Name: "a/1"}}}, nil
+		listObjects: func(context.Context, string, string, string, string, int) (objectlayer.ListObjectsInfo, error) {
+			return objectlayer.ListObjectsInfo{IsTruncated: true, NextMarker: "a/1", Objects: []objectlayer.ObjectInfo{{Name: "a/1"}}}, nil
 		},
 	}
 
@@ -940,10 +940,10 @@ func TestListParameterOrderLikeS3(t *testing.T) {
 	// Only the parameters of ListParts that aren't integers are checked before the upload is looked
 	// up. Its encoding-type and negative limits are checked after.
 	listParts := &fakeObjectLayer{
-		listObjectParts: func(_ context.Context, _, _, _ string, marker, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+		listObjectParts: func(_ context.Context, _, _, _ string, marker, maxParts int, _ objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error) {
 			require.GreaterOrEqual(t, marker, 0)
 			require.GreaterOrEqual(t, maxParts, 0)
-			return cmd.ListPartsInfo{}, nil
+			return objectlayer.ListPartsInfo{}, nil
 		},
 	}
 	for query, message := range map[string]string{
@@ -964,8 +964,8 @@ func TestListParameterOrderLikeS3(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode, query)
 		require.Contains(t, resp.Body, "<Code>InvalidArgument</Code><Message>"+message+"</Message>", query)
 	}
-	missing := &fakeObjectLayer{listObjectParts: func(context.Context, string, string, string, int, int, cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
-		return cmd.ListPartsInfo{}, cmd.InvalidUploadID{}
+	missing := &fakeObjectLayer{listObjectParts: func(context.Context, string, string, string, int, int, objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error) {
+		return objectlayer.ListPartsInfo{}, cmd.InvalidUploadID{}
 	}}
 	resp := serve(t, missing, http.MethodGet, "/bucket/key?uploadId=id&encoding-type=foo", nil, nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode, resp.Body)
@@ -980,13 +980,13 @@ func TestListParameterOrderLikeS3(t *testing.T) {
 
 func TestListPartsLimits(t *testing.T) {
 	var gotMaxParts int
-	parts := []cmd.PartInfo{{PartNumber: 1, ETag: "a", Size: 1}, {PartNumber: 2, ETag: "b", Size: 1}}
+	parts := []objectlayer.PartInfo{{PartNumber: 1, ETag: "a", Size: 1}, {PartNumber: 2, ETag: "b", Size: 1}}
 	objectAPI := &fakeObjectLayer{
-		listObjectParts: func(_ context.Context, _, _, _ string, _, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+		listObjectParts: func(_ context.Context, _, _, _ string, _, maxParts int, _ objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error) {
 			gotMaxParts = maxParts
 			// Like miniogw.ListObjectParts, at most maxParts parts are returned.
 			n := min(maxParts, len(parts))
-			return cmd.ListPartsInfo{MaxParts: maxParts, Parts: parts[:n], IsTruncated: n < len(parts)}, nil
+			return objectlayer.ListPartsInfo{MaxParts: maxParts, Parts: parts[:n], IsTruncated: n < len(parts)}, nil
 		},
 	}
 
@@ -1017,12 +1017,12 @@ func TestListPartsLimits(t *testing.T) {
 func TestListMultipartUploadsKeyMarkerOutsidePrefix(t *testing.T) {
 	var gotKeyMarker string
 	objectAPI := &fakeObjectLayer{
-		listMultipartUploads: func(_ context.Context, _, prefix, keyMarker, _, _ string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+		listMultipartUploads: func(_ context.Context, _, prefix, keyMarker, _, _ string, maxUploads int) (objectlayer.ListMultipartsInfo, error) {
 			gotKeyMarker = keyMarker
-			return cmd.ListMultipartsInfo{
+			return objectlayer.ListMultipartsInfo{
 				Prefix:     prefix,
 				MaxUploads: maxUploads,
-				Uploads:    []cmd.MultipartInfo{{Object: "p/key", UploadID: "upload-id"}},
+				Uploads:    []objectlayer.MultipartInfo{{Object: "p/key", UploadID: "upload-id"}},
 			}, nil
 		},
 	}
@@ -1051,9 +1051,9 @@ func TestListMultipartUploadsKeyMarkerOutsidePrefix(t *testing.T) {
 func TestListMultipartUploadsMaxUploadsClamped(t *testing.T) {
 	var got int
 	objectAPI := &fakeObjectLayer{
-		listMultipartUploads: func(_ context.Context, _, _, _, _, _ string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+		listMultipartUploads: func(_ context.Context, _, _, _, _, _ string, maxUploads int) (objectlayer.ListMultipartsInfo, error) {
 			got = maxUploads
-			return cmd.ListMultipartsInfo{MaxUploads: maxUploads}, nil
+			return objectlayer.ListMultipartsInfo{MaxUploads: maxUploads}, nil
 		},
 	}
 
@@ -1067,12 +1067,12 @@ func TestListObjectVersionsVersionIDMarker(t *testing.T) {
 	var got string
 	objectAPI := &bucketObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{},
-		listObjectVersions: func(_ context.Context, bucket, _, marker, versionMarker, _ string, _ int) (cmd.ListObjectVersionsInfo, error) {
+		listObjectVersions: func(_ context.Context, bucket, _, marker, versionMarker, _ string, _ int) (objectlayer.ListObjectVersionsInfo, error) {
 			got = versionMarker
 			if marker == "" && versionMarker != "" {
-				return cmd.ListObjectVersionsInfo{}, miniogw.ErrVersionIDMarkerWithoutKeyMarker(bucket)
+				return objectlayer.ListObjectVersionsInfo{}, miniogw.ErrVersionIDMarkerWithoutKeyMarker(bucket)
 			}
-			return cmd.ListObjectVersionsInfo{}, nil
+			return objectlayer.ListObjectVersionsInfo{}, nil
 		},
 	}
 
@@ -1243,8 +1243,8 @@ func (configObjectLayer) GetObjectLegalHold(context.Context, string, string, str
 	return &objectlock.ObjectLegalHold{Status: objectlock.LegalHoldOn}, nil
 }
 
-func (configObjectLayer) GetObjectInfo(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-	return cmd.ObjectInfo{UserDefined: map[string]string{"s3:tags": "k=v"}}, nil
+func (configObjectLayer) GetObjectInfo(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+	return objectlayer.ObjectInfo{UserDefined: map[string]string{"s3:tags": "k=v"}}, nil
 }
 
 func (configObjectLayer) GetObjectRetention(context.Context, string, string, string) (*objectlock.ObjectRetention, error) {

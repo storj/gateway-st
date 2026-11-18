@@ -19,6 +19,7 @@ import (
 	"storj.io/common/paths"
 	"storj.io/common/sync2"
 	"storj.io/eventkit"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw/internal/streamidpb"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
@@ -34,20 +35,20 @@ import (
 const maxSameKeyUploadsFactor = 10
 
 // ListMultipartUploads lists all multipart uploads.
-func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result minio.ListMultipartsInfo, err error) {
+func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result objectlayer.ListMultipartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ListMultipartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ListMultipartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ListMultipartsInfo{}, err
+		return objectlayer.ListMultipartsInfo{}, err
 	}
 
 	if delimiter != "" && delimiter != "/" {
-		return minio.ListMultipartsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
+		return objectlayer.ListMultipartsInfo{}, minio.NotImplemented{Message: fmt.Sprintf("Unsupported delimiter: %q", delimiter)}
 	}
 
 	recursive := delimiter == ""
@@ -119,7 +120,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 
 	var (
 		nextKeyMarker string
-		uploads       []minio.MultipartInfo
+		uploads       []objectlayer.MultipartInfo
 		prefixes      []string
 	)
 	for _, object := range items {
@@ -134,7 +135,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 	}
 
 	// TODO: support NextUploadID (https://github.com/storj/gateway-mt/issues/213)
-	return minio.ListMultipartsInfo{
+	return objectlayer.ListMultipartsInfo{
 		KeyMarker:      keyMarker,
 		NextKeyMarker:  nextKeyMarker,
 		UploadIDMarker: uploadIDMarker,
@@ -147,7 +148,7 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 	}, nil
 }
 
-func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (uploadID string, err error) {
+func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (uploadID string, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
@@ -210,15 +211,15 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	return info.UploadID, nil
 }
 
-func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts minio.ObjectOptions) (info minio.PartInfo, err error) {
+func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts objectlayer.ObjectOptions) (info objectlayer.PartInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.PartInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.PartInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	if partID < 1 || int64(partID) > math.MaxUint32 {
-		return minio.PartInfo{}, minio.InvalidArgument{
+		return objectlayer.PartInfo{}, minio.InvalidArgument{
 			Bucket: bucket,
 			Object: object,
 			Err:    errs.New("partID is out of range."),
@@ -227,45 +228,45 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.PartInfo{}, err
+		return objectlayer.PartInfo{}, err
 	}
 
 	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
-		return minio.PartInfo{}, err
+		return objectlayer.PartInfo{}, err
 	}
 
 	partUpload, err := project.UploadPart(ctx, bucket, object, uploadID, uint32(partID))
 	if err != nil {
-		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	_, err = sync2.Copy(ctx, partUpload, data)
 	if err != nil {
 		abortErr := partUpload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	eTag, err := data.MD5HexString()
 	if err != nil {
 		err = errs.Combine(err, partUpload.Abort())
-		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	err = partUpload.SetETag([]byte(eTag))
 	if err != nil {
 		abortErr := partUpload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	err = partUpload.Commit()
 	if err != nil {
-		return minio.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	part := partUpload.Info()
-	return minio.PartInfo{
+	return objectlayer.PartInfo{
 		PartNumber:   int(part.PartNumber),
 		Size:         part.Size,
 		ActualSize:   part.Size,
@@ -274,16 +275,16 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 	}, nil
 }
 
-func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts minio.ObjectOptions) (result minio.ListPartsInfo, err error) {
+func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts objectlayer.ObjectOptions) (result objectlayer.ListPartsInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ListPartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ListPartsInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ListPartsInfo{}, err
+		return objectlayer.ListPartsInfo{}, err
 	}
 
 	var fetchedCount int64
@@ -299,19 +300,19 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	}()
 
 	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
-		return minio.ListPartsInfo{}, err
+		return objectlayer.ListPartsInfo{}, err
 	}
 
 	list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{
 		Cursor: uint32(partNumberMarker),
 	})
 
-	parts := make([]minio.PartInfo, 0, maxParts)
+	parts := make([]objectlayer.PartInfo, 0, maxParts)
 
 	for fetchedCount < int64(maxParts) && list.Next() {
 		fetchedCount++
 		part := list.Item()
-		parts = append(parts, minio.PartInfo{
+		parts = append(parts, objectlayer.PartInfo{
 			PartNumber:   int(part.PartNumber),
 			LastModified: part.Modified,
 			ETag:         string(part.ETag), // Entity tag returned when the part was initially uploaded.
@@ -331,7 +332,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	if len(parts) > 0 {
 		nextPartNumberMarker = parts[len(parts)-1].PartNumber
 	}
-	return minio.ListPartsInfo{
+	return objectlayer.ListPartsInfo{
 		Bucket:               bucket,
 		Object:               object,
 		UploadID:             uploadID,
@@ -345,7 +346,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	}, nil
 }
 
-func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ minio.ObjectOptions) (err error) {
+func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, _ objectlayer.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
@@ -372,30 +373,30 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 	return nil
 }
 
-func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []minio.CompletePart, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []objectlayer.CompletePart, opts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	// The satellite commits whatever upload the ID points to, so reject IDs
 	// that belong to another key.
 	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	userData, err := versioned.GetUploadMetadata(ctx, project, bucket, object, uploadID)
 	if err != nil {
 		if errors.Is(err, uplink.ErrObjectNotFound) {
-			return minio.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
+			return objectlayer.ObjectInfo{}, minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 		}
-		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 	metadata := userData.Custom
 
@@ -405,7 +406,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		part := list.Item()
 		// Are we listing past what we received?
 		if idx >= len(uploadedParts) {
-			return minio.ObjectInfo{}, minio.InvalidPart{
+			return objectlayer.ObjectInfo{}, minio.InvalidPart{
 				PartNumber: int(part.PartNumber),
 				ExpETag:    string(part.ETag),
 				GotETag:    "",
@@ -414,7 +415,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		// Is size okay for everything except the last part?
 		if idx != len(uploadedParts)-1 {
 			if part.Size < layer.compatibilityConfig.MinPartSize {
-				return minio.ObjectInfo{}, minio.PartTooSmall{
+				return objectlayer.ObjectInfo{}, minio.PartTooSmall{
 					PartSize:   part.Size,
 					PartNumber: int(part.PartNumber),
 					PartETag:   string(part.ETag),
@@ -423,7 +424,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		}
 		// Do we agree on the part number?
 		if uploadedParts[idx].PartNumber != int(part.PartNumber) {
-			return minio.ObjectInfo{}, minio.InvalidPart{
+			return objectlayer.ObjectInfo{}, minio.InvalidPart{
 				PartNumber: uploadedParts[idx].PartNumber,
 				ExpETag:    "",
 				GotETag:    uploadedParts[idx].ETag,
@@ -431,7 +432,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		}
 		// Do we agree on ETag?
 		if uploadedParts[idx].ETag != string(part.ETag) {
-			return minio.ObjectInfo{}, minio.InvalidPart{
+			return objectlayer.ObjectInfo{}, minio.InvalidPart{
 				PartNumber: int(part.PartNumber),
 				ExpETag:    string(part.ETag),
 				GotETag:    uploadedParts[idx].ETag,
@@ -439,18 +440,18 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		}
 	}
 	if list.Err() != nil {
-		return minio.ObjectInfo{}, convertMultipartError(list.Err(), bucket, object, uploadID)
+		return objectlayer.ObjectInfo{}, convertMultipartError(list.Err(), bucket, object, uploadID)
 	}
 
 	if len(uploadedParts) > idx { // We didn't list enough
-		return minio.ObjectInfo{}, minio.InvalidPart{
+		return objectlayer.ObjectInfo{}, minio.InvalidPart{
 			PartNumber: uploadedParts[idx].PartNumber, // Condition guarantees safe access
 			ExpETag:    "",                            // We expected nothing
 			GotETag:    uploadedParts[idx].ETag,
 		}
 	}
 
-	etag := minio.ComputeCompleteMultipartMD5(uploadedParts)
+	etag := objectlayer.MultipartETag(uploadedParts)
 
 	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
 		opts.UserDefined["s3:tags"] = tagsStr
@@ -458,7 +459,7 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	}
 
 	if err := verifyIfNoneMatch(opts.IfNoneMatch); err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	obj, err := versioned.CommitUpload(ctx, project, bucket, object, uploadID, &metaclient.CommitUploadOptions{
@@ -469,18 +470,18 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		IfNoneMatch: opts.IfNoneMatch,
 	})
 	if err != nil {
-		return minio.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		return objectlayer.ObjectInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
 	return minioVersionedObjectInfo(bucket, obj), nil
 }
 
-func minioMultipartInfo(bucket string, object *uplink.UploadInfo) minio.MultipartInfo {
+func minioMultipartInfo(bucket string, object *uplink.UploadInfo) objectlayer.MultipartInfo {
 	if object == nil {
 		object = &uplink.UploadInfo{}
 	}
 
-	return minio.MultipartInfo{
+	return objectlayer.MultipartInfo{
 		Bucket:      bucket,
 		Object:      object.Key,
 		Initiated:   object.System.Created,

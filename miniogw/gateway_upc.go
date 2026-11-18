@@ -21,6 +21,7 @@ import (
 	"storj.io/common/sync2"
 	"storj.io/common/uuid"
 	"storj.io/eventkit"
+	"storj.io/gateway/api/objectlayer"
 	minio "storj.io/minio/cmd"
 	"storj.io/uplink"
 	"storj.io/uplink/private/bucket"
@@ -32,49 +33,49 @@ func (layer *gatewayLayer) CopyObjectPart(
 	srcBucket, srcObject, destBucket, destObject, uploadID string,
 	partID int,
 	startOffset, length int64,
-	srcInfo minio.ObjectInfo,
-	srcOpts, dstOpts minio.ObjectOptions,
-) (info minio.PartInfo, err error) {
+	srcInfo objectlayer.ObjectInfo,
+	srcOpts, dstOpts objectlayer.ObjectOptions,
+) (info objectlayer.PartInfo, err error) {
 	// input validation
 
 	if !layer.compatibilityConfig.UploadPartCopy.Enable {
-		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy"}
+		return objectlayer.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy"}
 	}
 
 	if err = ValidateBucket(ctx, srcBucket); err != nil {
-		return minio.PartInfo{}, minio.BucketNameInvalid{
+		return objectlayer.PartInfo{}, minio.BucketNameInvalid{
 			Bucket:    srcBucket,
 			Object:    srcObject,
 			VersionID: srcOpts.VersionID,
 		}
 	}
 	if err = ValidateBucket(ctx, destBucket); err != nil {
-		return minio.PartInfo{}, minio.BucketNameInvalid{
+		return objectlayer.PartInfo{}, minio.BucketNameInvalid{
 			Bucket: destBucket,
 			Object: destObject,
 		}
 	}
 
 	if l := len(srcObject); l == 0 {
-		return minio.PartInfo{}, minio.ObjectNameInvalid{
+		return objectlayer.PartInfo{}, minio.ObjectNameInvalid{
 			Bucket:    srcBucket,
 			Object:    srcObject,
 			VersionID: srcOpts.VersionID,
 		}
 	} else if l > memory.KiB.Int() {
-		return minio.PartInfo{}, minio.ObjectNameTooLong{
+		return objectlayer.PartInfo{}, minio.ObjectNameTooLong{
 			Bucket:    srcBucket,
 			Object:    srcObject,
 			VersionID: srcOpts.VersionID,
 		}
 	}
 	if l := len(destObject); l == 0 {
-		return minio.PartInfo{}, minio.ObjectNameInvalid{
+		return objectlayer.PartInfo{}, minio.ObjectNameInvalid{
 			Bucket: destBucket,
 			Object: destObject,
 		}
 	} else if l > memory.KiB.Int() {
-		return minio.PartInfo{}, minio.ObjectNameTooLong{
+		return objectlayer.PartInfo{}, minio.ObjectNameTooLong{
 			Bucket: destBucket,
 			Object: destObject,
 		}
@@ -82,11 +83,11 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	srcVersion, err := decodeVersionID(srcOpts.VersionID)
 	if err != nil {
-		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
+		return objectlayer.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
 	if partID < 1 || partID > 10000 {
-		return minio.PartInfo{}, minio.InvalidArgument{
+		return objectlayer.PartInfo{}, minio.InvalidArgument{
 			Bucket: destBucket,
 			Object: destObject,
 			Err:    errs.New("part number must be an integer between 1 and 10000, inclusive"),
@@ -97,7 +98,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	credentials, err := credentialsFromContext(ctx)
 	if err != nil {
-		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
+		return objectlayer.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
 	project := credentials.Project
@@ -122,15 +123,15 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	enabled, err = layer.copyObjectPartConfig.enabled(ctx, project, credentials.PublicProjectID, srcBucket, destBucket)
 	if err != nil {
-		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
+		return objectlayer.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	} else if !enabled {
-		return minio.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy: not enabled for this project or location"}
+		return objectlayer.PartInfo{}, minio.NotImplemented{Message: "UploadPartCopy: not enabled for this project or location"}
 	}
 
 	// work
 
 	if err = checkUploadID(ctx, destBucket, destObject, uploadID); err != nil {
-		return minio.PartInfo{}, err
+		return objectlayer.PartInfo{}, err
 	}
 
 	download, err := versioned.DownloadObject(ctx, project, srcBucket, srcObject, srcVersion, &versioned.DownloadObjectOptions{
@@ -139,7 +140,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 		ServerSideCopy: layer.compatibilityConfig.UploadPartCopy.DiscountEgress,
 	})
 	if err != nil {
-		return minio.PartInfo{}, ConvertError(err, srcBucket, srcObject)
+		return objectlayer.PartInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
 	defer func() {
@@ -147,7 +148,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 	}()
 
 	if size := download.Info().System.ContentLength; startOffset >= size || startOffset+length > size {
-		return minio.PartInfo{}, miniogo.ErrorResponse{
+		return objectlayer.PartInfo{}, miniogo.ErrorResponse{
 			Code:       "InvalidRange",
 			Message:    "The requested range cannot be satisfied.",
 			StatusCode: http.StatusRequestedRangeNotSatisfiable,
@@ -159,12 +160,12 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	dst, err := project.UploadPart(ctx, destBucket, destObject, uploadID, uint32(partID))
 	if err != nil {
-		return minio.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
 	}
 
 	if _, err = sync2.Copy(ctx, dst, src); err != nil {
 		err = errs.Combine(err, dst.Abort())
-		return minio.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
 	}
 
 	etag := make([]byte, hex.EncodedLen(sum.Size()))
@@ -172,16 +173,16 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	if err = dst.SetETag(etag); err != nil {
 		err = errs.Combine(err, dst.Abort())
-		return minio.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
 	}
 
 	if err = dst.Commit(); err != nil {
 		err = errs.Combine(err, dst.Abort())
-		return minio.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
 	}
 
 	partInfo := dst.Info()
-	return minio.PartInfo{
+	return objectlayer.PartInfo{
 		PartNumber: int(partInfo.PartNumber),
 		// uplink doesn't report when the satellite committed the part, which was just now.
 		//

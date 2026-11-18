@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"storj.io/minio/cmd"
+	"storj.io/gateway/api/objectlayer"
 )
 
 func TestCompleteMultipartUploadBodyVerification(t *testing.T) {
@@ -29,9 +29,9 @@ func TestCompleteMultipartUploadBodyVerification(t *testing.T) {
 		} {
 			t.Run(fmt.Sprintf("%s/padding=%d", tt.name, len(padding)), func(t *testing.T) {
 				called := false
-				layer := &fakeObjectLayer{completeMultipartUpload: func(context.Context, string, string, string, []cmd.CompletePart, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				layer := &fakeObjectLayer{completeMultipartUpload: func(context.Context, string, string, string, []objectlayer.CompletePart, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 					called = true
-					return cmd.ObjectInfo{ETag: "etag"}, nil
+					return objectlayer.ObjectInfo{ETag: "etag"}, nil
 				}}
 				resp := serve(t, layer, http.MethodPost, "/bucket/key?uploadId=id", tt.header, body)
 				if tt.code == "" {
@@ -49,7 +49,7 @@ func TestCompleteMultipartUploadBodyVerification(t *testing.T) {
 
 func TestCreateMultipartUploadChecksumHeaders(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		newMultipartUpload: func(context.Context, string, string, cmd.ObjectOptions) (string, error) {
+		newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (string, error) {
 			return "upload-id", nil
 		},
 	}

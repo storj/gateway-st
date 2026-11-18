@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 )
 
@@ -115,7 +116,7 @@ func TestPutObjectChecksums(t *testing.T) {
 
 func TestDeleteObjectsWithChecksum(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			return []cmd.DeletedObject{{ObjectName: objects[0].ObjectName}}, nil, nil
 		},
 	}
@@ -221,9 +222,9 @@ func TestCompleteMultipartUploadChecksumHeaders(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			called := false
-			layer := &fakeObjectLayer{completeMultipartUpload: func(context.Context, string, string, string, []cmd.CompletePart, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			layer := &fakeObjectLayer{completeMultipartUpload: func(context.Context, string, string, string, []objectlayer.CompletePart, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 				called = true
-				return cmd.ObjectInfo{ETag: "etag"}, nil
+				return objectlayer.ObjectInfo{ETag: "etag"}, nil
 			}}
 			resp := serveHTTP(t, layer, http.MethodPost, "/bucket/key?uploadId=id", tt.header, body)
 			require.Equal(t, tt.status, resp.StatusCode, resp.Body)
@@ -241,7 +242,7 @@ func TestDeleteObjectsChecksumMismatch(t *testing.T) {
 			body := []byte(`<Delete><Object><Key>key</Key></Object></Delete>` + padding)
 			for _, valid := range []bool{false, true} {
 				called := false
-				layer := &fakeObjectLayer{deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+				layer := &fakeObjectLayer{deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 					called = true
 					return nil, nil, nil
 				}}
@@ -296,20 +297,20 @@ type readingObjectLayer struct {
 	stored bool
 }
 
-func (l *readingObjectLayer) PutObject(_ context.Context, bucket, object string, data *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (l *readingObjectLayer) PutObject(_ context.Context, bucket, object string, data *cmd.PutObjReader, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	if _, err := io.Copy(io.Discard, data); err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	l.stored = true
-	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
+	return objectlayer.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
 }
 
-func (l *readingObjectLayer) PutObjectPart(_ context.Context, _, _, _ string, partID int, data *cmd.PutObjReader, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+func (l *readingObjectLayer) PutObjectPart(_ context.Context, _, _, _ string, partID int, data *cmd.PutObjReader, _ objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
 	if _, err := io.Copy(io.Discard, data); err != nil {
-		return cmd.PartInfo{}, err
+		return objectlayer.PartInfo{}, err
 	}
 	l.stored = true
-	return cmd.PartInfo{PartNumber: partID, ETag: "etag"}, nil
+	return objectlayer.PartInfo{PartNumber: partID, ETag: "etag"}, nil
 }
 
 func TestPutObjectIntegrityErrorPriority(t *testing.T) {

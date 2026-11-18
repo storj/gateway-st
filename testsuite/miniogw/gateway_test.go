@@ -30,7 +30,6 @@ import (
 	"storj.io/common/testcontext"
 	"storj.io/common/testrand"
 	"storj.io/common/uuid"
-	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
@@ -289,15 +288,9 @@ func TestGetBucketLocation(t *testing.T) {
 
 		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
 
-		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		locator, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewObjectLayer()
 		require.NoError(t, err)
-		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
-
-		// minio's ObjectLayer has no GetBucketLocation, the api package's does.
-		locator, ok := layer.(interface {
-			GetBucketLocation(ctx context.Context, bucket string) (string, error)
-		})
-		require.True(t, ok)
+		defer func() { require.NoError(t, locator.Shutdown(ctx)) }()
 
 		_, err = locator.GetBucketLocation(ctx, "")
 		assert.Equal(t, minio.BucketNameInvalid{}, err)
@@ -344,13 +337,9 @@ func TestListBucketsWithAttribution(t *testing.T) {
 
 		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
 
-		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		lister, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewObjectLayer()
 		require.NoError(t, err)
-		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
-
-		// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare it.
-		lister, ok := layer.(objectlayer.ObjectLayer)
-		require.True(t, ok)
+		defer func() { require.NoError(t, lister.Shutdown(ctx)) }()
 
 		buckets, err := lister.ListBucketsWithAttribution(ctx)
 		require.NoError(t, err)
@@ -385,13 +374,9 @@ func TestListLicenses(t *testing.T) {
 
 		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
 
-		layer, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewGatewayLayer(auth.Credentials{})
+		lister, err := miniogw.NewStorjGateway(defaultS3CompatibilityConfig).NewObjectLayer()
 		require.NoError(t, err)
-		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
-
-		// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare it.
-		lister, ok := layer.(objectlayer.ObjectLayer)
-		require.True(t, ok)
+		defer func() { require.NoError(t, lister.Shutdown(ctx)) }()
 
 		_, err = lister.ListLicenses(ctx, "", "object-mount")
 		assert.Equal(t, minio.BucketNameInvalid{}, err)

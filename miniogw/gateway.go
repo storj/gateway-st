@@ -26,6 +26,7 @@ import (
 	"storj.io/common/version"
 	"storj.io/eventkit"
 	"storj.io/gateway/api/objectlayer"
+	"storj.io/gateway/miniogw/minioobjectlayer"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
 	xhttp "storj.io/minio/cmd/http"
@@ -304,8 +305,19 @@ func (gateway *Gateway) Name() string {
 	return "storj"
 }
 
-// NewGatewayLayer implements cmd.Gateway.
+// NewGatewayLayer implements cmd.Gateway. It's the layer of NewObjectLayer adapted for minio's
+// handlers.
 func (gateway *Gateway) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
+	layer, err := gateway.NewObjectLayer()
+	if err != nil {
+		return nil, err
+	}
+	return minioobjectlayer.New(layer), nil
+}
+
+// NewObjectLayer returns the object layer that serves requests with the project in their context,
+// which WithCredentials puts there.
+func (gateway *Gateway) NewObjectLayer() (minioobjectlayer.ObjectLayer, error) {
 	rawCOPConfig := gateway.compatibilityConfig.UploadPartCopy.EnabledCombinations
 
 	copConfig, err := newCopyObjectPartConfig(rawCOPConfig)
@@ -334,8 +346,6 @@ func (gateway *Gateway) Production() bool {
 }
 
 type gatewayLayer struct {
-	minio.GatewayUnsupported
-
 	compatibilityConfig        S3CompatibilityConfig
 	copyObjectPartConfig       copyObjectPartConfig
 	unsupportedListingDeadline time.Time
@@ -605,7 +615,7 @@ func (layer *gatewayLayer) SetObjectLockConfig(ctx context.Context, bucketName s
 	return ConvertError(err, bucketName, "")
 }
 
-func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts minio.ObjectOptions) (reader *minio.GetObjectReader, err error) {
+func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *minio.HTTPRangeSpec, h http.Header, lockType minio.LockType, opts objectlayer.ObjectOptions) (reader *objectlayer.GetObjectReader, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
@@ -641,7 +651,7 @@ func (layer *gatewayLayer) GetObjectNInfo(ctx context.Context, bucket, object st
 	downloadCloser := func() { _ = download.Close() }
 
 	r := newComplainingReader(download, ctxCredentialsToTags(ctx))
-	return minio.NewGetObjectReaderFromReader(r, objectInfo, opts, downloadCloser)
+	return objectlayer.NewGetObjectReader(r, objectInfo, opts, downloadCloser)
 }
 
 func rangeSpecToDownloadOptions(rs *minio.HTTPRangeSpec) (opts *versioned.DownloadObjectOptions, err error) {
@@ -700,28 +710,28 @@ func newComplainingReader(r io.Reader, tags []eventkit.Tag) *complainingReader {
 	}
 }
 
-func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) GetObjectInfo(ctx context.Context, bucket, objectPath string, opts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	version, err := decodeVersionID(opts.VersionID)
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	object, err := versioned.StatObject(ctx, project, bucket, objectPath, version)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, convertReadError(err, bucket, objectPath, opts.VersionID)
+		return objectlayer.ObjectInfo{}, convertReadError(err, bucket, objectPath, opts.VersionID)
 	}
 
 	return minioVersionedObjectInfo(bucket, object), nil
@@ -744,44 +754,44 @@ func convertReadError(err error, bucket, object, versionID string) error {
 	return ConvertError(err, bucket, object)
 }
 
-func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string, data *minio.PutObjReader, opts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	if len(object) > memory.KiB.Int() { // https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
-		return minio.ObjectInfo{}, minio.ObjectNameTooLong{Bucket: bucket, Object: object}
+		return objectlayer.ObjectInfo{}, minio.ObjectNameTooLong{Bucket: bucket, Object: object}
 	}
 
 	if storageClass, ok := opts.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
-		return minio.ObjectInfo{}, minio.NotImplemented{Message: "PutObject (storage class)"}
+		return objectlayer.ObjectInfo{}, minio.NotImplemented{Message: "PutObject (storage class)"}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	if data == nil {
 		hashReader, err := hash.NewDefaultReader(bytes.NewReader([]byte{}), 0, "", "", 0)
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+			return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 		}
 		data = minio.NewPutObjReader(hashReader)
 	}
 
 	e, err := parseTTL(opts.UserDefined)
 	if err != nil {
-		return minio.ObjectInfo{}, ErrInvalidTTL
+		return objectlayer.ObjectInfo{}, ErrInvalidTTL
 	}
 
 	var retention metaclient.Retention
 	if opts.Retention != nil {
 		retMode, err := parseRetentionMode(opts.Retention.Mode)
 		if err != nil {
-			return minio.ObjectInfo{}, err
+			return objectlayer.ObjectInfo{}, err
 		}
 
 		retention.Mode = retMode
@@ -791,12 +801,12 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	if opts.LegalHold != nil {
 		legalHold, err = parseLegalHoldStatus(*opts.LegalHold)
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+			return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 		}
 	}
 
 	if err := verifyIfNoneMatch(opts.IfNoneMatch); err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	upload, err := versioned.UploadObject(ctx, project, bucket, object, &metaclient.UploadOptions{
@@ -806,26 +816,26 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 		IfNoneMatch: opts.IfNoneMatch,
 	})
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	size, err := sync2.Copy(ctx, upload, data)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	lengthRange := opts.PostPolicy.Conditions.ContentLengthRange
 	if lengthRange.Valid {
 		if size < lengthRange.Min {
 			abortErr := upload.Abort()
-			return minio.ObjectInfo{}, errs.Combine(minio.ObjectTooSmall{}, abortErr)
+			return objectlayer.ObjectInfo{}, errs.Combine(minio.ObjectTooSmall{}, abortErr)
 		}
 
 		if size > lengthRange.Max {
 			abortErr := upload.Abort()
-			return minio.ObjectInfo{}, errs.Combine(minio.ObjectTooLarge{}, abortErr)
+			return objectlayer.ObjectInfo{}, errs.Combine(minio.ObjectTooLarge{}, abortErr)
 		}
 	}
 
@@ -837,77 +847,77 @@ func (layer *gatewayLayer) PutObject(ctx context.Context, bucket, object string,
 	eTag, err := data.MD5HexString()
 	if err != nil {
 		err = errs.Combine(err, upload.Abort())
-		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	err = upload.SetETag(ctx, []byte(eTag))
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	err = upload.SetCustomMetadata(ctx, opts.UserDefined)
 	if err != nil {
 		abortErr := upload.Abort()
 		err = errs.Combine(err, abortErr)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	err = upload.Commit()
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, object)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, object)
 	}
 
 	return minioVersionedObjectInfo(bucket, upload.Info()), nil
 }
 
-func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo minio.ObjectInfo, srcOpts, destOpts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo objectlayer.ObjectInfo, srcOpts, destOpts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// S3 doesn't support destination VersionID but let's handle this just in case
 	if destOpts.VersionID != "" {
-		return minio.ObjectInfo{}, minio.NotImplemented{}
+		return objectlayer.ObjectInfo{}, minio.NotImplemented{}
 	}
 
 	srcAndDestSame := srcBucket == destBucket && srcObject == destObject
 
 	if layer.compatibilityConfig.DisableCopyObject && !srcAndDestSame {
-		return minio.ObjectInfo{}, minio.NotImplemented{Message: "CopyObject"}
+		return objectlayer.ObjectInfo{}, minio.NotImplemented{Message: "CopyObject"}
 	}
 
 	if len(destObject) > memory.KiB.Int() { // https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
-		return minio.ObjectInfo{}, minio.ObjectNameTooLong{Bucket: destBucket, Object: destObject}
+		return objectlayer.ObjectInfo{}, minio.ObjectNameTooLong{Bucket: destBucket, Object: destObject}
 	}
 
 	if storageClass, ok := srcInfo.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
-		return minio.ObjectInfo{}, minio.NotImplemented{Message: "CopyObject (storage class)"}
+		return objectlayer.ObjectInfo{}, minio.NotImplemented{Message: "CopyObject (storage class)"}
 	}
 
 	switch {
 	case srcObject == "":
-		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: srcBucket}
+		return objectlayer.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: srcBucket}
 	case destObject == "":
-		return minio.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: destBucket}
+		return objectlayer.ObjectInfo{}, minio.ObjectNameInvalid{Bucket: destBucket}
 	}
 
 	if err := ValidateBucket(ctx, srcBucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: srcBucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: srcBucket}
 	}
 	if err := ValidateBucket(ctx, destBucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: destBucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: destBucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	if srcAndDestSame && srcInfo.VersionID == "" {
 		// TODO this should be removed and implemented on satellite side
 		_, err = project.StatBucket(ctx, srcBucket)
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, srcBucket, "")
+			return objectlayer.ObjectInfo{}, ConvertError(err, srcBucket, "")
 		}
 
 		// Source and destination are the same. Do nothing, apart from ensuring
@@ -917,15 +927,15 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// manipulating existing object's metadata.
 		info, err := versioned.StatObject(ctx, project, srcBucket, srcObject, nil)
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
+			return objectlayer.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
 
 		// The destination is the source, so it exists and If-None-Match: * can't hold.
 		if err := verifyIfNoneMatch(destOpts.IfNoneMatch); err != nil {
-			return minio.ObjectInfo{}, err
+			return objectlayer.ObjectInfo{}, err
 		}
 		if len(destOpts.IfNoneMatch) > 0 {
-			return minio.ObjectInfo{}, ErrFailedPrecondition
+			return objectlayer.ObjectInfo{}, ErrFailedPrecondition
 		}
 
 		upsertObjectMetadata(srcInfo.UserDefined, info.Custom)
@@ -936,7 +946,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 			Checksum: info.Checksum,
 		})
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
+			return objectlayer.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 		}
 
 		return srcInfo, nil
@@ -944,7 +954,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 
 	version, err := decodeVersionID(srcInfo.VersionID)
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
+		return objectlayer.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
 	}
 
 	var retention metaclient.Retention
@@ -956,7 +966,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		case objectlock.RetGovernance:
 			mode = storj.GovernanceMode
 		default:
-			return minio.ObjectInfo{}, objectlock.ErrUnknownWORMModeDirective
+			return objectlayer.ObjectInfo{}, objectlock.ErrUnknownWORMModeDirective
 		}
 		retention = metaclient.Retention{
 			Mode:        mode,
@@ -965,7 +975,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	if err := verifyIfNoneMatch(destOpts.IfNoneMatch); err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{
@@ -977,12 +987,12 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		// TODO how we can improve it, its ugly
 		if errors.Is(err, uplink.ErrBucketNotFound) {
 			if strings.Contains(err.Error(), srcBucket) {
-				return minio.ObjectInfo{}, minio.BucketNotFound{Bucket: srcBucket}
+				return objectlayer.ObjectInfo{}, minio.BucketNotFound{Bucket: srcBucket}
 			} else if strings.Contains(err.Error(), destBucket) {
-				return minio.ObjectInfo{}, minio.BucketNotFound{Bucket: destBucket}
+				return objectlayer.ObjectInfo{}, minio.BucketNotFound{Bucket: destBucket}
 			}
 		}
-		return minio.ObjectInfo{}, ConvertError(err, destBucket, destObject)
+		return objectlayer.ObjectInfo{}, ConvertError(err, destBucket, destObject)
 	}
 
 	// TODO most probably we need better condition
@@ -997,7 +1007,7 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 			Checksum: object.Checksum,
 		})
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, destBucket, destObject)
+			return objectlayer.ObjectInfo{}, ConvertError(err, destBucket, destObject)
 		}
 		object.Custom = uplink.CustomMetadata(srcInfo.UserDefined)
 	}
@@ -1005,27 +1015,27 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	return minioVersionedObjectInfo(destBucket, object), nil
 }
 
-func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (objInfo minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath string, opts objectlayer.ObjectOptions) (objInfo objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	version, err := decodeVersionID(opts.VersionID)
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	delOpts := &metaclient.DeleteObjectOptions{BypassGovernanceRetention: opts.BypassGovernanceRetention}
 	object, err := versioned.DeleteObject(ctx, project, bucket, objectPath, version, delOpts)
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	if object == nil {
@@ -1036,14 +1046,14 @@ func (layer *gatewayLayer) DeleteObject(ctx context.Context, bucket, objectPath 
 		// we need to manually check if the bucket exists.
 		_, err = project.StatBucket(ctx, bucket)
 		if err != nil {
-			return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+			return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 		}
 	}
 
 	return minioVersionedObjectInfo(bucket, object), nil
 }
 
-func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) (deletedObjects []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
+func (layer *gatewayLayer) DeleteObjects(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts objectlayer.ObjectOptions) (deletedObjects []minio.DeletedObject, deleteErrors []minio.DeleteObjectsError, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
@@ -1134,7 +1144,7 @@ func convertDeleteObjectsStatus(status storj.DeleteObjectsStatus) error {
 	}
 }
 
-func (layer *gatewayLayer) deleteObjectsFallback(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts minio.ObjectOptions) ([]minio.DeletedObject, []minio.DeleteObjectsError) {
+func (layer *gatewayLayer) deleteObjectsFallback(ctx context.Context, bucket string, objects []minio.ObjectToDelete, opts objectlayer.ObjectOptions) ([]minio.DeletedObject, []minio.DeleteObjectsError) {
 	deletedObjects, deleteErrors := make([]minio.DeletedObject, 0, len(objects)), make([]minio.DeleteObjectsError, 0, len(objects))
 
 	limiter := sync2.NewLimiter(layer.compatibilityConfig.DeleteObjectsConcurrency)
@@ -1192,7 +1202,7 @@ func (layer *gatewayLayer) deleteObjectsFallback(ctx context.Context, bucket str
 	return deletedObjects, deleteErrors
 }
 
-func (layer *gatewayLayer) deleteObjectsFallbackSingle(ctx context.Context, bucket string, object minio.ObjectToDelete, opts minio.ObjectOptions) (*minio.DeletedObject, *minio.DeleteObjectsError) {
+func (layer *gatewayLayer) deleteObjectsFallbackSingle(ctx context.Context, bucket string, object minio.ObjectToDelete, opts objectlayer.ObjectOptions) (*minio.DeletedObject, *minio.DeleteObjectsError) {
 	info, err := layer.DeleteObject(ctx, bucket, object.ObjectName, opts)
 	if err != nil && !errors.As(err, &minio.ObjectNotFound{}) {
 		return nil, &minio.DeleteObjectsError{
@@ -1218,28 +1228,28 @@ func (layer *gatewayLayer) IsTaggingSupported() bool {
 	return true
 }
 
-func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath string, tags string, opts minio.ObjectOptions) (_ minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath string, tags string, opts objectlayer.ObjectOptions) (_ objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO(ver): not implemented yet
 	if opts.VersionID != "" {
-		return minio.ObjectInfo{}, minio.NotImplemented{}
+		return objectlayer.ObjectInfo{}, minio.NotImplemented{}
 	}
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	object, err := versioned.StatObject(ctx, project, bucket, objectPath, nil)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok && tags == "" {
@@ -1259,13 +1269,13 @@ func (layer *gatewayLayer) PutObjectTags(ctx context.Context, bucket, objectPath
 		Checksum: object.Checksum,
 	})
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	return minioVersionedObjectInfo(bucket, object), nil
 }
 
-func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (t *tags.Tags, err error) {
+func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath string, opts objectlayer.ObjectOptions) (t *tags.Tags, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
@@ -1297,28 +1307,28 @@ func (layer *gatewayLayer) GetObjectTags(ctx context.Context, bucket, objectPath
 	return t, nil
 }
 
-func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectPath string, opts minio.ObjectOptions) (_ minio.ObjectInfo, err error) {
+func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectPath string, opts objectlayer.ObjectOptions) (_ objectlayer.ObjectInfo, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	// TODO(ver): not implemented yet
 	if opts.VersionID != "" {
-		return minio.ObjectInfo{}, minio.NotImplemented{}
+		return objectlayer.ObjectInfo{}, minio.NotImplemented{}
 	}
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return minio.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.ObjectInfo{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return minio.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 
 	object, err := versioned.StatObject(ctx, project, bucket, objectPath, nil)
 	if err != nil {
 		// TODO this should be removed and implemented on satellite side
 		err = checkBucketError(ctx, project, bucket, objectPath, err)
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	if _, ok := object.Custom["s3:tags"]; !ok {
@@ -1334,7 +1344,7 @@ func (layer *gatewayLayer) DeleteObjectTags(ctx context.Context, bucket, objectP
 		Checksum: object.Checksum,
 	})
 	if err != nil {
-		return minio.ObjectInfo{}, ConvertError(err, bucket, objectPath)
+		return objectlayer.ObjectInfo{}, ConvertError(err, bucket, objectPath)
 	}
 
 	return minioVersionedObjectInfo(bucket, object), nil
@@ -1502,7 +1512,7 @@ func (layer *gatewayLayer) GetObjectRetention(ctx context.Context, bucketName, o
 }
 
 // SetObjectRetention sets object lock configuration for an object.
-func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, opts minio.ObjectOptions) (err error) {
+func (layer *gatewayLayer) SetObjectRetention(ctx context.Context, bucketName, object, version string, opts objectlayer.ObjectOptions) (err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err = ValidateBucket(ctx, bucketName); err != nil {
@@ -2020,7 +2030,7 @@ func toMinioObjectLockConfiguration(configuration *metaclient.BucketObjectLockCo
 	return config
 }
 
-func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInfo {
+func minioObjectInfo(bucket, etag string, object *uplink.Object) objectlayer.ObjectInfo {
 	if object == nil {
 		object = &uplink.Object{}
 	}
@@ -2035,7 +2045,7 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	if etag == "" {
 		etag = object.Custom["s3:etag"]
 	}
-	return minio.ObjectInfo{
+	return objectlayer.ObjectInfo{
 		Bucket:      bucket,
 		Name:        object.Key,
 		Size:        object.System.ContentLength,
@@ -2046,7 +2056,7 @@ func minioObjectInfo(bucket, etag string, object *uplink.Object) minio.ObjectInf
 	}
 }
 
-func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) minio.ObjectInfo {
+func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) objectlayer.ObjectInfo {
 	if object == nil {
 		object = &versioned.VersionedObject{}
 	}
@@ -2079,7 +2089,6 @@ func minioVersionedObjectInfo(bucket string, object *versioned.VersionedObject) 
 	minioObject.VersionID = encodeVersionID(object.Version)
 	minioObject.DeleteMarker = object.IsDeleteMarker
 	minioObject.IsLatest = object.IsLatest
-
 	return minioObject
 }
 

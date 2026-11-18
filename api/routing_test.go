@@ -23,6 +23,7 @@ import (
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 )
 
@@ -72,9 +73,9 @@ func TestEmptyBucketNameLikeS3(t *testing.T) {
 func TestRequestPathIsNotCleaned(t *testing.T) {
 	var gotKey string
 	objectAPI := &fakeObjectLayer{
-		deleteObject: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObject: func(_ context.Context, _, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			gotKey = object
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		},
 	}
 
@@ -86,9 +87,9 @@ func TestRequestPathIsNotCleaned(t *testing.T) {
 func TestObjectKeyIsNotCleaned(t *testing.T) {
 	var gotKey string
 	objectAPI := &fakeObjectLayer{
-		deleteObject: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObject: func(_ context.Context, _, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			gotKey = object
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		},
 	}
 
@@ -99,7 +100,7 @@ func TestObjectKeyIsNotCleaned(t *testing.T) {
 
 func TestBucketRoutesDoNotMatchObjectPaths(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			t.Error("DeleteObjects must not be called")
 			return nil, nil, nil
 		},
@@ -125,7 +126,7 @@ func TestPostObjectContentTypeIsCaseInsensitive(t *testing.T) {
 
 func TestVirtualHostedRequestsDoNotFallThroughToPathStyle(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			t.Error("DeleteObjects must not be called")
 			return nil, nil, nil
 		},
@@ -193,9 +194,9 @@ func TestHeadErrorHasNoBody(t *testing.T) {
 
 func TestInvalidUTF8Key(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObject: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObject: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			t.Error("DeleteObject must not be called")
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		},
 	}
 
@@ -211,9 +212,9 @@ func TestOverlappingDomains(t *testing.T) {
 			listBuckets: func(context.Context) ([]cmd.BucketInfo, error) {
 				return []cmd.BucketInfo{{Name: "listed"}}, nil
 			},
-			deleteObject: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			deleteObject: func(_ context.Context, bucket, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 				gotObject = bucket + "/" + object
-				return cmd.ObjectInfo{}, nil
+				return objectlayer.ObjectInfo{}, nil
 			},
 		},
 		deleteBucket: func(_ context.Context, bucket string, _ bool) error {
@@ -314,9 +315,9 @@ func TestUnmatchedRoutes(t *testing.T) {
 func TestMalformedQueryIsRejected(t *testing.T) {
 	objectAPI := &routingObjectLayer{
 		fakeObjectLayer: &fakeObjectLayer{
-			deleteObject: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			deleteObject: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 				t.Error("DeleteObject must not be called")
-				return cmd.ObjectInfo{}, nil
+				return objectlayer.ObjectInfo{}, nil
 			},
 		},
 		deleteBucket: func(context.Context, string, bool) error {
@@ -333,13 +334,13 @@ func TestMalformedQueryIsRejected(t *testing.T) {
 func TestQuerySemicolonIsLiteral(t *testing.T) {
 	var deleted string
 	objectAPI := &fakeObjectLayer{
-		deleteObject: func(_ context.Context, _, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObject: func(_ context.Context, _, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			deleted = object
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		},
-		deleteObjectTags: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObjectTags: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			t.Error("routed to DeleteObjectTags")
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		},
 	}
 
@@ -502,9 +503,9 @@ func TestSubresourceRouting(t *testing.T) {
 func TestEscapedBucketIsUnescaped(t *testing.T) {
 	var gotBucket string
 	objectAPI := &fakeObjectLayer{
-		deleteObject: func(_ context.Context, bucket, _ string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObject: func(_ context.Context, bucket, _ string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			gotBucket = bucket
-			return cmd.ObjectInfo{}, nil
+			return objectlayer.ObjectInfo{}, nil
 		},
 	}
 

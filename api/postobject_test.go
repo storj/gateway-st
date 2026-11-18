@@ -32,13 +32,13 @@ type postObjectLayer struct {
 	metadata       map[string]string
 }
 
-func (l *postObjectLayer) PutObject(ctx context.Context, bucket, object string, data *cmd.PutObjReader, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (l *postObjectLayer) PutObject(ctx context.Context, bucket, object string, data *cmd.PutObjReader, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	b, err := io.ReadAll(data)
 	if err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	l.bucket, l.object, l.data, l.metadata = bucket, object, b, opts.UserDefined
-	return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
+	return objectlayer.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
 }
 
 // postObject sends a SigV4-signed browser POST upload. The signing fields are added to both the

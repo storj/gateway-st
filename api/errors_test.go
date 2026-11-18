@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
 	"storj.io/minio/cmd"
 )
@@ -72,13 +73,13 @@ func TestClientDisconnected(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		ctx, cancel := context.WithCancel(t.Context())
 		objectAPI := &fakeObjectLayer{
-			getObjectNInfo: func(ctx context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, _ cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+			getObjectNInfo: func(ctx context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, _ objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
 				cancel()
 				return nil, ctx.Err()
 			},
-			getObjectInfo: func(ctx context.Context, _, _ string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			getObjectInfo: func(ctx context.Context, _, _ string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 				cancel()
-				return cmd.ObjectInfo{}, ctx.Err()
+				return objectlayer.ObjectInfo{}, ctx.Err()
 			},
 		}
 
@@ -123,7 +124,7 @@ func TestSlowDownRetryAfter(t *testing.T) {
 
 func TestDeleteObjectsPerKeyStorageError(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			return nil, []cmd.DeleteObjectsError{{ObjectName: "key", Error: cmd.PrefixAccessDenied{}}}, nil
 		},
 	}
@@ -210,8 +211,8 @@ func TestTagValidation(t *testing.T) {
 			}
 			check(serve(t, &fakeObjectLayer{}, http.MethodPut, "/bucket/key", http.Header{"X-Amz-Tagging": {tc.header}, "Content-Length": {"1"}}, []byte("x")))
 			check(serve(t, &fakeObjectLayer{}, http.MethodPost, "/bucket/key?uploads", http.Header{"X-Amz-Tagging": {tc.header}}, nil))
-			copyAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-				return cmd.ObjectInfo{}, nil
+			copyAPI := &fakeObjectLayer{getObjectInfo: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+				return objectlayer.ObjectInfo{}, nil
 			}}
 			check(serve(t, copyAPI, http.MethodPut, "/bucket/dst", http.Header{
 				"X-Amz-Copy-Source":       {"/bucket/src"},

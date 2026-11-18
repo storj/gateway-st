@@ -49,11 +49,11 @@ func (testCredentialsProvider) Provide(_ context.Context, accessKeyID string) (s
 	return testSecretAccessKey, api.AuthData{AccessKeyID: accessKeyID}, nil
 }
 
-// fakeObjectLayer is a cmd.ObjectLayer whose methods panic unless overridden
+// fakeObjectLayer is an objectlayer.ObjectLayer whose methods panic unless overridden
 // by a test. Overridable methods are recorded in calls, and return err instead
 // of calling the override when err is set.
 type fakeObjectLayer struct {
-	cmd.ObjectLayer
+	objectlayer.ObjectLayer
 
 	err error
 
@@ -64,18 +64,18 @@ type fakeObjectLayer struct {
 	listBucketsWithAttr     func(ctx context.Context) ([]objectlayer.BucketWithAttributionInfo, error)
 	listLicenses            func(ctx context.Context, bucket, licenseType string) ([]objectlayer.License, error)
 	getBucketLocation       func(ctx context.Context, bucket string) (string, error)
-	getObjectInfo           func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	getObjectNInfo          func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error)
-	copyObject              func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	deleteObject            func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	deleteObjectTags        func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	deleteObjects           func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
-	copyObjectPart          func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.PartInfo, error)
-	newMultipartUpload      func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error)
-	completeMultipartUpload func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error)
-	abortMultipartUpload    func(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error
-	listObjectParts         func(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts cmd.ObjectOptions) (cmd.ListPartsInfo, error)
-	listMultipartUploads    func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error)
+	getObjectInfo           func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
+	getObjectNInfo          func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error)
+	copyObject              func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
+	deleteObject            func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
+	deleteObjectTags        func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
+	deleteObjects           func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
+	copyObjectPart          func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.PartInfo, error)
+	newMultipartUpload      func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (string, error)
+	completeMultipartUpload func(ctx context.Context, bucket, object, uploadID string, parts []objectlayer.CompletePart, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
+	abortMultipartUpload    func(ctx context.Context, bucket, object, uploadID string, opts objectlayer.ObjectOptions) error
+	listObjectParts         func(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error)
+	listMultipartUploads    func(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (objectlayer.ListMultipartsInfo, error)
 }
 
 func (f *fakeObjectLayer) record(method string) error {
@@ -125,86 +125,86 @@ func (f *fakeObjectLayer) GetBucketLocation(ctx context.Context, bucket string) 
 	return f.getBucketLocation(ctx, bucket)
 }
 
-func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (f *fakeObjectLayer) GetObjectInfo(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	if err := f.record("GetObjectInfo"); err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	return f.getObjectInfo(ctx, bucket, object, opts)
 }
 
-func (f *fakeObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+func (f *fakeObjectLayer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, h http.Header, lockType cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
 	if err := f.record("GetObjectNInfo"); err != nil {
 		return nil, err
 	}
 	return f.getObjectNInfo(ctx, bucket, object, rs, h, lockType, opts)
 }
 
-func (f *fakeObjectLayer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (f *fakeObjectLayer) CopyObject(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	if err := f.record("CopyObject"); err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	return f.copyObject(ctx, srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts)
 }
 
-func (f *fakeObjectLayer) DeleteObject(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (f *fakeObjectLayer) DeleteObject(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	if err := f.record("DeleteObject"); err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	return f.deleteObject(ctx, bucket, object, opts)
 }
 
-func (f *fakeObjectLayer) DeleteObjectTags(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (f *fakeObjectLayer) DeleteObjectTags(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	if err := f.record("DeleteObjectTags"); err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	return f.deleteObjectTags(ctx, bucket, object, opts)
 }
 
-func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+func (f *fakeObjectLayer) DeleteObjects(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 	if err := f.record("DeleteObjects"); err != nil {
 		return nil, nil, err
 	}
 	return f.deleteObjects(ctx, bucket, objects, opts)
 }
 
-func (f *fakeObjectLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.PartInfo, error) {
+func (f *fakeObjectLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
 	if err := f.record("CopyObjectPart"); err != nil {
-		return cmd.PartInfo{}, err
+		return objectlayer.PartInfo{}, err
 	}
 	return f.copyObjectPart(ctx, srcBucket, srcObject, dstBucket, dstObject, uploadID, partID, startOffset, length, srcInfo, srcOpts, dstOpts)
 }
 
-func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (string, error) {
+func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (string, error) {
 	if err := f.record("NewMultipartUpload"); err != nil {
 		return "", err
 	}
 	return f.newMultipartUpload(ctx, bucket, object, opts)
 }
 
-func (f *fakeObjectLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func (f *fakeObjectLayer) CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, parts []objectlayer.CompletePart, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 	if err := f.record("CompleteMultipartUpload"); err != nil {
-		return cmd.ObjectInfo{}, err
+		return objectlayer.ObjectInfo{}, err
 	}
 	return f.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
 }
 
-func (f *fakeObjectLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts cmd.ObjectOptions) error {
+func (f *fakeObjectLayer) AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts objectlayer.ObjectOptions) error {
 	if err := f.record("AbortMultipartUpload"); err != nil {
 		return err
 	}
 	return f.abortMultipartUpload(ctx, bucket, object, uploadID, opts)
 }
 
-func (f *fakeObjectLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+func (f *fakeObjectLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error) {
 	if err := f.record("ListObjectParts"); err != nil {
-		return cmd.ListPartsInfo{}, err
+		return objectlayer.ListPartsInfo{}, err
 	}
 	return f.listObjectParts(ctx, bucket, object, uploadID, partNumberMarker, maxParts, opts)
 }
 
-func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (cmd.ListMultipartsInfo, error) {
+func (f *fakeObjectLayer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (objectlayer.ListMultipartsInfo, error) {
 	if err := f.record("ListMultipartUploads"); err != nil {
-		return cmd.ListMultipartsInfo{}, err
+		return objectlayer.ListMultipartsInfo{}, err
 	}
 	return f.listMultipartUploads(ctx, bucket, prefix, keyMarker, uploadIDMarker, delimiter, maxUploads)
 }
@@ -389,7 +389,7 @@ func hmacSHA256(key []byte, data string) []byte {
 }
 
 func TestSignV4Canonicalization(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
 
 	// Repeated query parameters, repeated headers and runs of spaces are signed like the
 	// specification says, which the verifier accepts.
@@ -402,7 +402,7 @@ func TestSignV4Canonicalization(t *testing.T) {
 }
 
 func TestSignV4QueryOrder(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
 
 	// Sorting "a-b=1" and "a=2" as strings would put a-b first, but parameters are sorted by name.
 	resp := serve(t, objectAPI, http.MethodHead, "/bucket/key?a-b=1&a=2", nil, nil)
@@ -425,9 +425,9 @@ func TestRequestID(t *testing.T) {
 
 func TestListMultipartUploadsRouting(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		listMultipartUploads: func(_ context.Context, bucket, _, _, _, _ string, _ int) (cmd.ListMultipartsInfo, error) {
-			return cmd.ListMultipartsInfo{
-				Uploads: []cmd.MultipartInfo{{Bucket: bucket, Object: "key", UploadID: "upload-id"}},
+		listMultipartUploads: func(_ context.Context, bucket, _, _, _, _ string, _ int) (objectlayer.ListMultipartsInfo, error) {
+			return objectlayer.ListMultipartsInfo{
+				Uploads: []objectlayer.MultipartInfo{{Bucket: bucket, Object: "key", UploadID: "upload-id"}},
 			}, nil
 		},
 	}
@@ -441,8 +441,8 @@ func TestListMultipartUploadsRouting(t *testing.T) {
 
 func TestErrorResponse(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		listMultipartUploads: func(context.Context, string, string, string, string, string, int) (cmd.ListMultipartsInfo, error) {
-			return cmd.ListMultipartsInfo{}, apierr.CodeAccessDenied
+		listMultipartUploads: func(context.Context, string, string, string, string, string, int) (objectlayer.ListMultipartsInfo, error) {
+			return objectlayer.ListMultipartsInfo{}, apierr.CodeAccessDenied
 		},
 	}
 
@@ -492,7 +492,7 @@ func TestMalformedAuthorizationHeader(t *testing.T) {
 
 func TestDeleteObjectsErrors(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			return nil, []cmd.DeleteObjectsError{{ObjectName: objects[0].ObjectName, Error: apierr.CodeAccessDenied}}, nil
 		},
 	}
@@ -508,16 +508,16 @@ func TestDeleteObjectsErrors(t *testing.T) {
 }
 
 // singleObjectLayer returns a fake object layer containing a single object.
-func singleObjectLayer(objInfo cmd.ObjectInfo, data string) *fakeObjectLayer {
-	getObjectInfo := func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+func singleObjectLayer(objInfo objectlayer.ObjectInfo, data string) *fakeObjectLayer {
+	getObjectInfo := func(_ context.Context, bucket, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 		if bucket != objInfo.Bucket || object != objInfo.Name {
-			return cmd.ObjectInfo{}, apierr.CodeNoSuchKey
+			return objectlayer.ObjectInfo{}, apierr.CodeNoSuchKey
 		}
 		return objInfo, nil
 	}
 	return &fakeObjectLayer{
 		getObjectInfo: getObjectInfo,
-		getObjectNInfo: func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+		getObjectNInfo: func(ctx context.Context, bucket, object string, rs *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
 			objInfo, err := getObjectInfo(ctx, bucket, object, opts)
 			if err != nil {
 				return nil, err
@@ -526,14 +526,14 @@ func singleObjectLayer(objInfo cmd.ObjectInfo, data string) *fakeObjectLayer {
 			if err != nil {
 				return nil, apierr.CodeInvalidRange
 			}
-			return cmd.NewGetObjectReaderFromReader(strings.NewReader(data[start:start+length]), objInfo, opts)
+			return objectlayer.NewGetObjectReader(strings.NewReader(data[start:start+length]), objInfo, opts, func() {})
 		},
 	}
 }
 
 func TestGetAndHeadObject(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	objInfo := cmd.ObjectInfo{
+	objInfo := objectlayer.ObjectInfo{
 		Bucket:      "bucket",
 		Name:        "key",
 		ModTime:     modTime,
@@ -863,11 +863,11 @@ func TestGetAndHeadObject(t *testing.T) {
 }
 
 func TestGetObjectUnsatisfiableRange(t *testing.T) {
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10}
 	// The object layer ignores the range, so the handler has to reject it.
 	objectAPI := &fakeObjectLayer{
-		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
-			return cmd.NewGetObjectReaderFromReader(strings.NewReader("0123456789"), objInfo, opts)
+		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
+			return objectlayer.NewGetObjectReader(strings.NewReader("0123456789"), objInfo, opts, func() {})
 		},
 	}
 
@@ -883,14 +883,14 @@ func TestGetObjectIfRangeRetryOfReplacedObject(t *testing.T) {
 	// downloads, so the range becomes satisfiable.
 	var downloads int
 	objectAPI := &fakeObjectLayer{
-		getObjectNInfo: func(_ context.Context, _, _ string, rs *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
+		getObjectNInfo: func(_ context.Context, _, _ string, rs *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
 			downloads++
 			if downloads == 1 {
 				return nil, apierr.CodeInvalidRange
 			}
 			require.Nil(t, rs)
-			objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 20, ModTime: modTime}
-			return cmd.NewGetObjectReaderFromReader(strings.NewReader("01234567890123456789"), objInfo, opts)
+			objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 20, ModTime: modTime}
+			return objectlayer.NewGetObjectReader(strings.NewReader("01234567890123456789"), objInfo, opts, func() {})
 		},
 	}
 
@@ -902,7 +902,7 @@ func TestGetObjectIfRangeRetryOfReplacedObject(t *testing.T) {
 }
 
 func TestHeadObjectUnsatisfiableRange(t *testing.T) {
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{
 		Bucket:      "bucket",
 		Name:        "key",
 		Size:        10,
@@ -919,7 +919,7 @@ func TestHeadObjectUnsatisfiableRange(t *testing.T) {
 }
 
 func TestGetObjectFirstReadFailure(t *testing.T) {
-	objInfo := cmd.ObjectInfo{
+	objInfo := objectlayer.ObjectInfo{
 		Bucket:          "bucket",
 		Name:            "key",
 		Size:            10,
@@ -928,8 +928,8 @@ func TestGetObjectFirstReadFailure(t *testing.T) {
 		UserDefined:     map[string]string{"X-Amz-Meta-A": "1"},
 	}
 	objectAPI := &fakeObjectLayer{
-		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts cmd.ObjectOptions) (*cmd.GetObjectReader, error) {
-			return cmd.NewGetObjectReaderFromReader(iotest.ErrReader(errors.New("read failed")), objInfo, opts)
+		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
+			return objectlayer.NewGetObjectReader(iotest.ErrReader(errors.New("read failed")), objInfo, opts, func() {})
 		},
 	}
 
@@ -949,7 +949,7 @@ func TestGetObjectFirstReadFailure(t *testing.T) {
 }
 
 func TestGetEmptyObject(t *testing.T) {
-	objInfo := cmd.ObjectInfo{
+	objInfo := objectlayer.ObjectInfo{
 		Bucket:      "bucket",
 		Name:        "key",
 		ETag:        "etag",
@@ -992,7 +992,7 @@ func TestGetPartNumber(t *testing.T) {
 		{name: "empty object", data: "", expStatus: http.StatusOK},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			objectAPI := singleObjectLayer(cmd.ObjectInfo{
+			objectAPI := singleObjectLayer(objectlayer.ObjectInfo{
 				Bucket: "bucket",
 				Name:   "key",
 				Size:   int64(len(tt.data)),
@@ -1017,7 +1017,7 @@ func TestGetPartNumber(t *testing.T) {
 
 func TestGetInvalidPartNumber(t *testing.T) {
 	// Without a modification time the conditional headers are ignored, but the part number isn't.
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 4}, "data")
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
@@ -1028,7 +1028,7 @@ func TestGetInvalidPartNumber(t *testing.T) {
 }
 
 func TestObjectMetadataHeaders(t *testing.T) {
-	objInfo := cmd.ObjectInfo{
+	objInfo := objectlayer.ObjectInfo{
 		Bucket:  "bucket",
 		Name:    "key",
 		Size:    4,
@@ -1084,17 +1084,17 @@ func TestObjectMetadataHeaders(t *testing.T) {
 func TestDeleteObject(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 
-	var gotOpts cmd.ObjectOptions
+	var gotOpts objectlayer.ObjectOptions
 	objectAPI := &fakeObjectLayer{
-		deleteObject: func(_ context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		deleteObject: func(_ context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			gotOpts = opts
 			switch object {
 			case "key":
-				return cmd.ObjectInfo{Bucket: bucket, Name: object, VersionID: "marker", DeleteMarker: true}, nil
+				return objectlayer.ObjectInfo{Bucket: bucket, Name: object, VersionID: "marker", DeleteMarker: true}, nil
 			case "missing":
-				return cmd.ObjectInfo{}, apierr.CodeNoSuchKey
+				return objectlayer.ObjectInfo{}, apierr.CodeNoSuchKey
 			default:
-				return cmd.ObjectInfo{}, apierr.CodeAccessDenied
+				return objectlayer.ObjectInfo{}, apierr.CodeAccessDenied
 			}
 		},
 	}
@@ -1135,11 +1135,11 @@ func TestDeleteObjectMissingStorageObject(t *testing.T) {
 	} {
 		for _, wrapped := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%T/wrapped=%t", storageErr, wrapped), func(t *testing.T) {
-				layer := &fakeObjectLayer{deleteObject: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+				layer := &fakeObjectLayer{deleteObject: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 					if wrapped {
-						return cmd.ObjectInfo{}, fmt.Errorf("delete: %w", storageErr)
+						return objectlayer.ObjectInfo{}, fmt.Errorf("delete: %w", storageErr)
 					}
-					return cmd.ObjectInfo{}, storageErr
+					return objectlayer.ObjectInfo{}, storageErr
 				}}
 				resp := serve(t, layer, http.MethodDelete, "/bucket/missing?versionId=00000000000000000000000000000001", nil, nil)
 				require.Equal(t, http.StatusNoContent, resp.StatusCode, resp.Body)
@@ -1151,8 +1151,8 @@ func TestDeleteObjectMissingStorageObject(t *testing.T) {
 
 func TestDeleteObjectTagging(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjectTags: func(_ context.Context, bucket, object string, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{Bucket: bucket, Name: object, VersionID: "version"}, nil
+		deleteObjectTags: func(_ context.Context, bucket, object string, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{Bucket: bucket, Name: object, VersionID: "version"}, nil
 		},
 	}
 
@@ -1165,7 +1165,7 @@ func TestCopyObject(t *testing.T) {
 	const versionID = "00000000000000000000000000000001"
 
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	srcInfo := cmd.ObjectInfo{
+	srcInfo := objectlayer.ObjectInfo{
 		Bucket:   "bucket",
 		Name:     "src",
 		ModTime:  modTime,
@@ -1184,16 +1184,16 @@ func TestCopyObject(t *testing.T) {
 
 	type copyCall struct {
 		srcBucket, srcObject, dstBucket, dstObject string
-		srcInfo                                    cmd.ObjectInfo
-		srcOpts, dstOpts                           cmd.ObjectOptions
+		srcInfo                                    objectlayer.ObjectInfo
+		srcOpts, dstOpts                           objectlayer.ObjectOptions
 	}
 
 	setup := func() (*fakeObjectLayer, *copyCall) {
 		objectAPI := singleObjectLayer(srcInfo, "0123456789")
 		call := new(copyCall)
-		objectAPI.copyObject = func(_ context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo cmd.ObjectInfo, srcOpts, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		objectAPI.copyObject = func(_ context.Context, srcBucket, srcObject, dstBucket, dstObject string, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			*call = copyCall{srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts}
-			return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime, VersionID: "newversion"}, nil
+			return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "newetag", ModTime: modTime, VersionID: "newversion"}, nil
 		}
 		return objectAPI, call
 	}
@@ -1242,7 +1242,7 @@ func TestCopyObject(t *testing.T) {
 	t.Run("source version", func(t *testing.T) {
 		objectAPI, call := setup()
 		getObjectInfo := objectAPI.getObjectInfo
-		objectAPI.getObjectInfo = func(ctx context.Context, bucket, object string, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		objectAPI.getObjectInfo = func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			info, err := getObjectInfo(ctx, bucket, object, opts)
 			info.VersionID = versionID
 			return info, err
@@ -1407,9 +1407,9 @@ func TestUploadPartCopyRangeLikeS3(t *testing.T) {
 		{"bytes=9223372036854775807-9223372036854775807", past},
 	} {
 		t.Run(tt.rangeStr, func(t *testing.T) {
-			objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: 10, ETag: "etag"}, "")
-			objectAPI.copyObjectPart = func(context.Context, string, string, string, string, string, int, int64, int64, cmd.ObjectInfo, cmd.ObjectOptions, cmd.ObjectOptions) (cmd.PartInfo, error) {
-				return cmd.PartInfo{ETag: "part-etag"}, nil
+			objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", Size: 10, ETag: "etag"}, "")
+			objectAPI.copyObjectPart = func(context.Context, string, string, string, string, string, int, int64, int64, objectlayer.ObjectInfo, objectlayer.ObjectOptions, objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
+				return objectlayer.PartInfo{ETag: "part-etag"}, nil
 			}
 			header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {tt.rangeStr}}
 			resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload-id", header, nil)
@@ -1432,7 +1432,7 @@ func TestUploadPartCopyRangeLikeS3(t *testing.T) {
 	})
 
 	t.Run("an empty source", func(t *testing.T) {
-		objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", ETag: "etag"}, "")
+		objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", ETag: "etag"}, "")
 		header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Copy-Source-Range": {"bytes=0-0"}}
 		resp := serve(t, objectAPI, http.MethodPut, "/bucket/dst?partNumber=1&uploadId=upload-id", header, nil)
 		require.Contains(t, resp.Body, "<Message>Range specified is not valid for source object of size: 0</Message>")
@@ -1462,11 +1462,11 @@ func TestUploadPartCopy(t *testing.T) {
 		{name: "range too large", size: 6 * gib, rangeStr: fmt.Sprintf("bytes=0-%d", 5*gib), expStatus: http.StatusBadRequest, expCode: "InvalidRequest"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: tt.size, ETag: "etag"}, "")
+			objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", Size: tt.size, ETag: "etag"}, "")
 			var gotOffset, gotLength int64
-			objectAPI.copyObjectPart = func(_ context.Context, _, _, _, _, _ string, _ int, startOffset, length int64, _ cmd.ObjectInfo, _, _ cmd.ObjectOptions) (cmd.PartInfo, error) {
+			objectAPI.copyObjectPart = func(_ context.Context, _, _, _, _, _ string, _ int, startOffset, length int64, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
 				gotOffset, gotLength = startOffset, length
-				return cmd.PartInfo{ETag: "part-etag"}, nil
+				return objectlayer.PartInfo{ETag: "part-etag"}, nil
 			}
 
 			header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}
@@ -1490,7 +1490,7 @@ func TestCopyPreconditionCondition(t *testing.T) {
 	modTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	before := modTime.Add(-time.Hour).Format(http.TimeFormat)
 	after := modTime.Add(time.Hour).Format(http.TimeFormat)
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", Size: 10, ETag: "etag", ModTime: modTime}, "")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", Size: 10, ETag: "etag", ModTime: modTime}, "")
 
 	for _, tt := range []struct {
 		header, value, condition string
@@ -1515,9 +1515,9 @@ func TestCopyPreconditionCondition(t *testing.T) {
 }
 
 func TestCreateMultipartUpload(t *testing.T) {
-	var gotOpts cmd.ObjectOptions
+	var gotOpts objectlayer.ObjectOptions
 	objectAPI := &fakeObjectLayer{
-		newMultipartUpload: func(_ context.Context, _, _ string, opts cmd.ObjectOptions) (string, error) {
+		newMultipartUpload: func(_ context.Context, _, _ string, opts objectlayer.ObjectOptions) (string, error) {
 			gotOpts = opts
 			return "upload-id", nil
 		},
@@ -1545,14 +1545,14 @@ func TestCreateMultipartUpload(t *testing.T) {
 }
 
 func TestCompleteMultipartUpload(t *testing.T) {
-	var gotParts []cmd.CompletePart
+	var gotParts []objectlayer.CompletePart
 	objectAPI := &fakeObjectLayer{
-		completeMultipartUpload: func(_ context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		completeMultipartUpload: func(_ context.Context, bucket, object, uploadID string, parts []objectlayer.CompletePart, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			if uploadID != "upload-id" {
-				return cmd.ObjectInfo{}, apierr.CodeNoSuchUpload
+				return objectlayer.ObjectInfo{}, apierr.CodeNoSuchUpload
 			}
 			gotParts = parts
-			return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag-2", VersionID: "version"}, nil
+			return objectlayer.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag-2", VersionID: "version"}, nil
 		},
 	}
 
@@ -1573,7 +1573,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		require.Empty(t, resp.Header.Values("Cache-Control"))
 		require.Equal(t, `"etag-2"`, resp.Header.Get("ETag"))
 		require.Equal(t, "version", resp.Header.Get("X-Amz-Version-Id"))
-		require.Equal(t, []cmd.CompletePart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}}, gotParts)
+		require.Equal(t, []objectlayer.CompletePart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}}, gotParts)
 	})
 
 	for _, tt := range []struct {
@@ -1678,7 +1678,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		// The object layer blocks until a keep-alive has been written.
 		var written chan struct{}
 		slowObjectAPI := &fakeObjectLayer{
-			completeMultipartUpload: func(ctx context.Context, bucket, object, uploadID string, parts []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			completeMultipartUpload: func(ctx context.Context, bucket, object, uploadID string, parts []objectlayer.CompletePart, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 				<-written
 				return objectAPI.completeMultipartUpload(ctx, bucket, object, uploadID, parts, opts)
 			},
@@ -1713,7 +1713,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		api.SetCompleteMultipartUploadKeepAliveInterval(t, time.Millisecond)
 
 		panickingObjectAPI := &fakeObjectLayer{
-			completeMultipartUpload: func(context.Context, string, string, string, []cmd.CompletePart, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+			completeMultipartUpload: func(context.Context, string, string, string, []objectlayer.CompletePart, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 				time.Sleep(5 * time.Millisecond)
 				panic("object layer panic")
 			},
@@ -1758,7 +1758,7 @@ func (w *notifyingWriter) Write(b []byte) (int, error) {
 func TestAbortMultipartUpload(t *testing.T) {
 	var gotUploadID string
 	objectAPI := &fakeObjectLayer{
-		abortMultipartUpload: func(_ context.Context, _, _, uploadID string, _ cmd.ObjectOptions) error {
+		abortMultipartUpload: func(_ context.Context, _, _, uploadID string, _ objectlayer.ObjectOptions) error {
 			gotUploadID = uploadID
 			return nil
 		},
@@ -1776,9 +1776,9 @@ func TestListParts(t *testing.T) {
 	}
 	var got call
 	objectAPI := &fakeObjectLayer{
-		listObjectParts: func(_ context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, _ cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
+		listObjectParts: func(_ context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, _ objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error) {
 			got = call{uploadID, partNumberMarker, maxParts}
-			return cmd.ListPartsInfo{
+			return objectlayer.ListPartsInfo{
 				Bucket:               bucket,
 				Object:               object,
 				UploadID:             uploadID,
@@ -1786,7 +1786,7 @@ func TestListParts(t *testing.T) {
 				NextPartNumberMarker: 3,
 				MaxParts:             maxParts,
 				IsTruncated:          true,
-				Parts: []cmd.PartInfo{{
+				Parts: []objectlayer.PartInfo{{
 					PartNumber:   3,
 					LastModified: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 					ETag:         "etag",
@@ -1822,8 +1822,8 @@ func TestListParts(t *testing.T) {
 
 func TestListPartsEmptyETag(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		listObjectParts: func(context.Context, string, string, string, int, int, cmd.ObjectOptions) (cmd.ListPartsInfo, error) {
-			return cmd.ListPartsInfo{Parts: []cmd.PartInfo{{PartNumber: 1, Size: 5}}}, nil
+		listObjectParts: func(context.Context, string, string, string, int, int, objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error) {
+			return objectlayer.ListPartsInfo{Parts: []objectlayer.PartInfo{{PartNumber: 1, Size: 5}}}, nil
 		},
 	}
 
@@ -1845,7 +1845,7 @@ func TestSignatureVerification(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "<Code>SignatureDoesNotMatch</Code>")
 
 	// Keys with characters that Go leaves unescaped in paths are signed like the verifier expects.
-	objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "other"}, "")
+	objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "other"}, "")
 	resp := serve(t, objectAPI, http.MethodHead, "/bucket/a+=(),:;@!$'*~%20key", nil, nil)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
@@ -1853,11 +1853,11 @@ func TestSignatureVerification(t *testing.T) {
 func TestServeHTTP(t *testing.T) {
 	newLayer := func() *fakeObjectLayer {
 		return &fakeObjectLayer{
-			completeMultipartUpload: func(_ context.Context, bucket, object, _ string, parts []cmd.CompletePart, _ cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-				if !slices.Equal([]cmd.CompletePart{{PartNumber: 1, ETag: "a"}}, parts) {
-					return cmd.ObjectInfo{}, fmt.Errorf("unexpected parts %v", parts)
+			completeMultipartUpload: func(_ context.Context, bucket, object, _ string, parts []objectlayer.CompletePart, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+				if !slices.Equal([]objectlayer.CompletePart{{PartNumber: 1, ETag: "a"}}, parts) {
+					return objectlayer.ObjectInfo{}, fmt.Errorf("unexpected parts %v", parts)
 				}
-				return cmd.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
+				return objectlayer.ObjectInfo{Bucket: bucket, Name: object, ETag: "etag"}, nil
 			},
 		}
 	}
@@ -1951,7 +1951,7 @@ func TestIfMatchOnWritesLikeS3(t *testing.T) {
 }
 
 func TestGetObjectAttributes(t *testing.T) {
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
 
 	t.Run("trailing comma", func(t *testing.T) {
 		resp := serve(t, singleObjectLayer(objInfo, ""), http.MethodGet, "/bucket/key?attributes", http.Header{
@@ -2032,7 +2032,7 @@ func TestGetObjectAttributes(t *testing.T) {
 // TestGetObjectAttributesHeadersLikeS3 checks the answers that S3 gave for the same attribute,
 // Range and paging headers.
 func TestGetObjectAttributesHeadersLikeS3(t *testing.T) {
-	objInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", ModTime: time.Now()}
 	const (
 		invalidName = "Invalid attribute name specified."
 		missing     = "The x-amz-object-attributes header specifying the attributes to be retrieved is either missing or empty"
@@ -2132,15 +2132,15 @@ func TestConditionsNotImplemented(t *testing.T) {
 	}
 
 	t.Run("If-None-Match and copy source If-Match pass through", func(t *testing.T) {
-		objectAPI := singleObjectLayer(cmd.ObjectInfo{Bucket: "bucket", Name: "src", ETag: "etag"}, "")
-		var gotCopyOpts, gotCompleteOpts cmd.ObjectOptions
-		objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ cmd.ObjectInfo, _, dstOpts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		objectAPI := singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", ETag: "etag"}, "")
+		var gotCopyOpts, gotCompleteOpts objectlayer.ObjectOptions
+		objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, dstOpts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			gotCopyOpts = dstOpts
-			return cmd.ObjectInfo{Bucket: dstBucket, Name: dstObject}, nil
+			return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject}, nil
 		}
-		objectAPI.completeMultipartUpload = func(_ context.Context, bucket, object, _ string, _ []cmd.CompletePart, opts cmd.ObjectOptions) (cmd.ObjectInfo, error) {
+		objectAPI.completeMultipartUpload = func(_ context.Context, bucket, object, _ string, _ []objectlayer.CompletePart, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 			gotCompleteOpts = opts
-			return cmd.ObjectInfo{Bucket: bucket, Name: object}, nil
+			return objectlayer.ObjectInfo{Bucket: bucket, Name: object}, nil
 		}
 
 		resp := serveHTTP(t, objectAPI, http.MethodPut, "/bucket/key", http.Header{
@@ -2209,7 +2209,7 @@ func TestVersionIDValidation(t *testing.T) {
 func TestDeleteObjectsVersionIDs(t *testing.T) {
 	var got []cmd.ObjectToDelete
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			got = objects
 			deleted := make([]cmd.DeletedObject, 0, len(objects))
 			for _, object := range objects {
@@ -2254,7 +2254,7 @@ func TestDeleteObjectsVersionIDs(t *testing.T) {
 
 func TestDeleteObjectsOnlyFiltered(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			if len(objects) == 0 {
 				return nil, nil, errs.New("empty delete list")
 			}
@@ -2280,7 +2280,7 @@ func TestDeleteObjectsOnlyFiltered(t *testing.T) {
 // object layers do.
 func newDeleteObjectsLayer() *fakeObjectLayer {
 	return &fakeObjectLayer{
-		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(_ context.Context, _ string, objects []cmd.ObjectToDelete, _ objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			deleted := make([]cmd.DeletedObject, 0, len(objects))
 			for _, object := range objects {
 				if object.VersionID == "" {

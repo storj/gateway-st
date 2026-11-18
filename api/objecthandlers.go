@@ -1918,7 +1918,7 @@ var completePartChecksumSizes = map[string]int{
 // accepted, but unknown and repeated elements, text, part numbers that aren't integers and invalid
 // checksums are refused. The checksums are otherwise ignored, because the object layer doesn't
 // store them.
-func decodeCompleteMultipartUpload(body awsig.Reader) (cmd.CompleteMultipartUpload, error) {
+func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePart, error) {
 	var doc struct {
 		Text  string `xml:",chardata"`
 		Parts []struct {
@@ -1933,19 +1933,19 @@ func decodeCompleteMultipartUpload(body awsig.Reader) (cmd.CompleteMultipartUplo
 		Unknown unknownElements `xml:",any"`
 	}
 	if err := decodeVerifiedXML(body, &doc, maxCompleteMultipartUploadBodySize); err != nil {
-		return cmd.CompleteMultipartUpload{}, err
+		return nil, err
 	}
 	if len(doc.Parts) == 0 || len(doc.Unknown) > 0 || hasText(doc.Text) {
-		return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+		return nil, apierr.CodeMalformedXML
 	}
 
 	// The checksums are validated after the whole document, because S3 refuses a document that
 	// isn't well-formed first.
 	var invalidChecksums string
-	var complete cmd.CompleteMultipartUpload
+	var parts []objectlayer.CompletePart
 	for _, part := range doc.Parts {
 		if len(part.PartNumber) != 1 || len(part.ETag) != 1 || hasText(part.Text) {
-			return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+			return nil, apierr.CodeMalformedXML
 		}
 		seen := make(map[string]bool, len(part.Others))
 		var checksums int
@@ -1954,7 +1954,7 @@ func decodeCompleteMultipartUpload(body awsig.Reader) (cmd.CompleteMultipartUplo
 		for _, element := range part.Others {
 			size, ok := completePartChecksumSizes[element.XMLName.Local]
 			if !ok || seen[element.XMLName.Local] {
-				return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+				return nil, apierr.CodeMalformedXML
 			}
 			seen[element.XMLName.Local] = true
 			if strings.TrimSpace(element.Value) == "" {
@@ -1980,18 +1980,18 @@ func decodeCompleteMultipartUpload(body awsig.Reader) (cmd.CompleteMultipartUplo
 			var err error
 			number, err = strconv.ParseInt(value, 10, 32)
 			if err != nil {
-				return cmd.CompleteMultipartUpload{}, apierr.CodeMalformedXML
+				return nil, apierr.CodeMalformedXML
 			}
 		}
-		complete.Parts = append(complete.Parts, cmd.CompletePart{PartNumber: int(number), ETag: part.ETag[0]})
+		parts = append(parts, objectlayer.CompletePart{PartNumber: int(number), ETag: part.ETag[0]})
 	}
 	if invalidChecksums != "" {
 		errResp, _ := apierr.CodeInvalidPartChecksum.ToResponse()
 		errResp.ArgumentName = "Checksum"
 		errResp.ArgumentValue = invalidChecksums
-		return cmd.CompleteMultipartUpload{}, errResp
+		return nil, errResp
 	}
-	return complete, nil
+	return parts, nil
 }
 
 // CompleteMultipartUploadHandler is the HTTP handler for the CompleteMultipartUpload operation,
@@ -2055,7 +2055,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	completeUpload, err := decodeCompleteMultipartUpload(body)
+	parts, err := decodeCompleteMultipartUpload(body)
 	if err != nil {
 		api.writeErrorResponseWithFallback(w, r, err, apierr.CodeMalformedXML)
 		return
@@ -2063,7 +2063,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 
 	// Like S3, every part number is checked for being too small before any is checked for being too
 	// large.
-	for _, part := range completeUpload.Parts {
+	for _, part := range parts {
 		if part.PartNumber < 1 {
 			errResp, _ := apierr.CodeInvalidPartNumberTooSmall.ToResponse()
 			errResp.ArgumentName = "PartNumber"
@@ -2072,7 +2072,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
-	for _, part := range completeUpload.Parts {
+	for _, part := range parts {
 		if part.PartNumber > maxPartNumber {
 			// S3 reports a part that can't exist rather than an invalid argument.
 			api.writeErrorResponse(w, r, objectlayer.InvalidPart{PartNumber: part.PartNumber})
@@ -2081,16 +2081,16 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Part numbers must be strictly ascending, which also rules out duplicates, like S3.
-	for i := 1; i < len(completeUpload.Parts); i++ {
-		if completeUpload.Parts[i-1].PartNumber >= completeUpload.Parts[i].PartNumber {
+	for i := 1; i < len(parts); i++ {
+		if parts[i-1].PartNumber >= parts[i].PartNumber {
 			api.writeErrorResponse(w, r, apierr.CodeInvalidPartOrder)
 			return
 		}
 	}
 
-	for i, part := range completeUpload.Parts {
-		completeUpload.Parts[i].ETag = strings.Trim(part.ETag, `"`)
-		if completeUpload.Parts[i].ETag == "" {
+	for i, part := range parts {
+		parts[i].ETag = strings.Trim(part.ETag, `"`)
+		if parts[i].ETag == "" {
 			api.writeErrorResponse(w, r, objectlayer.InvalidPart{PartNumber: part.PartNumber, GotETag: part.ETag})
 			return
 		}
@@ -2117,7 +2117,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	// TODO: S3 answers a repeated CompleteMultipartUpload of an upload it just completed with
 	// success, but the object layer no longer knows the upload and returns NoSuchUpload (ceph's
 	// test_multipart_upload and test_multipart_upload_small).
-	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, completeUpload.Parts, objectlayer.ObjectOptions{
+	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, parts, objectlayer.ObjectOptions{
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 	})
 	keepAliveSent := stopKeepAlive()

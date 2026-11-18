@@ -19,9 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"storj.io/gateway/api"
-	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
-	"storj.io/minio/pkg/auth"
 	privateProject "storj.io/uplink/private/project"
 )
 
@@ -48,17 +46,11 @@ func (flags GatewayFlags) runAPI(ctx context.Context) (err error) {
 	}
 	defer func() { err = errs.Combine(err, project.Close()) }()
 
-	layer, err := miniogw.NewStorjGateway(flags.S3).NewGatewayLayer(auth.Credentials{})
+	layer, err := miniogw.NewStorjGateway(flags.S3).NewObjectLayer()
 	if err != nil {
 		return Error.Wrap(err)
 	}
 	defer func() { err = errs.Combine(err, layer.Shutdown(context.WithoutCancel(ctx))) }()
-	// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare the api package's
-	// additions to it, such as GetBucketLocation.
-	objectLayer, ok := layer.(objectlayer.ObjectLayer)
-	if !ok {
-		return Error.New("miniogw's layer doesn't implement the api package's object layer")
-	}
 
 	retryAfter, err := slowDownRetryAfter()
 	if err != nil {
@@ -85,7 +77,7 @@ func (flags GatewayFlags) runAPI(ctx context.Context) (err error) {
 	}
 
 	router := mux.NewRouter()
-	api.New(objectLayer, credentials{flags.Minio.AccessKey: flags.Minio.SecretKey}, config, options...).RegisterHandlers(router)
+	api.New(layer, credentials{flags.Minio.AccessKey: flags.Minio.SecretKey}, config, options...).RegisterHandlers(router)
 
 	info := miniogw.CredentialsInfo{Access: access, PublicProjectID: publicProjectID}
 	server := &http.Server{

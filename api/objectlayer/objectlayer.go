@@ -21,14 +21,13 @@
 // Package objectlayer contains the object layer interface that the api package serves requests
 // with, and the types it uses.
 //
-// The types are aliases of storj.io/minio types, so that an implementation of minio's
-// cmd.ObjectLayer, such as miniogw's, can be used without changes. They become definitions once
-// minio's handlers no longer serve requests.
+// The types that describe objects, uploads and parts are defined here, so that they can carry what
+// minio's don't. The others are still aliases of storj.io/minio types. minioobjectlayer adapts an
+// ObjectLayer to minio's cmd.ObjectLayer for minio's handlers.
 package objectlayer
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"time"
 
@@ -99,25 +98,14 @@ type ObjectLayer interface {
 
 //nolint:revive // aliases of minio types, which document them
 type (
-	BucketInfo             = cmd.BucketInfo
-	BucketOptions          = cmd.BucketOptions
-	ObjectInfo             = cmd.ObjectInfo
-	ObjectOptions          = cmd.ObjectOptions
-	ObjectToDelete         = cmd.ObjectToDelete
-	DeletedObject          = cmd.DeletedObject
-	DeleteObjectsError     = cmd.DeleteObjectsError
-	HTTPRangeSpec          = cmd.HTTPRangeSpec
-	LockType               = cmd.LockType
-	GetObjectReader        = cmd.GetObjectReader
-	PutObjReader           = cmd.PutObjReader
-	ListObjectsInfo        = cmd.ListObjectsInfo
-	ListObjectsV2Info      = cmd.ListObjectsV2Info
-	ListObjectVersionsInfo = cmd.ListObjectVersionsInfo
-	ListMultipartsInfo     = cmd.ListMultipartsInfo
-	MultipartInfo          = cmd.MultipartInfo
-	ListPartsInfo          = cmd.ListPartsInfo
-	PartInfo               = cmd.PartInfo
-	CompletePart           = cmd.CompletePart
+	BucketInfo         = cmd.BucketInfo
+	BucketOptions      = cmd.BucketOptions
+	ObjectToDelete     = cmd.ObjectToDelete
+	DeletedObject      = cmd.DeletedObject
+	DeleteObjectsError = cmd.DeleteObjectsError
+	HTTPRangeSpec      = cmd.HTTPRangeSpec
+	LockType           = cmd.LockType
+	PutObjReader       = cmd.PutObjReader
 )
 
 //nolint:revive // aliases of minio types, which document them
@@ -199,12 +187,3 @@ type (
 
 // NewPutObjReader returns a PutObjReader that reads from r.
 func NewPutObjReader(r hash.Reader) *PutObjReader { return cmd.NewPutObjReader(r) }
-
-// NewGetObjectReader returns a GetObjectReader of the object described by info that reads from r.
-// cleanup is called when the reader is closed.
-func NewGetObjectReader(r io.Reader, info ObjectInfo, opts ObjectOptions, cleanup func()) (*GetObjectReader, error) {
-	return cmd.NewGetObjectReaderFromReader(r, info, opts, cleanup)
-}
-
-// MultipartETag returns the ETag of an object completed from parts.
-func MultipartETag(parts []CompletePart) string { return cmd.ComputeCompleteMultipartMD5(parts) }

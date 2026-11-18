@@ -46,10 +46,8 @@ import (
 	"storj.io/common/testrand"
 	"storj.io/common/uuid"
 	"storj.io/gateway/api"
-	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
-	miniocmd "storj.io/minio/cmd"
-	"storj.io/minio/pkg/auth"
+	"storj.io/gateway/miniogw/minioobjectlayer"
 	"storj.io/storj/private/testplanet"
 	"storj.io/uplink"
 )
@@ -223,8 +221,8 @@ type testGateway struct {
 	kind   gatewayKind
 	ctx    *testcontext.Context
 	planet *testplanet.Planet
-	exe    string               // binaryGateway
-	layer  miniocmd.ObjectLayer // apiGateway
+	exe    string                       // binaryGateway
+	layer  minioobjectlayer.ObjectLayer // apiGateway
 
 	stops []func() error
 }
@@ -259,7 +257,7 @@ func newTestGateway(t *testing.T, ctx *testcontext.Context, planet *testplanet.P
 			MaxUploadsLimit:          1000,
 			MinPartSize:              5 << 20,
 			DeleteObjectsConcurrency: 100,
-		}).NewGatewayLayer(auth.Credentials{})
+		}).NewObjectLayer()
 		require.NoError(t, err)
 		gw.layer = layer
 	}
@@ -287,9 +285,7 @@ func (gw *testGateway) serve(t *testing.T, access *uplink.Access) (address, acce
 	require.NoError(t, err)
 
 	router := mux.NewRouter()
-	// minio's ObjectLayer, which miniogw's layer is returned as, doesn't declare the api package's
-	// additions to it, such as GetBucketLocation.
-	api.New(gw.layer.(objectlayer.ObjectLayer), credentialsProvider{accessKey: secretKey}, api.Config{},
+	api.New(gw.layer, credentialsProvider{accessKey: secretKey}, api.Config{},
 		api.WithLogger(api.NewZapLogger(gw.planet.Log().Named("api")))).RegisterHandlers(router)
 	// miniogw finds the project in the request's context, like edge's middleware puts it.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

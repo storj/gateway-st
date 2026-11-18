@@ -887,13 +887,13 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, cond := range postPolicy.Conditions.Items {
-		opts.PostPolicy.Conditions.Items = append(opts.PostPolicy.Conditions.Items, cmd.PostPolicyCondition{
+		opts.PostPolicy.Conditions.Items = append(opts.PostPolicy.Conditions.Items, objectlayer.PostPolicyCondition{
 			Operator: string(cond.Operator),
 			Key:      cond.Key,
 			Value:    cond.Value,
 		})
 	}
-	opts.PostPolicy.Conditions.ContentLengthRange = cmd.ContentLengthRange(postPolicy.Conditions.ContentLengthRange)
+	opts.PostPolicy.Conditions.ContentLengthRange = objectlayer.ContentLengthRange(postPolicy.Conditions.ContentLengthRange)
 	opts.PostPolicy.Expiration = postPolicy.Expiration.Time
 
 	// Stop reading as soon as the policy's maximum size is exceeded. The minimum is checked by the

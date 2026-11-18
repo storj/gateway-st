@@ -59,23 +59,23 @@ func (f bodyObjectLayer) SetObjectLegalHold(context.Context, string, string, str
 	return f.record("SetObjectLegalHold")
 }
 
-func (f bodyObjectLayer) SetObjectRetention(context.Context, string, string, string, cmd.ObjectOptions) error {
+func (f bodyObjectLayer) SetObjectRetention(context.Context, string, string, string, objectlayer.ObjectOptions) error {
 	return f.record("SetObjectRetention")
 }
 
-func (f bodyObjectLayer) PutObjectTags(context.Context, string, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-	return cmd.ObjectInfo{}, f.record("PutObjectTags")
+func (f bodyObjectLayer) PutObjectTags(context.Context, string, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+	return objectlayer.ObjectInfo{}, f.record("PutObjectTags")
 }
 
 func newBodyObjectLayer() bodyObjectLayer {
 	return bodyObjectLayer{&fakeObjectLayer{
-		getObjectInfo: func(context.Context, string, string, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{}, nil
+		getObjectInfo: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{}, nil
 		},
-		completeMultipartUpload: func(context.Context, string, string, string, []cmd.CompletePart, cmd.ObjectOptions) (cmd.ObjectInfo, error) {
-			return cmd.ObjectInfo{}, nil
+		completeMultipartUpload: func(context.Context, string, string, string, []objectlayer.CompletePart, objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+			return objectlayer.ObjectInfo{}, nil
 		},
-		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, cmd.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
+		deleteObjects: func(context.Context, string, []cmd.ObjectToDelete, objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error) {
 			return []cmd.DeletedObject{{}}, nil, nil
 		},
 	}}
@@ -265,7 +265,7 @@ func TestXMLBodyTruncatedChunk(t *testing.T) {
 // doesn't read the body for either.
 func TestConnectionCloseLikeS3(t *testing.T) {
 	data := []byte("hello")
-	objectInfo := cmd.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", Size: 10, ModTime: time.Now()}
+	objectInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", ETag: "etag", Size: 10, ModTime: time.Now()}
 
 	for _, tt := range []struct {
 		name, method, target string
