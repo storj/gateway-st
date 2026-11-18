@@ -630,12 +630,7 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
-	if setChecksumHeaders(w, r.Header, body) {
-		w.Header().Set("X-Amz-Checksum-Type", "FULL_OBJECT")
-	} else {
-		// Like S3, a checksum stored without being requested, such as a default one, is returned.
-		setObjectChecksumHeaders(w, objInfo, nil)
-	}
+	setPutChecksumHeaders(w, r.Header, body, objInfo)
 	if objInfo.VersionID != "" {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}

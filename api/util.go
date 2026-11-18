@@ -785,6 +785,17 @@ func setChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader)
 	return true
 }
 
+// setPutChecksumHeaders sets the checksum headers of a response to a request that put an object:
+// the checksum that h asked to verify, or else the one stored with the object, such as a default
+// one, like S3.
+func setPutChecksumHeaders(w http.ResponseWriter, h http.Header, body awsig.Reader, objInfo objectlayer.ObjectInfo) {
+	if setChecksumHeaders(w, h, body) {
+		w.Header().Set("X-Amz-Checksum-Type", "FULL_OBJECT")
+		return
+	}
+	setObjectChecksumHeaders(w, objInfo, nil)
+}
+
 // objectChecksumAlgorithms maps the algorithms of the checksums that objects can be stored with.
 var objectChecksumAlgorithms = map[awsig.ChecksumAlgorithm]objectlayer.ChecksumAlgorithm{
 	awsig.AlgorithmCRC32:     objectlayer.ChecksumAlgorithmCRC32,

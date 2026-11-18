@@ -802,30 +802,6 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The file is verified against the Content-MD5 header and the x-amz-checksum-* form fields.
-	checksumHeader := http.Header{}
-	if md5, ok := r.Header[xhttp.ContentMD5]; ok {
-		checksumHeader[xhttp.ContentMD5] = md5
-	}
-	for formKey, elems := range postForm {
-		if strings.HasPrefix(formKey, xAmzChecksumPrefix) {
-			for _, elem := range elems {
-				checksumHeader.Add(formKey, elem.Value)
-			}
-		}
-	}
-	checksumReqs, err := getChecksumRequests(checksumHeader)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
-	awsigReader, err := requestBody(r, vr, checksumReqs...)
-	if err != nil {
-		api.writeErrorResponse(w, r, err)
-		return
-	}
-
 	policyBytes, err := base64.StdEncoding.DecodeString(postForm.Get("policy").Value)
 	if err != nil {
 		api.writeErrorResponse(w, r, apierr.CodeMalformedPOSTRequest)
@@ -845,6 +821,28 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err = CheckPostForm(postPolicy, postForm, bucketName); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	// Like S3, the file is verified against the x-amz-checksum-* form fields once the policy
+	// allows them, and not against a Content-MD5 header, which would be of the whole form.
+	checksumHeader := http.Header{}
+	for formKey, elems := range postForm {
+		if strings.HasPrefix(formKey, xAmzChecksumPrefix) {
+			for _, elem := range elems {
+				checksumHeader.Add(formKey, elem.Value)
+			}
+		}
+	}
+	checksumReqs, err := getChecksumRequests(checksumHeader)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+
+	awsigReader, err := requestBody(r, vr, checksumReqs...)
+	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -884,6 +882,9 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 
 	opts := objectlayer.ObjectOptions{
 		UserDefined: metadata,
+	}
+	if _, algorithm, ok := requestedChecksum(checksumHeader); ok {
+		opts.ChecksumAlgorithm = objectChecksumAlgorithms[algorithm]
 	}
 
 	for _, cond := range postPolicy.Conditions.Items {
@@ -925,6 +926,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	// clients expect the ETag header key to be literally "ETag" - not "Etag" (case-sensitive).
 	// Therefore, we have to set the ETag directly as a map entry.
 	w.Header()[xhttp.ETag] = []string{`"` + objInfo.ETag + `"`}
+	setPutChecksumHeaders(w, checksumHeader, awsigReader, objInfo)
 
 	if objInfo.VersionID != "" {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}

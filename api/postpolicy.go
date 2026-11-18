@@ -25,11 +25,9 @@ var (
 	}
 
 	// allowedExtraFormKeys contains POST form keys that are allowed to have no corresponding
-	// POST policy condition. Keys prefixed with "x-ignore-" are also allowed.
-	//
-	// TODO: find out whether S3 also allows x-amz-checksum-* fields without a condition. ceph's
-	// test_post_object_upload_checksum expects them to be allowed; here they're rejected with
-	// "Extra input fields".
+	// POST policy condition. Keys prefixed with "x-ignore-" are also allowed. Like S3,
+	// x-amz-checksum-* fields need a condition, unlike what ceph's
+	// test_post_object_upload_checksum expects.
 	allowedExtraFormKeys = map[string]struct{}{
 		"file":           {},
 		"policy":         {},

@@ -780,7 +780,7 @@ s3tests/functional/test_s3.py::test_get_bucket_policy_status
 #(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc32
 #(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc32c
 #(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_sha1
-#(checksums) s3tests/functional/test_s3.py::test_post_object_upload_checksum
+#(matches S3: a checksum field needs a policy condition) s3tests/functional/test_s3.py::test_post_object_upload_checksum
 #(bucket logging) s3tests/functional/test_s3.py::test_put_bucket_logging
 #(bucket logging) s3tests/functional/test_s3.py::test_bucket_logging_mtime
 #(bucket logging) s3tests/functional/test_s3.py::test_bucket_logging_simple_key
