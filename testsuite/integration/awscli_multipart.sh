@@ -52,8 +52,7 @@ listUploadId=$(echo "$listResult" | grep "UploadId" | awk -F '"' '{print $4}')
 listKey=$(echo "$listResult" | grep Key | awk -F '"' '{print $4}')
 
 require_equal_strings "$uploadKey" "$listKey"
-# TODO: for now we get different upload ids with prefixes "my/" and "my/multipart-upload"
-# require_equal_strings $uploadId $listUploadId
+require_equal_strings "$uploadId" "$listUploadId"
 
 echo "Aborting Multipart Upload"
 aws s3api --endpoint "$AWS_ENDPOINT" abort-multipart-upload --bucket "$BUCKET" --key "$UPLOAD_NAME" --upload-id "$uploadId"
