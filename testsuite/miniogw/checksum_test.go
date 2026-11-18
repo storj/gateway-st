@@ -219,6 +219,71 @@ func TestObjectChecksumsOff(t *testing.T) {
 	})
 }
 
+func TestListObjectChecksums(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+		sat.API.Metainfo.Endpoint.TestingSetChecksumsEnabled(true)
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		config := defaultS3CompatibilityConfig
+		config.ObjectChecksums = true
+		layer, err := miniogw.NewStorjGateway(config).NewObjectLayer()
+		require.NoError(t, err)
+		defer func() { require.NoError(t, layer.Shutdown(ctx)) }()
+		config.ObjectChecksums = false
+		off, err := miniogw.NewStorjGateway(config).NewObjectLayer()
+		require.NoError(t, err)
+		defer func() { require.NoError(t, off.Shutdown(ctx)) }()
+
+		data := []byte("hello world")
+		_, err = layer.PutObject(ctx, testBucket, "dir/object", newChecksumReader(data), objectlayer.ObjectOptions{
+			ChecksumAlgorithm: objectlayer.ChecksumAlgorithmCRC32,
+		})
+		require.NoError(t, err)
+		want := objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: "DUoRhQ=="}
+
+		for _, tc := range []struct {
+			name, prefix, delimiter string
+		}{
+			{"fast", "", ""},
+			{"fast with delimiter", "dir/", "/"},
+			{"single", "dir/object", "/"},
+			{"exhaustive", "", "-"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				list, err := layer.ListObjectsV2(ctx, testBucket, tc.prefix, "", tc.delimiter, 1000, false, "")
+				require.NoError(t, err)
+				require.Len(t, list.Objects, 1)
+				require.Equal(t, want, list.Objects[0].Checksum)
+
+				// Without object checksums, they aren't listed.
+				list, err = off.ListObjectsV2(ctx, testBucket, tc.prefix, "", tc.delimiter, 1000, false, "")
+				require.NoError(t, err)
+				require.Len(t, list.Objects, 1)
+				require.Equal(t, objectlayer.Checksum{}, list.Objects[0].Checksum)
+			})
+		}
+
+		versions, err := layer.ListObjectVersions(ctx, testBucket, "", "", "", "", 1000)
+		require.NoError(t, err)
+		require.Len(t, versions.Objects, 1)
+		require.Equal(t, want, versions.Objects[0].Checksum)
+		versions, err = off.ListObjectVersions(ctx, testBucket, "", "", "", "", 1000)
+		require.NoError(t, err)
+		require.Len(t, versions.Objects, 1)
+		require.Equal(t, objectlayer.Checksum{}, versions.Objects[0].Checksum)
+	})
+}
+
 func TestMetadataUpdatesKeepChecksum(t *testing.T) {
 	testplanet.Run(t, testplanet.Config{
 		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,

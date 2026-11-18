@@ -140,6 +140,7 @@ func (layer *gatewayLayer) listObjectsFast(
 		Recursive:    recursive,
 		System:       true,
 		ETagOrCustom: true,
+		Checksum:     layer.compatibilityConfig.ObjectChecksums,
 		Limit:        limit,
 	})
 	if err != nil {
@@ -392,6 +393,7 @@ func (layer *gatewayLayer) listObjectsExhaustive(
 			Recursive:    delimiter != "/",
 			System:       true,
 			ETagOrCustom: true,
+			Checksum:     layer.compatibilityConfig.ObjectChecksums,
 			Limit:        layer.compatibilityConfig.MaxKeysLimit,
 		})
 		if err != nil {
@@ -681,6 +683,7 @@ func (layer *gatewayLayer) ListObjectVersions(ctx context.Context, bucket, prefi
 		Recursive:     recursive,
 		System:        true,
 		ETagOrCustom:  true,
+		Checksum:      layer.compatibilityConfig.ObjectChecksums,
 		Limit:         limitResults(maxKeys, layer.compatibilityConfig.MaxKeysLimit),
 	})
 	if err != nil {
