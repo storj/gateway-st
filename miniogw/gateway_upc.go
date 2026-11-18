@@ -130,7 +130,8 @@ func (layer *gatewayLayer) CopyObjectPart(
 
 	// work
 
-	if err = checkUploadID(ctx, destBucket, destObject, uploadID); err != nil {
+	id, err := checkUploadID(ctx, destBucket, destObject, uploadID)
+	if err != nil {
 		return objectlayer.PartInfo{}, err
 	}
 
@@ -155,17 +156,34 @@ func (layer *gatewayLayer) CopyObjectPart(
 		}
 	}
 
-	sum := md5.New()
-	src := io.TeeReader(download, sum)
+	upload, err := layer.uploadChecksum(id, destBucket, destObject, uploadID)
+	if err != nil {
+		return objectlayer.PartInfo{}, err
+	}
 
-	dst, err := project.UploadPart(ctx, destBucket, destObject, uploadID, uint32(partID))
+	sum := md5.New()
+	checksum := objectlayer.NewCopyChecksum(io.TeeReader(download, sum), upload.Algorithm)
+
+	dst, err := versioned.UploadPart(ctx, project, destBucket, destObject, uploadID, uint32(partID))
 	if err != nil {
 		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
 	}
 
-	if _, err = sync2.Copy(ctx, dst, src); err != nil {
+	if _, err = sync2.Copy(ctx, dst, checksum.Reader()); err != nil {
 		err = errs.Combine(err, dst.Abort())
 		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+	}
+
+	partChecksum, err := checksum.Checksum()
+	if err != nil {
+		err = errs.Combine(err, dst.Abort())
+		return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+	}
+	if partChecksum.Value != "" {
+		if err = dst.SetChecksum([]byte(partChecksum.Value)); err != nil {
+			err = errs.Combine(err, dst.Abort())
+			return objectlayer.PartInfo{}, convertMultipartError(err, destBucket, destObject, uploadID)
+		}
 	}
 
 	etag := make([]byte, hex.EncodedLen(sum.Size()))
@@ -182,6 +200,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 	}
 
 	partInfo := dst.Info()
+	partChecksum.Default = upload.Default
 	return objectlayer.PartInfo{
 		PartNumber: int(partInfo.PartNumber),
 		// uplink doesn't report when the satellite committed the part, which was just now.
@@ -193,6 +212,7 @@ func (layer *gatewayLayer) CopyObjectPart(
 		ETag:         string(partInfo.ETag),
 		Size:         partInfo.Size,
 		ActualSize:   partInfo.Size,
+		Checksum:     partChecksum,
 	}, nil
 }
 

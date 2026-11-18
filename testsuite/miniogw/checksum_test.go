@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"hash/crc32"
 	"hash/crc64"
+	"slices"
 	"testing"
 
+	"github.com/spacemonkeygo/monkit/v3"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/common/memory"
@@ -399,5 +401,251 @@ func TestCopyObjectChecksum(t *testing.T) {
 		info, err = layer.GetObjectInfo(ctx, testBucket, "copy-ignored", objectlayer.ObjectOptions{})
 		require.NoError(t, err)
 		require.Equal(t, want, info.Checksum)
+	})
+}
+
+func TestMultipartChecksums(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+		// "upload lookups" counts satellite calls in monkit's stats, which other tests running at
+		// the same time would add to.
+		NonParallel: true,
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+		sat.API.Metainfo.Endpoint.TestingSetChecksumsEnabled(true)
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{Access: upl.Access[sat.ID()]})
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		newLayer := func(t *testing.T, objectChecksums bool) minioobjectlayer.ObjectLayer {
+			config := defaultS3CompatibilityConfig
+			config.ObjectChecksums = objectChecksums
+			config.DefaultChecksumAlgorithm = "CRC64NVME"
+			layer, err := miniogw.NewStorjGateway(config).NewObjectLayer()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, layer.Shutdown(ctx)) })
+			return layer
+		}
+		layer := newLayer(t, true)
+
+		parts := [][]byte{testrand.BytesInt(10 * memory.KiB.Int()), []byte("hello world")}
+		whole := bytes.Join(parts, nil)
+		b64 := base64.StdEncoding.EncodeToString
+		crc32Of := func(data []byte) []byte { return binary.BigEndian.AppendUint32(nil, crc32.ChecksumIEEE(data)) }
+		crc64Of := func(data []byte) []byte {
+			return binary.BigEndian.AppendUint64(nil, crc64.Checksum(data, crc64.MakeTable(0x9a6c9329ac4bc9b5)))
+		}
+		const crc32Algorithm = objectlayer.ChecksumAlgorithmCRC32
+
+		// upload puts parts with a CRC32 checksum, or without one, and returns the parts to name.
+		upload := func(t *testing.T, layer minioobjectlayer.ObjectLayer, key string, opts objectlayer.ObjectOptions, requested objectlayer.ChecksumAlgorithm) (string, []objectlayer.CompletePart) {
+			created, err := layer.NewMultipartUpload(ctx, testBucket, key, opts)
+			require.NoError(t, err)
+			uploadID := created.UploadID
+			var completeParts []objectlayer.CompletePart
+			for i, part := range parts {
+				info, err := layer.PutObjectPart(ctx, testBucket, key, uploadID, i+1, newChecksumReader(part), objectlayer.ObjectOptions{ChecksumAlgorithm: requested})
+				require.NoError(t, err)
+				completeParts = append(completeParts, objectlayer.CompletePart{PartNumber: i + 1, ETag: info.ETag, Checksum: info.Checksum})
+			}
+			return uploadID, completeParts
+		}
+
+		t.Run("composite", func(t *testing.T) {
+			opts := objectlayer.ObjectOptions{ChecksumAlgorithm: crc32Algorithm}
+			uploadID, completeParts := upload(t, layer, "composite", opts, crc32Algorithm)
+
+			list, err := layer.ListObjectParts(ctx, testBucket, "composite", uploadID, 0, 1000, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Composite: true}, list.Checksum)
+			require.Len(t, list.Parts, 2)
+			for i, part := range list.Parts {
+				require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Value: b64(crc32Of(parts[i]))}, part.Checksum)
+			}
+			// Like S3, a page without parts still has the upload's checksum.
+			list, err = layer.ListObjectParts(ctx, testBucket, "composite", uploadID, 2, 1000, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Empty(t, list.Parts)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Composite: true}, list.Checksum)
+
+			uploads, err := layer.ListMultipartUploads(ctx, testBucket, "composite", "", "", "", 1000)
+			require.NoError(t, err)
+			require.Len(t, uploads.Uploads, 1)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Composite: true}, uploads.Uploads[0].Checksum)
+
+			// A part of an upload with composite checksums needs one.
+			_, err = layer.PutObjectPart(ctx, testBucket, "composite", uploadID, 3, newChecksumReader(parts[1]), objectlayer.ObjectOptions{})
+			require.ErrorAs(t, err, new(objectlayer.PartChecksumAlgorithmMismatch))
+
+			withoutChecksums := slices.Clone(completeParts)
+			withoutChecksums[0].Checksum = objectlayer.Checksum{}
+			_, err = layer.CompleteMultipartUpload(ctx, testBucket, "composite", uploadID, withoutChecksums, objectlayer.ObjectOptions{})
+			require.ErrorAs(t, err, new(objectlayer.MissingPartChecksum))
+
+			_, err = layer.CompleteMultipartUpload(ctx, testBucket, "composite", uploadID, completeParts, objectlayer.ObjectOptions{ChecksumType: objectlayer.ChecksumTypeFullObject})
+			require.ErrorAs(t, err, new(objectlayer.ChecksumTypeMismatch))
+
+			want := objectlayer.Checksum{Algorithm: crc32Algorithm, Composite: true, Value: b64(crc32Of(append(crc32Of(parts[0]), crc32Of(parts[1])...))) + "-2"}
+			info, err := layer.CompleteMultipartUpload(ctx, testBucket, "composite", uploadID, completeParts, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, want, info.Checksum)
+			info, err = layer.GetObjectInfo(ctx, testBucket, "composite", objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, want, info.Checksum)
+		})
+
+		t.Run("full object", func(t *testing.T) {
+			opts := objectlayer.ObjectOptions{ChecksumAlgorithm: crc32Algorithm, ChecksumType: objectlayer.ChecksumTypeFullObject}
+			uploadID, completeParts := upload(t, layer, "full", opts, objectlayer.ChecksumAlgorithmNone)
+			for i, part := range completeParts {
+				require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Value: b64(crc32Of(parts[i]))}, part.Checksum)
+			}
+
+			// Like S3, a part requested with another algorithm is refused.
+			_, err := layer.PutObjectPart(ctx, testBucket, "full", uploadID, 3, newChecksumReader(parts[1]), objectlayer.ObjectOptions{ChecksumAlgorithm: objectlayer.ChecksumAlgorithmSHA256})
+			require.ErrorAs(t, err, new(objectlayer.PartChecksumAlgorithmMismatch))
+
+			info, err := layer.CompleteMultipartUpload(ctx, testBucket, "full", uploadID, completeParts, objectlayer.ObjectOptions{
+				ChecksumAlgorithm: crc32Algorithm, ChecksumType: objectlayer.ChecksumTypeFullObject, ChecksumValue: b64(crc32Of(whole)),
+			})
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Value: b64(crc32Of(whole))}, info.Checksum)
+		})
+
+		t.Run("default", func(t *testing.T) {
+			const crc64nvmeAlgorithm = objectlayer.ChecksumAlgorithmCRC64NVME
+			uploadDefault := objectlayer.Checksum{Algorithm: crc64nvmeAlgorithm, Default: true}
+
+			// A part with another checksum still gets one with the upload's algorithm.
+			uploadID, completeParts := upload(t, layer, "default", objectlayer.ObjectOptions{UserDefined: map[string]string{"foo": "bar"}}, crc32Algorithm)
+			for i, part := range completeParts {
+				require.Equal(t, objectlayer.Checksum{Algorithm: crc64nvmeAlgorithm, Value: b64(crc64Of(parts[i])), Default: true}, part.Checksum)
+			}
+
+			list, err := layer.ListObjectParts(ctx, testBucket, "default", uploadID, 0, 1000, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, uploadDefault, list.Checksum)
+			for i, part := range list.Parts {
+				require.Equal(t, objectlayer.Checksum{Algorithm: crc64nvmeAlgorithm, Value: b64(crc64Of(parts[i])), Default: true}, part.Checksum)
+			}
+			uploads, err := layer.ListMultipartUploads(ctx, testBucket, "default", "", "", "", 1000)
+			require.NoError(t, err)
+			require.Len(t, uploads.Uploads, 1)
+			require.Equal(t, uploadDefault, uploads.Uploads[0].Checksum)
+
+			// Like S3, which reports the upload as without checksums.
+			_, err = layer.CompleteMultipartUpload(ctx, testBucket, "default", uploadID, completeParts, objectlayer.ObjectOptions{})
+			require.ErrorAs(t, err, new(objectlayer.InvalidPart))
+
+			for i := range completeParts {
+				completeParts[i].Checksum = objectlayer.Checksum{}
+			}
+			info, err := layer.CompleteMultipartUpload(ctx, testBucket, "default", uploadID, completeParts, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc64nvmeAlgorithm, Value: b64(crc64Of(whole))}, info.Checksum)
+
+			info, err = layer.GetObjectInfo(ctx, testBucket, "default", objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, "bar", info.UserDefined["foo"])
+		})
+
+		// A part put through a gateway with object checksums off has none, which leaves the upload's
+		// checksums incomplete, so the upload is completed without one rather than never.
+		t.Run("part without checksum", func(t *testing.T) {
+			off := newLayer(t, false)
+			for _, requested := range []objectlayer.ChecksumAlgorithm{objectlayer.ChecksumAlgorithmNone, crc32Algorithm} {
+				key := "partial-" + requested.String()
+				created, err := layer.NewMultipartUpload(ctx, testBucket, key, objectlayer.ObjectOptions{ChecksumAlgorithm: requested})
+				require.NoError(t, err)
+				uploadID := created.UploadID
+				var completeParts []objectlayer.CompletePart
+				for i, part := range parts {
+					partLayer := layer
+					if i == 1 {
+						partLayer = off
+					}
+					info, err := partLayer.PutObjectPart(ctx, testBucket, key, uploadID, i+1, newChecksumReader(part), objectlayer.ObjectOptions{ChecksumAlgorithm: requested})
+					require.NoError(t, err)
+					completePart := objectlayer.CompletePart{PartNumber: i + 1, ETag: info.ETag}
+					if requested != objectlayer.ChecksumAlgorithmNone {
+						completePart.Checksum = objectlayer.Checksum{Algorithm: requested, Value: b64(crc32Of(part))}
+					}
+					completeParts = append(completeParts, completePart)
+				}
+
+				info, err := layer.CompleteMultipartUpload(ctx, testBucket, key, uploadID, completeParts, objectlayer.ObjectOptions{})
+				require.NoError(t, err, requested)
+				require.Equal(t, objectlayer.Checksum{}, info.Checksum, requested)
+				info, err = layer.GetObjectInfo(ctx, testBucket, key, objectlayer.ObjectOptions{})
+				require.NoError(t, err, requested)
+				require.Equal(t, objectlayer.Checksum{}, info.Checksum, requested)
+			}
+		})
+
+		// Parts and part listings read the upload's checksums from its upload ID instead of
+		// looking the upload up on the satellite.
+		t.Run("upload lookups", func(t *testing.T) {
+			lookups := func() (total float64) {
+				monkit.Default.Stats(func(key monkit.SeriesKey, field string, value float64) {
+					if key.Measurement == "function" && field == "total" &&
+						key.Tags.Get("scope") == "storj.io/storj/satellite/metainfo" &&
+						key.Tags.Get("name") == "(*Endpoint).GetPendingObjectMetadata" {
+						total += value
+					}
+				})
+				return total
+			}
+			for _, requested := range []objectlayer.ChecksumAlgorithm{crc32Algorithm, objectlayer.ChecksumAlgorithmNone} {
+				before := lookups()
+				uploadID, completeParts := upload(t, layer, "lookups", objectlayer.ObjectOptions{ChecksumAlgorithm: requested}, requested)
+				_, err := layer.ListObjectParts(ctx, testBucket, "lookups", uploadID, 0, 1000, objectlayer.ObjectOptions{})
+				require.NoError(t, err)
+				require.Equal(t, before, lookups(), requested)
+
+				// Completing still looks the upload up, for its metadata, which shows the count works.
+				if requested == objectlayer.ChecksumAlgorithmNone {
+					for i := range completeParts {
+						completeParts[i].Checksum = objectlayer.Checksum{}
+					}
+				}
+				_, err = layer.CompleteMultipartUpload(ctx, testBucket, "lookups", uploadID, completeParts, objectlayer.ObjectOptions{})
+				require.NoError(t, err)
+				require.Greater(t, lookups(), before, requested)
+			}
+		})
+
+		t.Run("copy part", func(t *testing.T) {
+			src, err := layer.PutObject(ctx, testBucket, "copy-source", newChecksumReader(whole), objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+
+			opts := objectlayer.ObjectOptions{ChecksumAlgorithm: crc32Algorithm, ChecksumType: objectlayer.ChecksumTypeFullObject}
+			created, err := layer.NewMultipartUpload(ctx, testBucket, "copy", opts)
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm}, created.Checksum)
+			info, err := layer.CopyObjectPart(ctx, testBucket, "copy-source", testBucket, "copy", created.UploadID, 1, 0, int64(len(parts[0])), src, objectlayer.ObjectOptions{}, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{Algorithm: crc32Algorithm, Value: b64(crc32Of(parts[0]))}, info.Checksum)
+		})
+
+		t.Run("without object checksums", func(t *testing.T) {
+			layer := newLayer(t, false)
+			opts := objectlayer.ObjectOptions{ChecksumAlgorithm: crc32Algorithm}
+			created, err := layer.NewMultipartUpload(ctx, testBucket, "off", opts)
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{}, created.Checksum)
+
+			uploadID, completeParts := upload(t, layer, "off", opts, objectlayer.ChecksumAlgorithmNone)
+			list, err := layer.ListObjectParts(ctx, testBucket, "off", uploadID, 0, 1000, objectlayer.ObjectOptions{})
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{}, list.Checksum)
+			info, err := layer.CompleteMultipartUpload(ctx, testBucket, "off", uploadID, completeParts, objectlayer.ObjectOptions{ChecksumType: objectlayer.ChecksumTypeFullObject})
+			require.NoError(t, err)
+			require.Equal(t, objectlayer.Checksum{}, info.Checksum)
+		})
 	})
 }

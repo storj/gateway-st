@@ -12,4 +12,14 @@ message StreamID {
     bytes bucket = 1;
     bytes encrypted_object_key = 2;
     bytes stream_id = 10;
+    StreamIDChecksum checksum = 18;
+}
+
+// StreamIDChecksum is the satellite's internalpb.StreamIDChecksum: the
+// algorithm and type of an upload's checksums.
+message StreamIDChecksum {
+    // algorithm is a metainfo.ObjectChecksumAlgorithm.
+    int32 algorithm = 1;
+    bool is_composite = 2;
+    bool is_default = 3;
 }

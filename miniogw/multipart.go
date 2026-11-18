@@ -17,6 +17,7 @@ import (
 	"storj.io/common/encryption"
 	"storj.io/common/memory"
 	"storj.io/common/paths"
+	"storj.io/common/storj"
 	"storj.io/common/sync2"
 	"storj.io/eventkit"
 	"storj.io/gateway/api/objectlayer"
@@ -128,7 +129,14 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 			prefixes = append(prefixes, object.Key)
 			continue
 		}
-		uploads = append(uploads, minioMultipartInfo(bucket, object))
+		info := minioMultipartInfo(bucket, object)
+		// The satellite's upload IDs always decode.
+		id, _ := parseUploadID(object.UploadID)
+		info.Checksum, err = layer.uploadChecksum(id, bucket, object.Key, object.UploadID)
+		if err != nil {
+			return objectlayer.ListMultipartsInfo{}, err
+		}
+		uploads = append(uploads, info)
 	}
 	if more && len(items) > 0 {
 		nextKeyMarker = items[len(items)-1].Key
@@ -196,10 +204,18 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		}
 	}
 
+	var upload objectlayer.Checksum
+	var checksum metaclient.ObjectChecksum
+	if layer.compatibilityConfig.ObjectChecksums {
+		upload = objectlayer.NewUploadChecksum(opts.ChecksumAlgorithm, opts.ChecksumType, layer.defaultChecksumAlgorithm)
+		checksum = metaclient.ObjectChecksum{Algorithm: checksumAlgorithmToStorj[upload.Algorithm], IsComposite: upload.Composite, IsDefault: upload.Default}
+	}
+
 	info, err := versioned.BeginUpload(ctx, project, bucket, object, &versioned.MultipartUploadOptions{
 		Expires: e,
 		UserData: metaclient.ObjectUserData{
-			Custom: uplink.CustomMetadata(opts.UserDefined).Clone(),
+			Custom:   uplink.CustomMetadata(opts.UserDefined).Clone(),
+			Checksum: checksum,
 		},
 		Retention: retention,
 		LegalHold: legalHold,
@@ -208,7 +224,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		return objectlayer.NewMultipartUploadResult{}, convertMultipartError(err, bucket, object, "")
 	}
 
-	return objectlayer.NewMultipartUploadResult{UploadID: info.UploadID}, nil
+	return objectlayer.NewMultipartUploadResult{UploadID: info.UploadID, Checksum: upload}, nil
 }
 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts objectlayer.ObjectOptions) (info objectlayer.PartInfo, err error) {
@@ -231,20 +247,42 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 		return objectlayer.PartInfo{}, err
 	}
 
-	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+	id, err := checkUploadID(ctx, bucket, object, uploadID)
+	if err != nil {
 		return objectlayer.PartInfo{}, err
 	}
 
-	partUpload, err := project.UploadPart(ctx, bucket, object, uploadID, uint32(partID))
+	upload, err := layer.uploadChecksum(id, bucket, object, uploadID)
+	if err != nil {
+		return objectlayer.PartInfo{}, err
+	}
+	checksum, err := objectlayer.NewPartChecksum(data, upload, opts.ChecksumAlgorithm)
+	if err != nil {
+		return objectlayer.PartInfo{}, err
+	}
+
+	partUpload, err := versioned.UploadPart(ctx, project, bucket, object, uploadID, uint32(partID))
 	if err != nil {
 		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
 	}
 
-	_, err = sync2.Copy(ctx, partUpload, data)
+	_, err = sync2.Copy(ctx, partUpload, checksum.Reader())
 	if err != nil {
 		abortErr := partUpload.Abort()
 		err = errs.Combine(err, abortErr)
 		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+
+	partChecksum, err := checksum.Checksum()
+	if err != nil {
+		err = errs.Combine(err, partUpload.Abort())
+		return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+	}
+	if partChecksum.Value != "" {
+		if err := partUpload.SetChecksum([]byte(partChecksum.Value)); err != nil {
+			err = errs.Combine(err, partUpload.Abort())
+			return objectlayer.PartInfo{}, convertMultipartError(err, bucket, object, uploadID)
+		}
 	}
 
 	eTag, err := data.MD5HexString()
@@ -266,13 +304,28 @@ func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, up
 	}
 
 	part := partUpload.Info()
+	partChecksum.Default = upload.Default
 	return objectlayer.PartInfo{
 		PartNumber:   int(part.PartNumber),
 		Size:         part.Size,
 		ActualSize:   part.Size,
 		ETag:         string(part.ETag),
 		LastModified: part.Modified,
+		Checksum:     partChecksum,
 	}, nil
+}
+
+// uploadChecksum returns the algorithm and type of the checksums of the upload with id, which the
+// satellite keeps in its upload ID. They're only read with object checksums on.
+func (layer *gatewayLayer) uploadChecksum(id *streamidpb.StreamID, bucket, object, uploadID string) (objectlayer.Checksum, error) {
+	if !layer.compatibilityConfig.ObjectChecksums || id == nil || id.Checksum == nil {
+		return objectlayer.Checksum{}, nil
+	}
+	algorithm, ok := checksumAlgorithmFromStorj[storj.ObjectChecksumAlgorithm(id.Checksum.Algorithm)]
+	if !ok {
+		return objectlayer.Checksum{}, errs.New("upload %q of %s/%s has unknown checksum algorithm %d", uploadID, bucket, object, id.Checksum.Algorithm)
+	}
+	return objectlayer.Checksum{Algorithm: algorithm, Composite: id.Checksum.IsComposite, Default: id.Checksum.IsDefault}, nil
 }
 
 func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts objectlayer.ObjectOptions) (result objectlayer.ListPartsInfo, err error) {
@@ -299,11 +352,12 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		ek.Event("ListParts", tags...)
 	}()
 
-	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+	id, err := checkUploadID(ctx, bucket, object, uploadID)
+	if err != nil {
 		return objectlayer.ListPartsInfo{}, err
 	}
 
-	list := project.ListUploadParts(ctx, bucket, object, uploadID, &uplink.ListUploadPartsOptions{
+	list := versioned.ListUploadParts(ctx, project, bucket, object, uploadID, &uplink.ListUploadPartsOptions{
 		Cursor: uint32(partNumberMarker),
 	})
 
@@ -318,6 +372,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 			ETag:         string(part.ETag), // Entity tag returned when the part was initially uploaded.
 			Size:         part.Size,         // Size in bytes of the part.
 			ActualSize:   part.Size,         // Decompressed Size.
+			Checksum:     objectlayer.Checksum{Value: string(part.Checksum)},
 		})
 	}
 	if list.Err() != nil {
@@ -332,6 +387,22 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 	if len(parts) > 0 {
 		nextPartNumberMarker = parts[len(parts)-1].PartNumber
 	}
+
+	// The parts' checksums have their upload's algorithm, which every page reports, even one
+	// without parts.
+	upload, err := layer.uploadChecksum(id, bucket, object, uploadID)
+	if err != nil {
+		return objectlayer.ListPartsInfo{}, err
+	}
+	for i := range parts {
+		if upload.Algorithm == objectlayer.ChecksumAlgorithmNone || parts[i].Checksum.Value == "" {
+			parts[i].Checksum = objectlayer.Checksum{}
+			continue
+		}
+		parts[i].Checksum.Algorithm = upload.Algorithm
+		parts[i].Checksum.Default = upload.Default
+	}
+
 	return objectlayer.ListPartsInfo{
 		Bucket:               bucket,
 		Object:               object,
@@ -342,6 +413,7 @@ func (layer *gatewayLayer) ListObjectParts(ctx context.Context, bucket, object, 
 		MaxParts:             maxParts,
 		IsTruncated:          more,
 		Parts:                parts,
+		Checksum:             upload,
 		// also available: UserDefined map[string]string
 	}, nil
 }
@@ -358,7 +430,7 @@ func (layer *gatewayLayer) AbortMultipartUpload(ctx context.Context, bucket, obj
 		return err
 	}
 
-	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+	if _, err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
 		return err
 	}
 
@@ -387,7 +459,12 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 
 	// The satellite commits whatever upload the ID points to, so reject IDs
 	// that belong to another key.
-	if err := checkUploadID(ctx, bucket, object, uploadID); err != nil {
+	id, err := checkUploadID(ctx, bucket, object, uploadID)
+	if err != nil {
+		return objectlayer.ObjectInfo{}, err
+	}
+	upload, err := layer.uploadChecksum(id, bucket, object, uploadID)
+	if err != nil {
 		return objectlayer.ObjectInfo{}, err
 	}
 
@@ -401,9 +478,11 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 	metadata := userData.Custom
 
 	var idx int
-	list := project.ListUploadParts(ctx, bucket, object, uploadID, nil)
+	var storedChecksums []objectlayer.PartChecksum
+	list := versioned.ListUploadParts(ctx, project, bucket, object, uploadID, nil)
 	for ; list.Next(); idx++ {
 		part := list.Item()
+		storedChecksums = append(storedChecksums, objectlayer.PartChecksum{Value: string(part.Checksum), Size: part.Size})
 		// Are we listing past what we received?
 		if idx >= len(uploadedParts) {
 			return objectlayer.ObjectInfo{}, minio.InvalidPart{
@@ -451,6 +530,15 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		}
 	}
 
+	// Without object checksums, an upload's checksums aren't checked or stored.
+	var checksum objectlayer.Checksum
+	if layer.compatibilityConfig.ObjectChecksums {
+		checksum, err = objectlayer.CompleteChecksum(upload, uploadedParts, storedChecksums, opts)
+		if err != nil {
+			return objectlayer.ObjectInfo{}, err
+		}
+	}
+
 	etag := objectlayer.MultipartETag(uploadedParts)
 
 	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
@@ -466,6 +554,11 @@ func (layer *gatewayLayer) CompleteMultipartUpload(ctx context.Context, bucket, 
 		UserData: metaclient.ObjectUserData{
 			Custom: metadata,
 			ETag:   []byte(etag),
+			Checksum: metaclient.ObjectChecksum{
+				Algorithm:   checksumAlgorithmToStorj[checksum.Algorithm],
+				IsComposite: checksum.Composite,
+				Value:       []byte(checksum.Value),
+			},
 		},
 		IfNoneMatch: opts.IfNoneMatch,
 	})
@@ -494,29 +587,29 @@ func minioMultipartInfo(bucket string, object *uplink.UploadInfo) objectlayer.Mu
 // bucket/object. The satellite acts on the upload the ID points to and doesn't
 // check it against the key in the request. The ID is signed by the satellite,
 // so comparing its bucket and encrypted key with the request's is enough.
-func checkUploadID(ctx context.Context, bucket, object, uploadID string) error {
+func checkUploadID(ctx context.Context, bucket, object, uploadID string) (*streamidpb.StreamID, error) {
 	// Let uplink reject empty and malformed IDs with its own errors.
 	if object == "" || uploadID == "" {
-		return nil
+		return nil, nil
 	}
 	invalid := minio.InvalidUploadID{Bucket: bucket, Object: object, UploadID: uploadID}
 
 	id, ok := parseUploadID(uploadID)
 	if !ok || string(id.Bucket) != bucket {
-		return invalid
+		return nil, invalid
 	}
 	store, err := encryptionStore(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	encKey, err := encryption.EncryptPathWithStoreCipher(bucket, paths.NewUnencrypted(object), store)
 	if err != nil {
-		return ConvertError(err, bucket, object)
+		return nil, ConvertError(err, bucket, object)
 	}
 	if string(id.EncryptedObjectKey) != encKey.Raw() {
-		return invalid
+		return nil, invalid
 	}
-	return nil
+	return id, nil
 }
 
 // parseUploadID decodes an upload ID, which is a base58 encoding of the

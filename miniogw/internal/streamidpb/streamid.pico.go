@@ -2,8 +2,8 @@
 // source: streamid.proto
 //
 // versions:
-//     protoc-gen-pico: v0.0.4
-//     protoc:          v7.36.0
+//     protoc-gen-pico: v0.9.6
+//     protoc:          v3.12.3
 
 package streamidpb
 
@@ -12,9 +12,11 @@ import (
 )
 
 type StreamID struct {
-	Bucket             []byte `json:"bucket,omitempty"`
-	EncryptedObjectKey []byte `json:"encrypted_object_key,omitempty"`
-	StreamId           []byte `json:"stream_id,omitempty"`
+	Bucket             []byte            `json:"bucket,omitzero"`
+	EncryptedObjectKey []byte            `json:"encrypted_object_key,omitzero"`
+	StreamId           []byte            `json:"stream_id,omitzero"`
+	Checksum           *StreamIDChecksum `json:"checksum,omitzero"`
+	XXX_unrecognized   []byte            `json:"-"`
 }
 
 func (m *StreamID) Encode(c *picobuf.Encoder) bool {
@@ -24,6 +26,10 @@ func (m *StreamID) Encode(c *picobuf.Encoder) bool {
 	c.Bytes(1, &m.Bucket)
 	c.Bytes(2, &m.EncryptedObjectKey)
 	c.Bytes(10, &m.StreamId)
+	if m.Checksum != nil {
+		c.Message(18, m.Checksum.Encode)
+	}
+	c.UnrecognizedFields(m.XXX_unrecognized)
 	return true
 }
 
@@ -34,4 +40,39 @@ func (m *StreamID) Decode(c *picobuf.Decoder) {
 	c.Bytes(1, &m.Bucket)
 	c.Bytes(2, &m.EncryptedObjectKey)
 	c.Bytes(10, &m.StreamId)
+	c.Message(18, func(c *picobuf.Decoder) {
+		if m.Checksum == nil {
+			m.Checksum = new(StreamIDChecksum)
+		}
+		m.Checksum.Decode(c)
+	})
+	c.UnrecognizedFields(263174, &m.XXX_unrecognized)
+}
+
+type StreamIDChecksum struct {
+	Algorithm        int32  `json:"algorithm,omitzero"`
+	IsComposite      bool   `json:"is_composite,omitzero"`
+	IsDefault        bool   `json:"is_default,omitzero"`
+	XXX_unrecognized []byte `json:"-"`
+}
+
+func (m *StreamIDChecksum) Encode(c *picobuf.Encoder) bool {
+	if m == nil {
+		return false
+	}
+	c.Int32(1, &m.Algorithm)
+	c.Bool(2, &m.IsComposite)
+	c.Bool(3, &m.IsDefault)
+	c.UnrecognizedFields(m.XXX_unrecognized)
+	return true
+}
+
+func (m *StreamIDChecksum) Decode(c *picobuf.Decoder) {
+	if m == nil {
+		return
+	}
+	c.Int32(1, &m.Algorithm)
+	c.Bool(2, &m.IsComposite)
+	c.Bool(3, &m.IsDefault)
+	c.UnrecognizedFields(14, &m.XXX_unrecognized)
 }
