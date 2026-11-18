@@ -35,6 +35,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Pinned rather than the CI image's rclone, which lags behind releases.
+RCLONE_VERSION=v1.76.0
+export GOBIN=$TMPDIR/bin
+export PATH=$GOBIN:$PATH
+go install "github.com/rclone/rclone@$RCLONE_VERSION" "github.com/rclone/rclone/fstest/test_all@$RCLONE_VERSION"
+
 rclone config create TestS3 s3 \
     env_auth true \
     provider Minio \
@@ -42,11 +48,6 @@ rclone config create TestS3 s3 \
     chunk_size 64M \
     upload_cutoff 64M \
     use_already_exists false
-
-# get rclone version, and trim "-DEV" suffix if it exists, which is added
-# if installing rclone using `go install` (as in the storjlabs/ci image)
-RCLONE_VERSION=$(head -n1 <(rclone version) | awk '{ print $2 }')
-RCLONE_VERSION=${RCLONE_VERSION%-DEV}
 
 # test_all uses some code in the rclone repo, so ensure it's checked out
 git clone --branch "$RCLONE_VERSION" --depth 1 https://github.com/rclone/rclone
