@@ -7,11 +7,13 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	stdhash "hash"
 	"hash/crc32"
 	"hash/crc64"
 	"io"
+	"strconv"
 	"strings"
 
 	"storj.io/minio/pkg/hash"
@@ -153,4 +155,80 @@ func newChecksumHash(algorithm ChecksumAlgorithm) stdhash.Hash {
 	default:
 		panic(fmt.Sprintf("objectlayer: no checksum algorithm %d", algorithm))
 	}
+}
+
+// PartChecksum is the checksum of a part of a multipart upload, and the part's size.
+type PartChecksum struct {
+	// Value is base64-encoded.
+	Value string
+	Size  int64
+}
+
+// CompositeChecksum returns the composite checksum of an object completed from parts, which have
+// checksums with algorithm: the checksum of the parts' checksums.
+func CompositeChecksum(algorithm ChecksumAlgorithm, parts []PartChecksum) (Checksum, error) {
+	if algorithm == ChecksumAlgorithmCRC64NVME || algorithm == ChecksumAlgorithmNone {
+		return Checksum{}, fmt.Errorf("objectlayer: no composite %s checksums", algorithm)
+	}
+	sums, err := decodePartChecksums(parts)
+	if err != nil {
+		return Checksum{}, err
+	}
+	hash := newChecksumHash(algorithm)
+	for _, sum := range sums {
+		_, _ = hash.Write(sum)
+	}
+	value := base64.StdEncoding.EncodeToString(hash.Sum(nil)) + "-" + strconv.Itoa(len(parts))
+	return Checksum{Algorithm: algorithm, Composite: true, Value: value}, nil
+}
+
+// FullObjectChecksum returns the full object checksum of an object completed from parts, which
+// have checksums with algorithm. Only CRC algorithms have them, computed from the parts' checksums
+// as if of the whole data.
+func FullObjectChecksum(algorithm ChecksumAlgorithm, parts []PartChecksum) (Checksum, error) {
+	sums, err := decodePartChecksums(parts)
+	if err != nil {
+		return Checksum{}, err
+	}
+
+	var value []byte
+	switch algorithm {
+	case ChecksumAlgorithmCRC32, ChecksumAlgorithmCRC32C:
+		combiner := crc32IEEECombiner
+		if algorithm == ChecksumAlgorithmCRC32C {
+			combiner = crc32CastagnoliCombiner
+		}
+		var crc uint32
+		for i, sum := range sums {
+			if len(sum) != 4 {
+				return Checksum{}, fmt.Errorf("objectlayer: part checksum %q isn't a %s checksum", parts[i].Value, algorithm)
+			}
+			crc = combiner.combine(crc, binary.BigEndian.Uint32(sum), parts[i].Size)
+		}
+		value = binary.BigEndian.AppendUint32(nil, crc)
+	case ChecksumAlgorithmCRC64NVME:
+		var crc uint64
+		for i, sum := range sums {
+			if len(sum) != 8 {
+				return Checksum{}, fmt.Errorf("objectlayer: part checksum %q isn't a %s checksum", parts[i].Value, algorithm)
+			}
+			crc = crc64NVMECombiner.combine(crc, binary.BigEndian.Uint64(sum), parts[i].Size)
+		}
+		value = binary.BigEndian.AppendUint64(nil, crc)
+	default:
+		return Checksum{}, fmt.Errorf("objectlayer: no full object %s checksums", algorithm)
+	}
+	return Checksum{Algorithm: algorithm, Value: base64.StdEncoding.EncodeToString(value)}, nil
+}
+
+func decodePartChecksums(parts []PartChecksum) ([][]byte, error) {
+	sums := make([][]byte, len(parts))
+	for i, part := range parts {
+		sum, err := base64.StdEncoding.DecodeString(part.Value)
+		if err != nil {
+			return nil, fmt.Errorf("objectlayer: part checksum %q: %w", part.Value, err)
+		}
+		sums[i] = sum
+	}
+	return sums, nil
 }
