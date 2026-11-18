@@ -998,15 +998,25 @@ func setObjectHeaders(w http.ResponseWriter, objInfo objectlayer.ObjectInfo, ran
 		}
 	}
 
-	// TODO: part 1 is the entire object, because the object layer doesn't report parts. It's
-	// only a partial response if the object isn't empty.
-	if partNumber > 0 && objInfo.Size > 0 {
-		rangeSpec = &objectlayer.HTTPRangeSpec{Start: 0, End: -1}
-	}
-
-	start, length, err := rangeOffsetLength(rangeSpec, objInfo.Size)
-	if err != nil {
-		return false, err
+	// Like S3, a part of an object that was uploaded in parts is sent as a range of it, and part 1
+	// of another object is the entire object. It's only a partial response if the part isn't
+	// empty.
+	var start, length int64
+	if partNumber > 0 && objInfo.PartsCount > 0 && len(objInfo.Parts) == 1 {
+		part := objInfo.Parts[0]
+		h.Set(xhttp.AmzMpPartsCount, strconv.Itoa(objInfo.PartsCount))
+		start, length = part.Offset, part.Size
+		if part.Size > 0 {
+			rangeSpec = &objectlayer.HTTPRangeSpec{Start: part.Offset, End: part.Offset + part.Size - 1}
+		}
+	} else {
+		if partNumber > 0 && objInfo.Size > 0 {
+			rangeSpec = &objectlayer.HTTPRangeSpec{Start: 0, End: -1}
+		}
+		start, length, err = rangeOffsetLength(rangeSpec, objInfo.Size)
+		if err != nil {
+			return false, err
+		}
 	}
 	h.Set(xhttp.ContentLength, strconv.FormatInt(length, 10))
 	if rangeSpec != nil {

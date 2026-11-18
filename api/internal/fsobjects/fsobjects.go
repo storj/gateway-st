@@ -904,12 +904,21 @@ func (l *Layer) openObject(bucket, key, versionID string) (objectlayer.ObjectInf
 
 // GetObjectNInfo returns a reader of an object's range.
 func (l *Layer) GetObjectNInfo(ctx context.Context, bucket, object string, rs *objectlayer.HTTPRangeSpec, h http.Header, lockType objectlayer.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
-	info, _, f, err := l.openObject(bucket, object, opts.VersionID)
+	info, parts, f, err := l.openObject(bucket, object, opts.VersionID)
 	if err != nil {
 		return nil, err
 	}
+	objectlayer.SelectParts(&info, parts, opts)
+
 	offset, length, err := rs.GetOffsetLength(info.Size)
-	if err != nil {
+	switch {
+	case opts.PartNumber > 0 && len(info.Parts) == 1:
+		offset, length = info.Parts[0].Offset, info.Parts[0].Size
+	case opts.PartNumber > 0 && (info.PartsCount > 0 || opts.PartNumber > 1):
+		// The part doesn't exist, which the caller decides how to answer. Part 1 of an object
+		// that wasn't uploaded in parts is the entire object.
+		offset, length = 0, 0
+	case err != nil:
 		_ = f.Close()
 		return nil, objectlayer.InvalidRange{OffsetBegin: rs.Start, OffsetEnd: rs.End, ResourceSize: info.Size}
 	}

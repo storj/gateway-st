@@ -888,9 +888,26 @@ func checksumMode(h http.Header) (enabled bool, err error) {
 }
 
 // setObjectChecksumHeaders sets the headers of an object's checksum, which S3 only returns with
-// the whole object, even for a range that covers it.
+// the whole object, even for a range that covers it. For a part of an object that was uploaded in
+// parts, it sets the part's checksum if the object's is composite, like S3.
 func setObjectChecksumHeaders(w http.ResponseWriter, objInfo objectlayer.ObjectInfo, rangeSpec *objectlayer.HTTPRangeSpec) {
 	if objInfo.Checksum.Algorithm == objectlayer.ChecksumAlgorithmNone {
+		return
+	}
+	if objInfo.PartsCount > 0 && len(objInfo.Parts) == 1 {
+		var value string
+		switch {
+		case objInfo.Checksum.Composite:
+			value = objInfo.Parts[0].Checksum.Value
+		case objInfo.PartsCount == 1:
+			// Like S3, the only part of an object with a full object checksum is sent with it, but
+			// no other part is, even when the other parts are empty.
+			value = objInfo.Checksum.Value
+		}
+		if value != "" {
+			w.Header().Set(xAmzChecksumPrefix+objInfo.Checksum.Algorithm.String(), value)
+			w.Header().Set("X-Amz-Checksum-Type", checksumType(objInfo.Checksum))
+		}
 		return
 	}
 	if rangeSpec != nil {

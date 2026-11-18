@@ -4,6 +4,7 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"storj.io/gateway/api/internal/fsobjects"
@@ -789,4 +791,128 @@ func TestMultipartUploadChecksums(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 		require.Contains(t, resp.Body, "<ChecksumCRC64NVME>jSnVw/bqjr4=</ChecksumCRC64NVME><ChecksumType>FULL_OBJECT</ChecksumType>")
 	})
+}
+
+// TestObjectParts checks the answers of S3 to reads of the parts of objects. Like S3, a part's
+// checksum is only returned for an object with a composite checksum, and the object's full object
+// checksum for its only part.
+func TestObjectParts(t *testing.T) {
+	objectAPI := &partsCounter{ObjectLayer: fsobjects.New(t.TempDir())}
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket", nil, nil).StatusCode)
+
+	// multipart uploads parts with CRC32 checksums, to an upload with checksumType if it isn't
+	// empty.
+	multipart := func(key, checksumType string, parts [][]byte) {
+		header := http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}}
+		if checksumType != "" {
+			header.Set("X-Amz-Checksum-Type", checksumType)
+		}
+		resp := serve(t, objectAPI, http.MethodPost, "/bucket/"+key+"?uploads", header, nil)
+		uploadID, _, _ := strings.Cut(resp.Body[strings.Index(resp.Body, "<UploadId>")+len("<UploadId>"):], "<")
+		var complete strings.Builder
+		complete.WriteString("<CompleteMultipartUpload>")
+		for i, part := range parts {
+			sum := crc32Base64(part)
+			header := http.Header{"X-Amz-Checksum-Crc32": {sum}, "Content-Length": {strconv.Itoa(len(part))}}
+			resp := serve(t, objectAPI, http.MethodPut, fmt.Sprintf("/bucket/%s?partNumber=%d&uploadId=%s", key, i+1, uploadID), header, part)
+			require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+			fmt.Fprintf(&complete, "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag><ChecksumCRC32>%s</ChecksumCRC32></Part>", i+1, resp.Header.Get("ETag"), sum)
+		}
+		complete.WriteString("</CompleteMultipartUpload>")
+		resp = serve(t, objectAPI, http.MethodPost, "/bucket/"+key+"?uploadId="+uploadID, nil, []byte(complete.String()))
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	}
+	parts := [][]byte{bytes.Repeat([]byte("a"), 5<<20), bytes.Repeat([]byte("b"), 5<<20), []byte("hello world")}
+	multipart("mp", "", parts)
+	multipart("empty", "", [][]byte{parts[0], {}})
+	multipart("full-only", "FULL_OBJECT", [][]byte{parts[2]})
+	multipart("full-empty", "FULL_OBJECT", [][]byte{parts[0], {}})
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/single", nil, []byte("hello world")).StatusCode)
+
+	enabled := http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		resp := serve(t, objectAPI, method, "/bucket/mp?partNumber=2", enabled, nil)
+		require.Equal(t, http.StatusPartialContent, resp.StatusCode, method)
+		assert.Equal(t, "bytes 5242880-10485759/10485771", resp.Header.Get("Content-Range"), method)
+		assert.Equal(t, "5242880", resp.Header.Get("Content-Length"), method)
+		assert.Equal(t, "3", resp.Header.Get("X-Amz-Mp-Parts-Count"), method)
+		assert.Equal(t, "yG5QvA==", resp.Header.Get("X-Amz-Checksum-Crc32"), method)
+		assert.Equal(t, "COMPOSITE", resp.Header.Get("X-Amz-Checksum-Type"), method)
+	}
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/mp?partNumber=3", nil, nil)
+	require.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Equal(t, "hello world", resp.Body)
+
+	// Like S3, an empty part is sent as an entire empty response.
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		resp := serve(t, objectAPI, method, "/bucket/empty?partNumber=2", enabled, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, method)
+		assert.Empty(t, resp.Header.Get("Content-Range"), method)
+		assert.Equal(t, "0", resp.Header.Get("Content-Length"), method)
+		assert.Equal(t, "2", resp.Header.Get("X-Amz-Mp-Parts-Count"), method)
+		assert.Equal(t, "AAAAAA==", resp.Header.Get("X-Amz-Checksum-Crc32"), method)
+		assert.Empty(t, resp.Body, method)
+	}
+
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/full-only?partNumber=1", enabled, nil)
+	require.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Equal(t, "DUoRhQ==", resp.Header.Get("X-Amz-Checksum-Crc32"))
+	assert.Equal(t, "FULL_OBJECT", resp.Header.Get("X-Amz-Checksum-Type"))
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/full-empty?partNumber=1", enabled, nil)
+	require.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("X-Amz-Checksum-Crc32"))
+	assert.Empty(t, resp.Header.Get("X-Amz-Checksum-Type"))
+	resp = serve(t, objectAPI, http.MethodGet, "/bucket/mp?partNumber=4", nil, nil)
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode)
+	assert.Contains(t, resp.Body, "<Code>InvalidPartNumber</Code>")
+
+	// Part 1 of an object that wasn't uploaded in parts is the entire object.
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/single?partNumber=1", nil, nil)
+	require.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Equal(t, "bytes 0-10/11", resp.Header.Get("Content-Range"))
+	assert.Empty(t, resp.Header.Get("X-Amz-Mp-Parts-Count"))
+	require.Equal(t, http.StatusRequestedRangeNotSatisfiable, serve(t, objectAPI, http.MethodHead, "/bucket/single?partNumber=2", nil, nil).StatusCode)
+
+	attributes := func(key string, header http.Header) string {
+		h := http.Header{"X-Amz-Object-Attributes": {"ETag,Checksum,ObjectParts,ObjectSize"}}
+		maps.Copy(h, header)
+		resp := serve(t, objectAPI, http.MethodGet, "/bucket/"+key+"?attributes", h, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		return resp.Body
+	}
+	assert.Contains(t, attributes("mp", http.Header{"X-Amz-Max-Parts": {"2"}}), "<Checksum><ChecksumCRC32>DNYx6w==</ChecksumCRC32><ChecksumType>COMPOSITE</ChecksumType></Checksum>"+
+		"<ObjectParts><PartsCount>3</PartsCount><PartNumberMarker>0</PartNumberMarker><NextPartNumberMarker>2</NextPartNumberMarker><MaxParts>2</MaxParts><IsTruncated>true</IsTruncated>"+
+		"<Part><PartNumber>1</PartNumber><Size>5242880</Size><ChecksumCRC32>r/zBbw==</ChecksumCRC32></Part>"+
+		"<Part><PartNumber>2</PartNumber><Size>5242880</Size><ChecksumCRC32>yG5QvA==</ChecksumCRC32></Part></ObjectParts><ObjectSize>10485771</ObjectSize>")
+	assert.Contains(t, attributes("mp", http.Header{"X-Amz-Part-Number-Marker": {"3"}}), "<ObjectParts><PartsCount>3</PartsCount><PartNumberMarker>3</PartNumberMarker><NextPartNumberMarker>0</NextPartNumberMarker><MaxParts>1000</MaxParts><IsTruncated>false</IsTruncated></ObjectParts>")
+	assert.NotContains(t, attributes("single", nil), "<ObjectParts>")
+
+	// The parts are only listed for objects whose parts are reported.
+	resp = serve(t, objectAPI, http.MethodPost, "/bucket/full?uploads", nil, nil)
+	uploadID, _, _ := strings.Cut(resp.Body[strings.Index(resp.Body, "<UploadId>")+len("<UploadId>"):], "<")
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket/full?partNumber=1&uploadId="+uploadID, nil, parts[2])
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	complete := fmt.Sprintf("<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part></CompleteMultipartUpload>", resp.Header.Get("ETag"))
+	resp = serve(t, objectAPI, http.MethodPost, "/bucket/full?uploadId="+uploadID, nil, []byte(complete))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+
+	objectAPI.listings = 0
+	assert.NotContains(t, attributes("full", nil), "<ObjectParts>")
+	assert.NotContains(t, attributes("single", nil), "<ObjectParts>")
+	assert.Zero(t, objectAPI.listings)
+	attributes("mp", nil)
+	assert.Equal(t, 1, objectAPI.listings)
+}
+
+// partsCounter counts the GetObjectInfo calls that list an object's parts.
+type partsCounter struct {
+	objectlayer.ObjectLayer
+	listings int
+}
+
+func (c *partsCounter) GetObjectInfo(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+	if opts.ObjectParts != nil {
+		c.listings++
+	}
+	return c.ObjectLayer.GetObjectInfo(ctx, bucket, object, opts)
 }

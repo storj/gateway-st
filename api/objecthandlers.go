@@ -761,18 +761,24 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 
 	// The paging headers only matter, and are only validated, if the parts are requested. An
 	// empty value is accepted.
+	var partsOptions *objectlayer.ObjectPartsOptions
 	if objectParts {
+		partsOptions = &objectlayer.ObjectPartsOptions{MaxParts: maxPartsList}
 		if maxParts := r.Header.Get("X-Amz-Max-Parts"); maxParts != "" {
-			if _, err := strconv.ParseInt(maxParts, 10, 32); err != nil {
+			value, err := strconv.ParseInt(maxParts, 10, 32)
+			if err != nil {
 				api.writeErrorResponse(w, r, apierr.CodeInvalidMaxPartsHeader)
 				return
 			}
+			partsOptions.MaxParts = int(value)
 		}
 		if marker := r.Header.Get("X-Amz-Part-Number-Marker"); marker != "" {
-			if _, err := strconv.ParseInt(marker, 10, 32); err != nil {
+			value, err := strconv.ParseInt(marker, 10, 32)
+			if err != nil {
 				api.writeErrorResponse(w, r, apierr.CodeInvalidPartNumberMarkerHeader)
 				return
 			}
+			partsOptions.PartNumberMarker = int(value)
 		}
 	}
 
@@ -790,17 +796,25 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		api.writeErrorResponse(w, r, err)
 		return
 	}
+	// Listing the parts can cost the object layer more requests, and like S3, only the parts of
+	// an object with a composite checksum are reported, so they're only listed for those.
+	if partsOptions != nil && objInfo.Checksum.Composite {
+		objInfo, err = api.objectAPI.GetObjectInfo(ctx, bucketName, objectKey, objectlayer.ObjectOptions{VersionID: versionID, ObjectParts: partsOptions})
+		if err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
+	}
 
 	// ObjectSize is a pointer so that a requested size of 0 is still encoded.
 	var resp struct {
 		XMLName      xml.Name          `xml:"http://s3.amazonaws.com/doc/2006-03-01/ GetObjectAttributesResponse"`
 		ETag         string            `xml:",omitempty"`
 		Checksum     *checksumElements `xml:",omitempty"`
+		ObjectParts  *attributesParts  `xml:",omitempty"`
 		StorageClass string            `xml:",omitempty"`
 		ObjectSize   *int64            `xml:",omitempty"`
 	}
-	// TODO: ObjectParts is accepted but omitted, because the object layer doesn't report parts
-	// (ceph's test_get_*multipart_object_attributes).
 	for _, name := range names {
 		switch name {
 		case xhttp.ETag:
@@ -811,6 +825,10 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 			checksum := objInfo.Checksum
 			checksum.Value, _, _ = strings.Cut(checksum.Value, "-")
 			resp.Checksum = newChecksumElements(checksum)
+		case xhttp.ObjectParts:
+			if objInfo.PartsCount > 0 && objInfo.Checksum.Composite {
+				resp.ObjectParts = newAttributesParts(objInfo, *partsOptions)
+			}
 		case xhttp.StorageClass:
 			resp.StorageClass = storageclass.STANDARD
 			if objInfo.StorageClass != "" {
@@ -837,6 +855,38 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	api.writeSuccessResponseXML(w, r, encodedResp)
+}
+
+// attributesParts is the ObjectParts element of a GetObjectAttributes response.
+type attributesParts struct {
+	PartsCount           int
+	PartNumberMarker     int
+	NextPartNumberMarker int
+	MaxParts             int
+	IsTruncated          bool
+	Parts                []attributesPart `xml:"Part"`
+}
+
+// attributesPart is a part in the ObjectParts element of a GetObjectAttributes response.
+type attributesPart struct {
+	PartNumber int
+	Size       int64
+	*checksumValues
+}
+
+// newAttributesParts returns the ObjectParts element of a page of an object's parts.
+func newAttributesParts(objInfo objectlayer.ObjectInfo, opts objectlayer.ObjectPartsOptions) *attributesParts {
+	element := attributesParts{
+		PartsCount:       objInfo.PartsCount,
+		PartNumberMarker: opts.PartNumberMarker,
+		MaxParts:         opts.MaxParts,
+		IsTruncated:      objInfo.PartsTruncated,
+	}
+	for _, part := range objInfo.Parts {
+		element.Parts = append(element.Parts, attributesPart{PartNumber: part.PartNumber, Size: part.Size, checksumValues: newChecksumValues(part.Checksum)})
+		element.NextPartNumberMarker = part.PartNumber
+	}
+	return &element
 }
 
 // checksumElements are the elements of an object's checksum in the Checksum element of a
@@ -1346,15 +1396,17 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 		return true
 	}
 
-	// Like S3, the conditions are evaluated before the part number.
-	//
-	// TODO: part numbers aren't mapped to byte ranges because our object layer doesn't report
-	// the parts of an object, so only part 1, which returns the entire object, is accepted, and
-	// x-amz-mp-parts-count isn't sent (ceph's test_multipart_get_part and
-	// test_multipart_single_get_part). Add the mapping if the object layer starts reporting parts.
-	if opts.PartNumber > 1 {
-		writeError(apierr.CodeInvalidPartNumber)
-		return true
+	// Like S3, the conditions are evaluated before the part number. Part 1 of an object that
+	// wasn't uploaded in parts is the entire object.
+	if opts.PartNumber > 0 {
+		hasPart := opts.PartNumber == 1
+		if objInfo.PartsCount > 0 {
+			hasPart = len(objInfo.Parts) == 1 && objInfo.Parts[0].PartNumber == opts.PartNumber
+		}
+		if !hasPart {
+			writeError(apierr.CodeInvalidPartNumber)
+			return true
+		}
 	}
 
 	return false
