@@ -363,7 +363,7 @@ binaries: ${BINARIES} ## Build gateway binaries
 		-w /usr/src/gateway \
 		-e GOCACHE=/tmp/go-pkg \
 		-u $$(id -u):$$(id -g) \
-		golang:"${GO_VERSION}" scripts/build_linux.sh "release/${TAG}" "${LDFLAGS}"
+		golang:"${GO_VERSION}" scripts/build_binaries.sh "release/${TAG}" "${LDFLAGS}"
 
 .PHONY: push-images
 push-images: ## Push Docker images to Docker Hub
