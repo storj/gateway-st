@@ -512,6 +512,7 @@ func TestCompleteMultipartUploadLikeS3(t *testing.T) {
 		// S3 validates the checksums before the parts, even with a wrong ETag.
 		{"checksum that isn't base64", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>!!!</ChecksumCRC32>"), "InvalidArgument"},
 		{"checksum without padding", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQ</ChecksumCRC32>"), "InvalidArgument"},
+		{"checksum with non-zero padding bits", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>DUoRhR==</ChecksumCRC32>"), "InvalidArgument"},
 		{"checksum with a newline", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32>AQEBAQ==\n</ChecksumCRC32>"), "InvalidArgument"},
 		{"checksum with spaces", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumCRC32> AQEBAQ== </ChecksumCRC32>"), "InvalidArgument"},
 		{"checksum of the wrong size", "uploadId=id", part("<PartNumber>1</PartNumber><ETag>a</ETag><ChecksumSHA256>AAAA</ChecksumSHA256>"), "InvalidArgument"},
@@ -548,11 +549,11 @@ func TestCompleteMultipartUploadLikeS3(t *testing.T) {
 	require.Equal(t, []objectlayer.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
 
 	// Any root element, part number whitespace and leading zeros, and the checksum elements are
-	// accepted.
+	// accepted. The checksums are the object layer's to check.
 	resp = complete("uploadId=id", "<Complete><Part><PartNumber> 01 </PartNumber><ETag>a</ETag>"+
 		"<ChecksumCRC32>AAAAAA==</ChecksumCRC32></Part></Complete>")
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
-	require.Equal(t, []objectlayer.CompletePart{{PartNumber: 1, ETag: "a"}}, got)
+	require.Equal(t, []objectlayer.CompletePart{{PartNumber: 1, ETag: "a", Checksum: objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: "AAAAAA=="}}}, got)
 }
 
 // TestUploadPartHeadersLikeS3 checks the responses that S3 returned for the same requests.

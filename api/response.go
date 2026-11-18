@@ -314,6 +314,34 @@ func withIfNoneMatchCondition(err error, r *http.Request) error {
 	return withCondition(err, xhttp.IfNoneMatch)
 }
 
+// checksumErrorResponse returns the response to the object layer's checksum errors, which have
+// S3's messages.
+func checksumErrorResponse(err error) (apierr.Response, bool) {
+	var (
+		partAlgorithm objectlayer.PartChecksumAlgorithmMismatch
+		missingPart   objectlayer.MissingPartChecksum
+		typeMismatch  objectlayer.ChecksumTypeMismatch
+		partMismatch  objectlayer.PartChecksumMismatch
+		mismatch      objectlayer.ChecksumMismatch
+	)
+	var code, description string
+	switch {
+	case errors.As(err, &partAlgorithm):
+		code, description = "InvalidRequest", partAlgorithm.Error()
+	case errors.As(err, &missingPart):
+		code, description = "InvalidRequest", missingPart.Error()
+	case errors.As(err, &typeMismatch):
+		code, description = "InvalidRequest", typeMismatch.Error()
+	case errors.As(err, &partMismatch):
+		code, description = "BadDigest", partMismatch.Error()
+	case errors.As(err, &mismatch):
+		code, description = "BadDigest", mismatch.Error()
+	default:
+		return apierr.Response{}, false
+	}
+	return apierr.Response{Code: code, Description: description, HTTPStatusCode: http.StatusBadRequest}, true
+}
+
 func errToResponse(err error) (resp apierr.Response, matched bool) {
 	if errors.As(err, &resp) {
 		return resp, true
@@ -321,6 +349,10 @@ func errToResponse(err error) (resp apierr.Response, matched bool) {
 
 	if provider := apierr.ResponseProvider(nil); errors.As(err, &provider) {
 		return provider.ToResponse(), true
+	}
+
+	if resp, ok := checksumErrorResponse(err); ok {
+		return resp, true
 	}
 
 	if miniogoResp := (miniogo.ErrorResponse{}); errors.As(err, &miniogoResp) {
@@ -720,17 +752,17 @@ func generateListVersionsResponse(bucketName string, params listObjectVersionsPa
 	return data
 }
 
-// listChecksum returns the ChecksumAlgorithm and ChecksumType elements of an object in a listing,
-// which are empty if the object has no checksum.
+// listChecksum returns the ChecksumAlgorithm and ChecksumType elements of an object or upload in
+// a listing, which are empty if it has no checksum or, like S3, a default one.
 func listChecksum(checksum objectlayer.Checksum) (string, string) {
-	if checksum.Algorithm == objectlayer.ChecksumAlgorithmNone {
+	if checksum.Algorithm == objectlayer.ChecksumAlgorithmNone || checksum.Default {
 		return "", ""
 	}
 	return checksum.Algorithm.String(), checksumType(checksum)
 }
 
-func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.ListMultipartsInfo, encodingType string) cmd.ListMultipartUploadsResponse {
-	listMultipartUploadsResponse := cmd.ListMultipartUploadsResponse{
+func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.ListMultipartsInfo, encodingType string) listMultipartUploadsResponse {
+	listMultipartUploadsResponse := listMultipartUploadsResponse{
 		Bucket:             bucket,
 		Delimiter:          s3EncodeName(listInfo.Delimiter, encodingType),
 		IsTruncated:        listInfo.IsTruncated,
@@ -742,7 +774,7 @@ func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.Li
 		NextUploadIDMarker: listInfo.NextUploadIDMarker,
 		UploadIDMarker:     listInfo.UploadIDMarker,
 		CommonPrefixes:     make([]cmd.CommonPrefix, len(listInfo.CommonPrefixes)),
-		Uploads:            make([]cmd.Upload, len(listInfo.Uploads)),
+		Uploads:            make([]listUpload, len(listInfo.Uploads)),
 	}
 
 	for index, commonPrefix := range listInfo.CommonPrefixes {
@@ -752,7 +784,7 @@ func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.Li
 	}
 
 	for index, upload := range listInfo.Uploads {
-		listMultipartUploadsResponse.Uploads[index] = cmd.Upload{
+		listMultipartUploadsResponse.Uploads[index] = listUpload{
 			UploadID: upload.UploadID,
 			Key:      s3EncodeName(upload.Object, encodingType),
 			Initiator: cmd.Initiator{
@@ -764,6 +796,7 @@ func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.Li
 			StorageClass: defaultStorageClass,
 			Initiated:    upload.Initiated.UTC().Format(iso8601Milli),
 		}
+		listMultipartUploadsResponse.Uploads[index].ChecksumAlgorithm, listMultipartUploadsResponse.Uploads[index].ChecksumType = listChecksum(upload.Checksum)
 	}
 
 	return listMultipartUploadsResponse
@@ -771,8 +804,8 @@ func generateListMultipartUploadsResponse(bucket string, listInfo objectlayer.Li
 
 // generateListPartsResponse returns the response to ListParts. Unlike the other listings, ListParts
 // has no encoding-type parameter, so the key is never encoded.
-func generateListPartsResponse(partsInfo objectlayer.ListPartsInfo) cmd.ListPartsResponse {
-	resp := cmd.ListPartsResponse{
+func generateListPartsResponse(partsInfo objectlayer.ListPartsInfo) listPartsResponse {
+	resp := listPartsResponse{
 		Bucket:   partsInfo.Bucket,
 		Key:      partsInfo.Object,
 		UploadID: partsInfo.UploadID,
@@ -787,14 +820,16 @@ func generateListPartsResponse(partsInfo objectlayer.ListPartsInfo) cmd.ListPart
 		NextPartNumberMarker: partsInfo.NextPartNumberMarker,
 		MaxParts:             partsInfo.MaxParts,
 		IsTruncated:          partsInfo.IsTruncated,
-		Parts:                make([]cmd.Part, 0, len(partsInfo.Parts)),
+		Parts:                make([]listPart, 0, len(partsInfo.Parts)),
 	}
+	resp.ChecksumAlgorithm, resp.ChecksumType = listChecksum(partsInfo.Checksum)
 
 	for _, part := range partsInfo.Parts {
-		respPart := cmd.Part{
-			PartNumber:   part.PartNumber,
-			LastModified: part.LastModified.UTC().Format(iso8601Milli),
-			Size:         part.Size,
+		respPart := listPart{
+			PartNumber:     part.PartNumber,
+			LastModified:   part.LastModified.UTC().Format(iso8601Milli),
+			Size:           part.Size,
+			checksumValues: newChecksumValues(part.Checksum),
 		}
 		if part.ETag != "" {
 			respPart.ETag = `"` + part.ETag + `"`
@@ -856,10 +891,11 @@ func generateListLicensesResponse(licenses []objectlayer.License) listLicensesRe
 	return resp
 }
 
-func generateCopyObjectPartResponse(partInfo objectlayer.PartInfo) cmd.CopyObjectPartResponse {
-	return cmd.CopyObjectPartResponse{
-		ETag:         "\"" + partInfo.ETag + "\"",
-		LastModified: partInfo.LastModified.UTC().Format(iso8601Milli),
+func generateCopyObjectPartResponse(partInfo objectlayer.PartInfo) copyObjectPartResponse {
+	return copyObjectPartResponse{
+		ETag:           "\"" + partInfo.ETag + "\"",
+		LastModified:   partInfo.LastModified.UTC().Format(iso8601Milli),
+		checksumValues: newChecksumValues(partInfo.Checksum),
 	}
 }
 

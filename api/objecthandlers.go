@@ -374,7 +374,11 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	putObjReader := objectlayer.NewPutObjReader(hash.NewAwsigReader(body, size, size))
-	partInfo, err := api.objectAPI.PutObjectPart(ctx, bucketName, objectKey, uploadID, partNumber, putObjReader, objectlayer.ObjectOptions{})
+	var opts objectlayer.ObjectOptions
+	if _, algorithm, ok := requestedChecksum(r.Header); ok {
+		opts.ChecksumAlgorithm = objectChecksumAlgorithms[algorithm]
+	}
+	partInfo, err := api.objectAPI.PutObjectPart(ctx, bucketName, objectKey, uploadID, partNumber, putObjReader, opts)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -384,7 +388,10 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 	// clients expect the ETag header key to be literally "ETag" - not "Etag" (case-sensitive).
 	// Therefore, we have to set the ETag directly as a map entry.
 	w.Header()[xhttp.ETag] = []string{"\"" + partInfo.ETag + "\""}
-	setChecksumHeaders(w, r.Header, body)
+	// Like S3, a part's checksum is returned without a type, even one computed for its upload.
+	if !setChecksumHeaders(w, r.Header, body) && partInfo.Checksum.Algorithm != objectlayer.ChecksumAlgorithmNone && !partInfo.Checksum.Default {
+		w.Header().Set(xAmzChecksumPrefix+partInfo.Checksum.Algorithm.String(), partInfo.Checksum.Value)
+	}
 
 	api.writeSuccessResponseHeadersOnly(w, r)
 }
@@ -799,8 +806,11 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 		case xhttp.ETag:
 			resp.ETag = objInfo.ETag
 		case xhttp.Checksum:
-			// Unlike GetObject and HeadObject, X-Amz-Checksum-Mode isn't needed, nor checked.
-			resp.Checksum = newChecksumElements(objInfo.Checksum)
+			// Unlike GetObject and HeadObject, X-Amz-Checksum-Mode isn't needed, nor checked, and
+			// a composite checksum doesn't end with the number of parts.
+			checksum := objInfo.Checksum
+			checksum.Value, _, _ = strings.Cut(checksum.Value, "-")
+			resp.Checksum = newChecksumElements(checksum)
 		case xhttp.StorageClass:
 			resp.StorageClass = storageclass.STANDARD
 			if objInfo.StorageClass != "" {
@@ -830,34 +840,53 @@ func (api *API) GetObjectAttributesHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // checksumElements are the elements of an object's checksum in the Checksum element of a
-// GetObjectAttributes response and in a CopyObjectResult.
+// GetObjectAttributes response, a CopyObjectResult and a CompleteMultipartUploadResult.
 type checksumElements struct {
+	checksumValues
+	ChecksumType string
+}
+
+// checksumValues are the elements of a checksum's value, of which there is one, named after the
+// checksum's algorithm.
+type checksumValues struct {
 	ChecksumCRC32     string `xml:",omitempty"`
 	ChecksumCRC32C    string `xml:",omitempty"`
 	ChecksumCRC64NVME string `xml:",omitempty"`
 	ChecksumSHA1      string `xml:",omitempty"`
 	ChecksumSHA256    string `xml:",omitempty"`
-	ChecksumType      string
 }
 
 // newChecksumElements returns the elements of an object's checksum, or nil if the object has none.
 func newChecksumElements(checksum objectlayer.Checksum) *checksumElements {
-	element := checksumElements{ChecksumType: checksumType(checksum)}
+	values := newChecksumValues(checksum)
+	if values == nil {
+		return nil
+	}
+	return &checksumElements{checksumValues: *values, ChecksumType: checksumType(checksum)}
+}
+
+// newChecksumValues returns the elements of a checksum's value, or nil if there's no checksum or,
+// like S3, a default one of an upload.
+func newChecksumValues(checksum objectlayer.Checksum) *checksumValues {
+	if checksum.Default {
+		return nil
+	}
+	var values checksumValues
 	switch checksum.Algorithm {
 	case objectlayer.ChecksumAlgorithmCRC32:
-		element.ChecksumCRC32 = checksum.Value
+		values.ChecksumCRC32 = checksum.Value
 	case objectlayer.ChecksumAlgorithmCRC32C:
-		element.ChecksumCRC32C = checksum.Value
+		values.ChecksumCRC32C = checksum.Value
 	case objectlayer.ChecksumAlgorithmCRC64NVME:
-		element.ChecksumCRC64NVME = checksum.Value
+		values.ChecksumCRC64NVME = checksum.Value
 	case objectlayer.ChecksumAlgorithmSHA1:
-		element.ChecksumSHA1 = checksum.Value
+		values.ChecksumSHA1 = checksum.Value
 	case objectlayer.ChecksumAlgorithmSHA256:
-		element.ChecksumSHA256 = checksum.Value
+		values.ChecksumSHA256 = checksum.Value
 	default:
 		return nil
 	}
-	return &element
+	return &values
 }
 
 // GetObjectLegalHoldHandler is the HTTP handler for the GetObjectLegalHold operation,
@@ -1580,6 +1609,10 @@ func (api *API) DeleteObjectTaggingHandler(w http.ResponseWriter, r *http.Reques
 	api.writeSuccessNoContent(w, r)
 }
 
+// errCopyCompositeChecksum is the error of CopyObject for a checksum algorithm and a source with a
+// composite checksum.
+var errCopyCompositeChecksum = objectlayer.NotImplemented{Message: "Specifying a checksum algorithm for the destination object of a source object with a composite checksum is not supported."}
+
 // CopyObjectHandler is the HTTP handler for the CopyObject operation, which creates a copy of an
 // existing object.
 func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
@@ -1739,6 +1772,16 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if legalHold.Status.Valid() {
 		dstOpts.LegalHold = &legalHold.Status
+	}
+
+	// TODO: S3 gives the copy of an object with a composite CRC32 checksum a full object checksum,
+	// with or without a requested algorithm. The parts' CRCs could be combined into it without
+	// reading the data, but uplink can't set the checksum of a copy yet. Until then, a copy keeps
+	// the composite checksum, which still matches its parts, and one that requests an algorithm is
+	// refused, which the design of object checksums asks for.
+	if checksumAlgorithm != objectlayer.ChecksumAlgorithmNone && srcInfo.Checksum.Composite {
+		api.writeErrorResponse(w, r, errCopyCompositeChecksum)
+		return
 	}
 
 	objInfo, err := api.objectAPI.CopyObject(ctx, srcBucket, srcObject, dstBucket, dstObject, srcInfo, srcOpts, dstOpts)
@@ -1909,7 +1952,8 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := checkMultipartChecksumHeaders(r.Header); err != nil {
+	checksumAlgorithm, requestedType, err := multipartChecksumHeaders(r.Header)
+	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -1934,7 +1978,11 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		metadata[xhttp.AmzObjectTagging] = objTags
 	}
 
-	opts := objectlayer.ObjectOptions{UserDefined: metadata}
+	opts := objectlayer.ObjectOptions{
+		UserDefined:       metadata,
+		ChecksumAlgorithm: checksumAlgorithm,
+		ChecksumType:      requestedType,
+	}
 
 	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
 	if err != nil {
@@ -1966,6 +2014,11 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		api.writeErrorResponse(w, r, err)
 		return
 	}
+	// Like S3, the requested algorithm and type are returned, and not a default one.
+	if checksum := upload.Checksum; checksum.Algorithm != objectlayer.ChecksumAlgorithmNone && !checksum.Default {
+		w.Header().Set("X-Amz-Checksum-Algorithm", checksum.Algorithm.String())
+		w.Header().Set("X-Amz-Checksum-Type", checksumType(checksum))
+	}
 	api.writeSuccessResponseXML(w, r, encodedResp)
 }
 
@@ -1983,8 +2036,8 @@ var completePartChecksumSizes = map[string]int{
 
 // decodeCompleteMultipartUpload decodes a CompleteMultipartUpload body. Like S3, any root element is
 // accepted, but unknown and repeated elements, text, part numbers that aren't integers and invalid
-// checksums are refused. The checksums are otherwise ignored, because the object layer doesn't
-// store them.
+// checksums are refused. A part checksum with an algorithm that no upload can have is refused like
+// S3 refuses one other than the upload's.
 func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePart, error) {
 	var doc struct {
 		Text  string `xml:",chardata"`
@@ -2010,6 +2063,7 @@ func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePar
 	// isn't well-formed first.
 	var invalidChecksums string
 	var parts []objectlayer.CompletePart
+	var unsupported error
 	for _, part := range doc.Parts {
 		if len(part.PartNumber) != 1 || len(part.ETag) != 1 || hasText(part.Text) {
 			return nil, apierr.CodeMalformedXML
@@ -2018,6 +2072,7 @@ func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePar
 		var checksums int
 		var checksumValues strings.Builder
 		var invalidChecksum bool
+		var checksumName, checksumValue string
 		for _, element := range part.Others {
 			size, ok := completePartChecksumSizes[element.XMLName.Local]
 			if !ok || seen[element.XMLName.Local] {
@@ -2027,8 +2082,8 @@ func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePar
 			if strings.TrimSpace(element.Value) == "" {
 				continue
 			}
-			// Go's decoder skips newlines, which S3 refuses.
-			decoded, err := base64.StdEncoding.DecodeString(element.Value)
+			// Go's decoder skips newlines, which S3 refuses, even in strict mode.
+			decoded, err := base64.StdEncoding.Strict().DecodeString(element.Value)
 			checksums++
 			checksumValues.WriteString(strings.TrimPrefix(element.XMLName.Local, "Checksum"))
 			checksumValues.WriteString(":")
@@ -2037,6 +2092,7 @@ func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePar
 			if err != nil || len(decoded) != size || strings.ContainsAny(element.Value, "\r\n") || checksums > 1 {
 				invalidChecksum = true
 			}
+			checksumName, checksumValue = strings.TrimPrefix(element.XMLName.Local, "Checksum"), element.Value
 		}
 		if invalidChecksum && invalidChecksums == "" {
 			invalidChecksums = checksumValues.String()
@@ -2050,13 +2106,28 @@ func decodeCompleteMultipartUpload(body awsig.Reader) ([]objectlayer.CompletePar
 				return nil, apierr.CodeMalformedXML
 			}
 		}
-		parts = append(parts, objectlayer.CompletePart{PartNumber: int(number), ETag: part.ETag[0]})
+		completePart := objectlayer.CompletePart{PartNumber: int(number), ETag: part.ETag[0]}
+		if checksumName != "" {
+			algorithm, err := objectlayer.ParseChecksumAlgorithm(checksumName)
+			if err != nil && unsupported == nil {
+				unsupported = apierr.Response{
+					Code:           "BadDigest",
+					Description:    "The " + strings.ToLower(checksumName) + " you specified for part " + strconv.Itoa(completePart.PartNumber) + " did not match what we received.",
+					HTTPStatusCode: http.StatusBadRequest,
+				}
+			}
+			completePart.Checksum = objectlayer.Checksum{Algorithm: algorithm, Value: checksumValue}
+		}
+		parts = append(parts, completePart)
 	}
 	if invalidChecksums != "" {
 		errResp, _ := apierr.CodeInvalidPartChecksum.ToResponse()
 		errResp.ArgumentName = "Checksum"
 		errResp.ArgumentValue = invalidChecksums
 		return nil, errResp
+	}
+	if unsupported != nil {
+		return nil, unsupported
 	}
 	return parts, nil
 }
@@ -2076,7 +2147,6 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 
 	// X-Amz-Checksum-<algorithm> headers of this request carry the checksum of the whole
 	// object rather than of the request body, so only Content-MD5 is verified here.
-	// Full-object checksums are ignored, because the object layer doesn't store checksums.
 	vr, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
@@ -2087,7 +2157,8 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if _, _, err := checksumValueHeaders(r.Header); err != nil {
+	checksumType, checksumAlgorithm, checksumValue, err := completeChecksumHeaders(r.Header)
+	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -2185,7 +2256,10 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	// success, but the object layer no longer knows the upload and returns NoSuchUpload (ceph's
 	// test_multipart_upload and test_multipart_upload_small).
 	objInfo, err := api.objectAPI.CompleteMultipartUpload(ctx, bucketName, objectKey, uploadID, parts, objectlayer.ObjectOptions{
-		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
+		IfNoneMatch:       r.Header.Values(xhttp.IfNoneMatch),
+		ChecksumType:      checksumType,
+		ChecksumAlgorithm: checksumAlgorithm,
+		ChecksumValue:     checksumValue,
 	})
 	keepAliveSent := stopKeepAlive()
 	if err != nil {
@@ -2198,11 +2272,12 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	response := cmd.CompleteMultipartUploadResponse{
-		Location: GetObjectURL(r, objectKey),
-		Bucket:   bucketName,
-		Key:      objectKey,
-		ETag:     `"` + objInfo.ETag + `"`,
+	response := completeMultipartUploadResponse{
+		Location:         GetObjectURL(r, objectKey),
+		Bucket:           bucketName,
+		Key:              objectKey,
+		ETag:             `"` + objInfo.ETag + `"`,
+		checksumElements: newChecksumElements(objInfo.Checksum),
 	}
 
 	var encodedResp []byte

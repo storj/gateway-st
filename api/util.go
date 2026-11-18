@@ -36,6 +36,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -623,47 +624,87 @@ func checksumValueHeaders(h http.Header) (headers []string, algorithms []awsig.C
 	return headers, algorithms, nil
 }
 
-// checkMultipartChecksumHeaders checks the X-Amz-Checksum-Algorithm and X-Amz-Checksum-Type
-// headers of a request that creates a multipart upload. Only CRC checksums can be of the whole
-// object, and CRC64NVME checksums can only be.
-//
-// The requested checksums aren't returned by the later requests of the upload, because the object
-// layer doesn't store checksums.
-func checkMultipartChecksumHeaders(h http.Header) error {
-	invalid := func(description string) error {
-		return apierr.Response{Code: "InvalidRequest", Description: description, HTTPStatusCode: http.StatusBadRequest}
+// multipartChecksumHeaders returns the algorithm and type that the X-Amz-Checksum-Algorithm and
+// X-Amz-Checksum-Type headers of a request that creates a multipart upload ask its checksums to
+// have. Only CRC checksums can be of the whole object, and CRC64NVME checksums can only be.
+func multipartChecksumHeaders(h http.Header) (objectlayer.ChecksumAlgorithm, objectlayer.ChecksumType, error) {
+	invalid := func(description string) (objectlayer.ChecksumAlgorithm, objectlayer.ChecksumType, error) {
+		return objectlayer.ChecksumAlgorithmNone, objectlayer.ChecksumTypeNone,
+			apierr.Response{Code: "InvalidRequest", Description: description, HTTPStatusCode: http.StatusBadRequest}
 	}
 
-	name, checksumType := h.Get("X-Amz-Checksum-Algorithm"), h.Get("X-Amz-Checksum-Type")
+	name, typeName := h.Get("X-Amz-Checksum-Algorithm"), h.Get("X-Amz-Checksum-Type")
 	if name == "" {
-		if checksumType != "" {
+		if typeName != "" {
 			return invalid("The x-amz-checksum-type header can only be used with the x-amz-checksum-algorithm header.")
 		}
-		return nil
+		return objectlayer.ChecksumAlgorithmNone, objectlayer.ChecksumTypeNone, nil
 	}
 	algorithm, err := checksumHeaderAlgorithm(xAmzChecksumPrefix + name)
 	switch {
 	case errors.Is(err, apierr.CodeChecksumsUnsupported):
-		return err
+		return objectlayer.ChecksumAlgorithmNone, objectlayer.ChecksumTypeNone, err
 	case err != nil:
 		return invalid("Checksum algorithm provided is unsupported.")
 	}
 
 	isCRC := algorithm == awsig.AlgorithmCRC32 || algorithm == awsig.AlgorithmCRC32C || algorithm == awsig.AlgorithmCRC64NVME
-	switch checksumType {
+	var checksumType objectlayer.ChecksumType
+	switch typeName {
 	case "":
 	case "COMPOSITE":
 		if algorithm == awsig.AlgorithmCRC64NVME {
 			return invalid("The COMPOSITE checksum type cannot be used with the CRC64NVME checksum algorithm.")
 		}
+		checksumType = objectlayer.ChecksumTypeComposite
 	case "FULL_OBJECT":
 		if !isCRC {
 			return invalid("The FULL_OBJECT checksum type cannot be used with the " + strings.ToUpper(algorithm.String()) + " checksum algorithm.")
 		}
+		checksumType = objectlayer.ChecksumTypeFullObject
 	default:
 		return invalid("Value for x-amz-checksum-type header is invalid.")
 	}
-	return nil
+	return objectChecksumAlgorithms[algorithm], checksumType, nil
+}
+
+// completeChecksumHeaders returns the checksum type and the whole object's checksum that the
+// X-Amz-Checksum-Type and X-Amz-Checksum-<algorithm> headers of a CompleteMultipartUpload request
+// name. Like S3, the type is in any case.
+func completeChecksumHeaders(h http.Header) (checksumType objectlayer.ChecksumType, algorithm objectlayer.ChecksumAlgorithm, value string, err error) {
+	if typeName, ok := h["X-Amz-Checksum-Type"]; ok {
+		switch {
+		case len(typeName) == 1 && strings.EqualFold(typeName[0], "COMPOSITE"):
+			checksumType = objectlayer.ChecksumTypeComposite
+		case len(typeName) == 1 && strings.EqualFold(typeName[0], "FULL_OBJECT"):
+			checksumType = objectlayer.ChecksumTypeFullObject
+		default:
+			return 0, 0, "", apierr.Response{Code: "InvalidRequest", Description: "Value for x-amz-checksum-type header is invalid.", HTTPStatusCode: http.StatusBadRequest}
+		}
+	}
+
+	headers, algorithms, err := checksumValueHeaders(h)
+	switch {
+	case err != nil:
+		return 0, 0, "", err
+	case len(headers) > 1:
+		return 0, 0, "", apierr.CodeMultipleChecksums
+	case len(headers) == 0:
+		return checksumType, objectlayer.ChecksumAlgorithmNone, "", nil
+	}
+	values := h[headers[0]]
+	// A composite checksum may end with -<number of parts>.
+	sum, parts, hasParts := strings.Cut(values[0], "-")
+	decoded, decodeErr := base64.StdEncoding.Strict().DecodeString(sum)
+	partsCount, partsErr := strconv.Atoi(parts)
+	if len(values) != 1 || decodeErr != nil || len(decoded) != checksumSize(algorithms[0]) || hasParts && (partsErr != nil || partsCount < 1) {
+		return 0, 0, "", apierr.Response{
+			Code:           "InvalidRequest",
+			Description:    "Value for x-amz-checksum-" + algorithms[0].String() + " header is invalid.",
+			HTTPStatusCode: http.StatusBadRequest,
+		}
+	}
+	return checksumType, objectChecksumAlgorithms[algorithms[0]], values[0], nil
 }
 
 // getChecksumRequests returns the checksum requests for verifying a request body: its

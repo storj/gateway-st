@@ -57,6 +57,83 @@ type accessControlPolicy struct {
 	} `xml:"AccessControlList"`
 }
 
+// listPartsResponse is cmd.ListPartsResponse with the upload's checksums.
+type listPartsResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListPartsResult"`
+
+	Bucket               string
+	Key                  string
+	UploadID             string `xml:"UploadId"`
+	Initiator            cmd.Initiator
+	Owner                cmd.Owner
+	StorageClass         string
+	ChecksumAlgorithm    string `xml:",omitempty"`
+	ChecksumType         string `xml:",omitempty"`
+	PartNumberMarker     int
+	NextPartNumberMarker int
+	MaxParts             int
+	IsTruncated          bool
+	Parts                []listPart `xml:"Part"`
+}
+
+// listPart is cmd.Part with its checksum, if it has one.
+type listPart struct {
+	PartNumber   int
+	LastModified string
+	ETag         string
+	Size         int64
+	*checksumValues
+}
+
+// listMultipartUploadsResponse is cmd.ListMultipartUploadsResponse with the uploads' checksums.
+type listMultipartUploadsResponse struct {
+	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListMultipartUploadsResult"`
+
+	Bucket             string
+	KeyMarker          string
+	UploadIDMarker     string `xml:"UploadIdMarker"`
+	NextKeyMarker      string
+	NextUploadIDMarker string `xml:"NextUploadIdMarker"`
+	Delimiter          string `xml:"Delimiter,omitempty"`
+	Prefix             string
+	EncodingType       string `xml:"EncodingType,omitempty"`
+	MaxUploads         int
+	IsTruncated        bool
+	Uploads            []listUpload `xml:"Upload"`
+	CommonPrefixes     []cmd.CommonPrefix
+}
+
+// listUpload is cmd.Upload with the algorithm and type of its checksums, if it has them.
+type listUpload struct {
+	Key               string
+	UploadID          string `xml:"UploadId"`
+	Initiator         cmd.Initiator
+	Owner             cmd.Owner
+	StorageClass      string
+	Initiated         string
+	ChecksumAlgorithm string `xml:",omitempty"`
+	ChecksumType      string `xml:",omitempty"`
+}
+
+// completeMultipartUploadResponse is cmd.CompleteMultipartUploadResponse with the object's
+// checksum, if it has one.
+type completeMultipartUploadResponse struct {
+	XMLName  xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CompleteMultipartUploadResult"`
+	Location string
+	Bucket   string
+	Key      string
+	ETag     string
+	*checksumElements
+}
+
+// copyObjectPartResponse is cmd.CopyObjectPartResponse with the part's checksum, if it has one.
+type copyObjectPartResponse struct {
+	XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CopyPartResult"`
+	LastModified string
+	ETag         string
+	*checksumValues
+}
+
 // copyObjectResponse is cmd.CopyObjectResponse with the copy's checksum, if it has one.
 type copyObjectResponse struct {
 	XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CopyObjectResult"`

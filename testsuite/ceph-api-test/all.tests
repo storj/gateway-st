@@ -773,13 +773,13 @@ s3tests/functional/test_s3.py::test_get_bucket_policy_status
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_xxhash128
 #(checksums) s3tests/functional/test_s3.py::test_object_checksum_md5
 #(matches S3: a malformed checksum is InvalidRequest, not BadDigest) s3tests/functional/test_s3.py::test_object_checksum_crc64nvme
-#(checksums) s3tests/functional/test_s3.py::test_multipart_checksum_sha256
-#(checksums) s3tests/functional/test_s3.py::test_multipart_reupload_checksum_and_etag
-#(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_sha256
-#(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc64nvme
-#(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc32
-#(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc32c
-#(checksums) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_sha1
+#(matches S3: a malformed checksum is InvalidRequest, not BadDigest) s3tests/functional/test_s3.py::test_multipart_checksum_sha256
+#(todo: NoSuchUpload on complete) s3tests/functional/test_s3.py::test_multipart_reupload_checksum_and_etag
+#(todo: GetObject partNumber) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_sha256
+#(todo: GetObject partNumber) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc64nvme
+#(todo: GetObject partNumber) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc32
+#(todo: GetObject partNumber) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_crc32c
+#(todo: GetObject partNumber) s3tests/functional/test_s3.py::test_multipart_use_cksum_helper_sha1
 #(matches S3: a checksum field needs a policy condition) s3tests/functional/test_s3.py::test_post_object_upload_checksum
 #(bucket logging) s3tests/functional/test_s3.py::test_put_bucket_logging
 #(bucket logging) s3tests/functional/test_s3.py::test_bucket_logging_mtime
@@ -897,7 +897,7 @@ s3tests/functional/test_s3.py::test_get_bucket_policy_status
 #(bucket logging) s3tests/functional/test_s3.py::test_bucket_logging_conf_concurrent_updating_roll_j
 #(bucket logging) s3tests/functional/test_s3.py::test_bucket_logging_conf_concurrent_updating_pfx_s
 #(bucket logging) s3tests/functional/test_s3.py::test_bucket_logging_conf_concurrent_updating_pfx_j
-#(checksums) s3tests/functional/test_s3.py::test_get_multipart_checksum_object_attributes
+#(matches S3: completing a composite upload needs every part checksum) s3tests/functional/test_s3.py::test_get_multipart_checksum_object_attributes
 #(todo: GetObjectAttributes ObjectParts) s3tests/functional/test_s3.py::test_get_multipart_object_attributes
 #(todo: GetObjectAttributes ObjectParts) s3tests/functional/test_s3.py::test_get_paginated_multipart_object_attributes
 #(todo: GetObjectAttributes ObjectParts) s3tests/functional/test_s3.py::test_get_single_multipart_object_attributes

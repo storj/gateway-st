@@ -587,6 +587,13 @@ func TestCopyObjectChecksums(t *testing.T) {
 	data := []byte("hello world")
 	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/crc32", http.Header{"X-Amz-Checksum-Crc32": {"DUoRhQ=="}}, data).StatusCode)
 	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/none", nil, data).StatusCode)
+	resp := serve(t, objectAPI, http.MethodPost, "/bucket/composite?uploads", http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}}, nil)
+	uploadID, _, _ := strings.Cut(resp.Body[strings.Index(resp.Body, "<UploadId>")+len("<UploadId>"):], "<")
+	resp = serve(t, objectAPI, http.MethodPut, "/bucket/composite?partNumber=1&uploadId="+uploadID, http.Header{"X-Amz-Checksum-Crc32": {"DUoRhQ=="}}, data)
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+	complete := fmt.Sprintf("<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag><ChecksumCRC32>DUoRhQ==</ChecksumCRC32></Part></CompleteMultipartUpload>", resp.Header.Get("ETag"))
+	resp = serve(t, objectAPI, http.MethodPost, "/bucket/composite?uploadId="+uploadID, nil, []byte(complete))
+	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 
 	const (
 		crc32Result     = `<ETag>&#34;5eb63bbbe01eeed093cb22bb8f5acdc3&#34;</ETag><ChecksumCRC32>DUoRhQ==</ChecksumCRC32><ChecksumType>FULL_OBJECT</ChecksumType></CopyObjectResult>`
@@ -611,6 +618,9 @@ func TestCopyObjectChecksums(t *testing.T) {
 		{"unsupported algorithm", "copy-sha512", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"SHA512"}}, http.StatusNotImplemented, "<Code>NotImplemented</Code>"},
 		{"different algorithm", "copy-sha256", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"SHA256"}}, http.StatusNotImplemented, "Specifying a checksum algorithm for the destination object that differs from that of the source object is not supported."},
 		{"different algorithm onto itself", "crc32", "crc32", http.Header{"X-Amz-Checksum-Algorithm": {"SHA1"}, "X-Amz-Metadata-Directive": {"REPLACE"}}, http.StatusNotImplemented, "Specifying a checksum algorithm for the destination object that differs from that of the source object is not supported."},
+		// Unlike S3, which gives the copy a full object checksum.
+		{"composite", "copy-composite", "composite", nil, http.StatusOK, "<ChecksumCRC32>YChbaA==-1</ChecksumCRC32><ChecksumType>COMPOSITE</ChecksumType></CopyObjectResult>"},
+		{"composite same algorithm", "copy-composite-crc32", "composite", http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}}, http.StatusNotImplemented, "of a source object with a composite checksum is not supported."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			header := http.Header{"X-Amz-Copy-Source": {"/bucket/" + tc.src}}
@@ -624,4 +634,159 @@ func TestCopyObjectChecksums(t *testing.T) {
 	head := serve(t, objectAPI, http.MethodHead, "/bucket/copy", http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}, nil)
 	require.Equal(t, http.StatusOK, head.StatusCode)
 	require.Equal(t, "DUoRhQ==", head.Header.Get("X-Amz-Checksum-Crc32"))
+}
+
+// TestMultipartUploadChecksums checks the answers of S3 to the requests of multipart uploads with
+// checksums. Unlike S3, an upload requested without an algorithm reports its default full object
+// CRC64NVME checksums before it's completed.
+func TestMultipartUploadChecksums(t *testing.T) {
+	objectAPI := fsobjects.New(t.TempDir())
+	require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket", nil, nil).StatusCode)
+	data := []byte("hello world")
+	const crc32Value = "DUoRhQ=="
+
+	create := func(t *testing.T, key string, header http.Header) (response, string) {
+		resp := serve(t, objectAPI, http.MethodPost, "/bucket/"+key+"?uploads", header, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		uploadID, _, _ := strings.Cut(resp.Body[strings.Index(resp.Body, "<UploadId>")+len("<UploadId>"):], "<")
+		return resp, uploadID
+	}
+	putPart := func(key, uploadID string, header http.Header) response {
+		return serve(t, objectAPI, http.MethodPut, fmt.Sprintf("/bucket/%s?partNumber=1&uploadId=%s", key, uploadID), header, data)
+	}
+	complete := func(key, uploadID, partChecksum string, header http.Header) response {
+		body := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>"5eb63bbbe01eeed093cb22bb8f5acdc3"</ETag>` + partChecksum + `</Part></CompleteMultipartUpload>`
+		return serve(t, objectAPI, http.MethodPost, fmt.Sprintf("/bucket/%s?uploadId=%s", key, uploadID), header, []byte(body))
+	}
+
+	t.Run("composite", func(t *testing.T) {
+		resp, uploadID := create(t, "composite", http.Header{"X-Amz-Checksum-Algorithm": {"crc32"}})
+		require.Equal(t, "CRC32", resp.Header.Get("X-Amz-Checksum-Algorithm"))
+		require.Equal(t, "COMPOSITE", resp.Header.Get("X-Amz-Checksum-Type"))
+
+		resp = putPart("composite", uploadID, nil)
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Contains(t, resp.Body, "<Message>Checksum Type mismatch occurred, expected checksum Type: crc32, actual checksum Type: null</Message>")
+		resp = putPart("composite", uploadID, http.Header{"X-Amz-Checksum-Crc32": {"yZRlqg=="}})
+		require.Contains(t, resp.Body, "<Code>BadDigest</Code><Message>The CRC32 you specified did not match the calculated checksum.</Message>")
+		// Like S3, a checksum with non-zero padding bits is malformed, not wrong.
+		resp = putPart("composite", uploadID, http.Header{"X-Amz-Checksum-Crc32": {"DUoRhR=="}})
+		require.Contains(t, resp.Body, "<Code>InvalidRequest</Code><Message>Value for x-amz-checksum-crc32 header is invalid.</Message>")
+		resp = putPart("composite", uploadID, http.Header{"X-Amz-Checksum-Crc32": {crc32Value}})
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, crc32Value, resp.Header.Get("X-Amz-Checksum-Crc32"))
+		require.Empty(t, resp.Header.Get("X-Amz-Checksum-Type"))
+
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/composite?uploadId="+uploadID, nil, nil)
+		require.Contains(t, resp.Body, "<StorageClass>STANDARD</StorageClass><ChecksumAlgorithm>CRC32</ChecksumAlgorithm><ChecksumType>COMPOSITE</ChecksumType><PartNumberMarker>")
+		require.Contains(t, resp.Body, "<Size>11</Size><ChecksumCRC32>"+crc32Value+"</ChecksumCRC32></Part>")
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket?uploads&prefix=composite", nil, nil)
+		require.Regexp(t, `</Initiated><ChecksumAlgorithm>CRC32</ChecksumAlgorithm><ChecksumType>COMPOSITE</ChecksumType></Upload>`, resp.Body)
+
+		resp = complete("composite", uploadID, "", nil)
+		require.Contains(t, resp.Body, "<Message>The upload was created using a crc32 checksum. The complete request must include the checksum for each part. It was missing for part 1 in the request.</Message>")
+		resp = complete("composite", uploadID, "<ChecksumSHA512>"+base64.StdEncoding.EncodeToString(make([]byte, 64))+"</ChecksumSHA512>", nil)
+		require.Contains(t, resp.Body, "<Code>BadDigest</Code><Message>The sha512 you specified for part 1 did not match what we received.</Message>")
+		resp = complete("composite", uploadID, "<ChecksumCRC32>"+crc32Value+"</ChecksumCRC32>", http.Header{"X-Amz-Checksum-Type": {"BAD"}})
+		require.Contains(t, resp.Body, "<Message>Value for x-amz-checksum-type header is invalid.</Message>")
+		resp = complete("composite", uploadID, "<ChecksumCRC32>"+crc32Value+"</ChecksumCRC32>", http.Header{"X-Amz-Checksum-Type": {"full_object"}})
+		require.Contains(t, resp.Body, "<Message>The upload was created using the COMPOSITE checksum mode. The complete request must use the same checksum mode.</Message>")
+
+		for _, value := range []string{"YChbaA==-0", "YChbaA==-"} {
+			resp = complete("composite", uploadID, "<ChecksumCRC32>"+crc32Value+"</ChecksumCRC32>", http.Header{"X-Amz-Checksum-Crc32": {value}})
+			require.Contains(t, resp.Body, "<Message>Value for x-amz-checksum-crc32 header is invalid.</Message>", value)
+		}
+		resp = complete("composite", uploadID, "<ChecksumCRC32>"+crc32Value+"</ChecksumCRC32>", http.Header{"X-Amz-Checksum-Crc32": {"YChbaA==-2"}})
+		require.Contains(t, resp.Body, "<Code>BadDigest</Code>")
+
+		// Like S3, the composite checksum may leave out the number of parts, as minio-go does.
+		resp = complete("composite", uploadID, "<ChecksumCRC32>"+crc32Value+"</ChecksumCRC32>", http.Header{"X-Amz-Checksum-Type": {"composite"}, "X-Amz-Checksum-Crc32": {"YChbaA=="}})
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "</ETag><ChecksumCRC32>YChbaA==-1</ChecksumCRC32><ChecksumType>COMPOSITE</ChecksumType></CompleteMultipartUploadResult>")
+
+		head := serve(t, objectAPI, http.MethodHead, "/bucket/composite", http.Header{"X-Amz-Checksum-Mode": {"ENABLED"}}, nil)
+		require.Equal(t, "YChbaA==-1", head.Header.Get("X-Amz-Checksum-Crc32"))
+		require.Equal(t, "COMPOSITE", head.Header.Get("X-Amz-Checksum-Type"))
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/composite?attributes", http.Header{"X-Amz-Object-Attributes": {"Checksum"}}, nil)
+		require.Contains(t, resp.Body, "<Checksum><ChecksumCRC32>YChbaA==</ChecksumCRC32><ChecksumType>COMPOSITE</ChecksumType></Checksum>")
+	})
+
+	t.Run("object layer without checksums", func(t *testing.T) {
+		withoutChecksums := &fakeObjectLayer{
+			newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
+				return objectlayer.NewMultipartUploadResult{UploadID: "id"}, nil
+			},
+		}
+		resp := serve(t, withoutChecksums, http.MethodPost, "/bucket/key?uploads", http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Empty(t, resp.Header.Get("X-Amz-Checksum-Algorithm"))
+		require.Empty(t, resp.Header.Get("X-Amz-Checksum-Type"))
+	})
+
+	t.Run("full object", func(t *testing.T) {
+		resp, uploadID := create(t, "full", http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}, "X-Amz-Checksum-Type": {"FULL_OBJECT"}})
+		require.Equal(t, "FULL_OBJECT", resp.Header.Get("X-Amz-Checksum-Type"))
+
+		// The part's checksum is computed and returned without being requested.
+		resp = putPart("full", uploadID, http.Header{"X-Amz-Checksum-Crc32c": {"yZRlqg=="}})
+		require.Contains(t, resp.Body, "<Message>Checksum Type mismatch occurred, expected checksum Type: crc32, actual checksum Type: crc32c</Message>")
+		resp = putPart("full", uploadID, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, crc32Value, resp.Header.Get("X-Amz-Checksum-Crc32"))
+
+		// Like S3, which refuses even the right whole object checksum without the type.
+		resp = complete("full", uploadID, "", http.Header{"X-Amz-Checksum-Crc32": {crc32Value}})
+		require.Contains(t, resp.Body, "<Code>BadDigest</Code>")
+		resp = complete("full", uploadID, "", http.Header{"X-Amz-Checksum-Type": {"FULL_OBJECT"}, "X-Amz-Checksum-Crc32": {"yZRlqg=="}})
+		require.Contains(t, resp.Body, "<Code>BadDigest</Code><Message>The crc32 you specified did not match the calculated checksum.</Message>")
+		resp = complete("full", uploadID, "", http.Header{"X-Amz-Checksum-Type": {"FULL_OBJECT"}, "X-Amz-Checksum-Crc32": {crc32Value}})
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<ChecksumCRC32>"+crc32Value+"</ChecksumCRC32><ChecksumType>FULL_OBJECT</ChecksumType>")
+	})
+
+	t.Run("copy part", func(t *testing.T) {
+		require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/source", nil, data).StatusCode)
+		_, uploadID := create(t, "copy", http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}})
+
+		// The part gets a checksum with the upload's algorithm, which isn't its source's.
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/copy?partNumber=1&uploadId="+uploadID, http.Header{"X-Amz-Copy-Source": {"/bucket/source"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "</ETag><ChecksumCRC32>"+crc32Value+"</ChecksumCRC32></CopyPartResult>")
+	})
+
+	// Like S3, an upload requested without an algorithm is reported as without checksums until it's
+	// completed, though it has default CRC64NVME checksums.
+	t.Run("default", func(t *testing.T) {
+		resp, uploadID := create(t, "default", nil)
+		require.Empty(t, resp.Header.Get("X-Amz-Checksum-Algorithm"))
+		require.Empty(t, resp.Header.Get("X-Amz-Checksum-Type"))
+
+		resp = putPart("default", uploadID, http.Header{"X-Amz-Checksum-Crc32": {crc32Value}})
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Equal(t, crc32Value, resp.Header.Get("X-Amz-Checksum-Crc32"))
+		resp = putPart("default", uploadID, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Empty(t, resp.Header.Get("X-Amz-Checksum-Crc64nvme"))
+
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket/default?uploadId="+uploadID, nil, nil)
+		require.NotContains(t, resp.Body, "Checksum")
+		resp = serve(t, objectAPI, http.MethodGet, "/bucket?uploads&prefix=default", nil, nil)
+		require.NotContains(t, resp.Body, "Checksum")
+
+		require.Equal(t, http.StatusOK, serve(t, objectAPI, http.MethodPut, "/bucket/default-source", nil, data).StatusCode)
+		_, copyUploadID := create(t, "default-copy", nil)
+		resp = serve(t, objectAPI, http.MethodPut, "/bucket/default-copy?partNumber=1&uploadId="+copyUploadID, http.Header{"X-Amz-Copy-Source": {"/bucket/default-source"}}, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.NotContains(t, resp.Body, "Checksum")
+
+		resp = complete("default", uploadID, "<ChecksumCRC64NVME>jSnVw/bqjr4=</ChecksumCRC64NVME>", nil)
+		require.Contains(t, resp.Body, "<Code>InvalidPart</Code>")
+		resp = complete("default", uploadID, "", http.Header{"X-Amz-Checksum-Type": {"FULL_OBJECT"}})
+		require.Contains(t, resp.Body, "<Message>The upload was created using the null checksum mode. The complete request must use the same checksum mode.</Message>")
+
+		// A whole object checksum without a type is ignored.
+		resp = complete("default", uploadID, "", http.Header{"X-Amz-Checksum-Crc32": {crc32Value}})
+		require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
+		require.Contains(t, resp.Body, "<ChecksumCRC64NVME>jSnVw/bqjr4=</ChecksumCRC64NVME><ChecksumType>FULL_OBJECT</ChecksumType>")
+	})
 }
