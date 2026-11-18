@@ -24,6 +24,10 @@ cleanup(){
 }
 trap cleanup EXIT
 
+# Duplicati keeps its local database in the working directory, where one left by an earlier run
+# against another satellite makes the backup fail.
+cd "$TMPDIR"
+
 SRC_DIR=$TMPDIR/source
 DST_DIR=$TMPDIR/dst
 mkdir -p "$SRC_DIR" "$DST_DIR"
