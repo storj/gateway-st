@@ -20,6 +20,7 @@ import (
 	"storj.io/common/testrand"
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/gateway/miniogw"
+	"storj.io/gateway/miniogw/minioobjectlayer"
 	minio "storj.io/minio/cmd"
 	"storj.io/minio/pkg/hash"
 	"storj.io/storj/private/testplanet"
@@ -332,5 +333,71 @@ func TestMetadataUpdatesKeepChecksum(t *testing.T) {
 		_, err = layer.CopyObject(ctx, testBucket, testFile, testBucket, testFile, info, objectlayer.ObjectOptions{}, objectlayer.ObjectOptions{})
 		require.NoError(t, err)
 		requireChecksum(t)
+	})
+}
+
+func TestCopyObjectChecksum(t *testing.T) {
+	testplanet.Run(t, testplanet.Config{
+		SatelliteCount: 1, StorageNodeCount: 4, UplinkCount: 1,
+	}, func(t *testing.T, tCtx *testcontext.Context, planet *testplanet.Planet) {
+		sat, upl := planet.Satellites[0], planet.Uplinks[0]
+		sat.API.Metainfo.Endpoint.TestingSetChecksumsEnabled(true)
+
+		project, err := upl.OpenProject(tCtx, sat)
+		require.NoError(t, err)
+		defer tCtx.Check(project.Close)
+
+		ctx := miniogw.WithCredentials(tCtx, project, miniogw.CredentialsInfo{})
+		_, err = project.CreateBucket(ctx, testBucket)
+		require.NoError(t, err)
+
+		want := objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: "DUoRhQ=="}
+		newLayer := func(t *testing.T, objectChecksums bool) minioobjectlayer.ObjectLayer {
+			config := defaultS3CompatibilityConfig
+			config.ObjectChecksums = objectChecksums
+			layer, err := miniogw.NewStorjGateway(config).NewObjectLayer()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, layer.Shutdown(ctx)) })
+			return layer
+		}
+		layer := newLayer(t, true)
+		srcInfo, err := layer.PutObject(ctx, testBucket, testFile, newChecksumReader([]byte("hello world")), objectlayer.ObjectOptions{
+			ChecksumAlgorithm: objectlayer.ChecksumAlgorithmCRC32,
+		})
+		require.NoError(t, err)
+
+		copyWith := func(layer minioobjectlayer.ObjectLayer, dst string, algorithm objectlayer.ChecksumAlgorithm) (objectlayer.ObjectInfo, error) {
+			return layer.CopyObject(ctx, testBucket, testFile, testBucket, dst, srcInfo, objectlayer.ObjectOptions{}, objectlayer.ObjectOptions{ChecksumAlgorithm: algorithm})
+		}
+
+		info, err := copyWith(layer, "copy", objectlayer.ChecksumAlgorithmNone)
+		require.NoError(t, err)
+		require.Equal(t, want, info.Checksum)
+		info, err = layer.GetObjectInfo(ctx, testBucket, "copy", objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, want, info.Checksum)
+
+		info, err = copyWith(layer, "copy-same", objectlayer.ChecksumAlgorithmCRC32)
+		require.NoError(t, err)
+		require.Equal(t, want, info.Checksum)
+
+		_, err = copyWith(layer, "copy-different", objectlayer.ChecksumAlgorithmSHA256)
+		require.ErrorIs(t, err, objectlayer.ErrCopyChecksumAlgorithm)
+		_, err = layer.GetObjectInfo(ctx, testBucket, "copy-different", objectlayer.ObjectOptions{})
+		require.ErrorAs(t, err, new(minio.ObjectNotFound))
+
+		// Copying an object onto itself takes another path.
+		srcInfo.UserDefined = map[string]string{"x-amz-meta-key": "value"}
+		_, err = copyWith(layer, testFile, objectlayer.ChecksumAlgorithmSHA256)
+		require.ErrorIs(t, err, objectlayer.ErrCopyChecksumAlgorithm)
+
+		// Without object checksums, the requested algorithm is ignored, and the copy keeps the
+		// source's checksum without reporting it.
+		info, err = copyWith(newLayer(t, false), "copy-ignored", objectlayer.ChecksumAlgorithmSHA256)
+		require.NoError(t, err)
+		require.Equal(t, objectlayer.Checksum{}, info.Checksum)
+		info, err = layer.GetObjectInfo(ctx, testBucket, "copy-ignored", objectlayer.ObjectOptions{})
+		require.NoError(t, err)
+		require.Equal(t, want, info.Checksum)
 	})
 }

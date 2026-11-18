@@ -953,6 +953,12 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		return objectlayer.ObjectInfo{}, err
 	}
 
+	// Without object checksums, a requested algorithm is ignored, as it was before they existed.
+	expectedChecksum := storj.ObjectChecksumAlgorithmNone
+	if layer.compatibilityConfig.ObjectChecksums && destOpts.ChecksumAlgorithm != objectlayer.ChecksumAlgorithmNone {
+		expectedChecksum = checksumAlgorithmToStorj[destOpts.ChecksumAlgorithm]
+	}
+
 	if srcAndDestSame && srcInfo.VersionID == "" {
 		// TODO this should be removed and implemented on satellite side
 		_, err = project.StatBucket(ctx, srcBucket)
@@ -968,6 +974,9 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 		info, err := versioned.StatObject(ctx, project, srcBucket, srcObject, nil)
 		if err != nil {
 			return objectlayer.ObjectInfo{}, ConvertError(err, srcBucket, srcObject)
+		}
+		if expectedChecksum != storj.ObjectChecksumAlgorithmNone && expectedChecksum != info.Checksum.Algorithm {
+			return objectlayer.ObjectInfo{}, objectlayer.ErrCopyChecksumAlgorithm
 		}
 
 		// The destination is the source, so it exists and If-None-Match: * can't hold.
@@ -1019,9 +1028,10 @@ func (layer *gatewayLayer) CopyObject(ctx context.Context, srcBucket, srcObject,
 	}
 
 	object, err := versioned.CopyObject(ctx, project, srcBucket, srcObject, version, destBucket, destObject, versioned.CopyObjectOptions{
-		Retention:   retention,
-		LegalHold:   destOpts.LegalHold != nil && *destOpts.LegalHold == objectlock.LegalHoldOn,
-		IfNoneMatch: destOpts.IfNoneMatch,
+		Retention:                 retention,
+		LegalHold:                 destOpts.LegalHold != nil && *destOpts.LegalHold == objectlock.LegalHoldOn,
+		IfNoneMatch:               destOpts.IfNoneMatch,
+		ExpectedChecksumAlgorithm: expectedChecksum,
 	})
 	if err != nil {
 		// TODO how we can improve it, its ugly
@@ -1887,6 +1897,8 @@ func ConvertError(err error, bucketName, object string) error {
 		return minio.IncompleteBody{Bucket: bucketName, Object: object, Err: err}
 	case errors.Is(err, versioned.ErrFailedPrecondition):
 		return ErrFailedPrecondition
+	case errors.Is(err, versioned.ErrUnexpectedChecksumAlgorithm):
+		return objectlayer.ErrCopyChecksumAlgorithm
 	case errors.Is(err, versioned.ErrUnimplemented), errors.Is(err, bucket.ErrUnimplemented), errors.Is(err, versioned.ErrChecksumsUnsupported):
 		return minio.NotImplemented{Message: err.Error()}
 	case errors.Is(err, syscall.ECONNRESET):
