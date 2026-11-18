@@ -154,6 +154,8 @@ type uploadMeta struct {
 	Retention   *versionRetention `json:",omitempty"`
 	LegalHold   *bool             `json:",omitempty"`
 	Parts       map[int]partMeta
+	// Checksum is the algorithm and type of the parts' checksums, without a value.
+	Checksum objectlayer.Checksum `json:",omitzero"`
 }
 
 type partMeta struct {
@@ -162,6 +164,8 @@ type partMeta struct {
 	ModTime time.Time
 	// Data is the name of the data file in the upload directory.
 	Data string
+	// Checksum is the base64-encoded checksum, with the upload's algorithm.
+	Checksum string `json:",omitempty"`
 }
 
 func (l *Layer) bucketDir(bucket string) string { return filepath.Join(l.root, bucket) }
@@ -904,8 +908,7 @@ func (l *Layer) PutObject(ctx context.Context, bucket, object string, data *obje
 		return objectlayer.ObjectInfo{}, err
 	}
 
-	// Like S3 and miniogw by default, an object put without a checksum gets a CRC64NVME one.
-	checksum := objectlayer.NewPutChecksum(data, opts.ChecksumAlgorithm, objectlayer.ChecksumAlgorithmCRC64NVME)
+	checksum := objectlayer.NewPutChecksum(data, opts.ChecksumAlgorithm, defaultChecksumAlgorithm)
 	tmp, size, err := l.writeTemp(bucket, checksum.Reader())
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err
@@ -1212,6 +1215,7 @@ func (l *Layer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMar
 			UploadID:    dir.Name(),
 			Initiated:   meta.Initiated,
 			UserDefined: meta.UserDefined,
+			Checksum:    meta.Checksum,
 		})
 	}
 	slices.SortFunc(uploads, func(a, b objectlayer.MultipartInfo) int {
@@ -1269,12 +1273,12 @@ func (l *Layer) ListMultipartUploads(ctx context.Context, bucket, prefix, keyMar
 }
 
 // NewMultipartUpload starts a multipart upload.
-func (l *Layer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (string, error) {
+func (l *Layer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
 	if err := validateBucket(bucket); err != nil {
-		return "", err
+		return objectlayer.NewMultipartUploadResult{}, err
 	}
 	if err := checkPutOptions(bucket, object, opts); err != nil {
-		return "", err
+		return objectlayer.NewMultipartUploadResult{}, err
 	}
 
 	l.mu.Lock()
@@ -1282,44 +1286,64 @@ func (l *Layer) NewMultipartUpload(ctx context.Context, bucket, object string, o
 
 	bucketMeta, err := l.readBucket(bucket)
 	if err != nil {
-		return "", err
+		return objectlayer.NewMultipartUploadResult{}, err
 	}
 	retention, legalHold := newRetention(opts.Retention), newLegalHold(opts.LegalHold)
 	if (retention != nil || legalHold != nil) && !bucketMeta.ObjectLock {
-		return "", errObjectLockNotEnabled
+		return objectlayer.NewMultipartUploadResult{}, errObjectLockNotEnabled
 	}
 	uploadID := randomID()
 	dir := l.uploadDir(bucket, uploadID)
 	if err := os.Mkdir(dir, 0o700); err != nil {
-		return "", err
+		return objectlayer.NewMultipartUploadResult{}, err
 	}
-	return uploadID, writeJSON(filepath.Join(dir, "upload.json"), uploadMeta{
+	checksum := objectlayer.NewUploadChecksum(opts.ChecksumAlgorithm, opts.ChecksumType, defaultChecksumAlgorithm)
+	err = writeJSON(filepath.Join(dir, "upload.json"), uploadMeta{
 		Key:         object,
 		Initiated:   time.Now().UTC(),
 		UserDefined: moveTagging(opts.UserDefined),
 		Retention:   retention,
 		LegalHold:   legalHold,
 		Parts:       make(map[int]partMeta),
+		Checksum:    checksum,
 	})
+	if err != nil {
+		return objectlayer.NewMultipartUploadResult{}, err
+	}
+	return objectlayer.NewMultipartUploadResult{UploadID: uploadID, Checksum: checksum}, nil
 }
 
-// putPart stores the data in r as a part of an upload.
-func (l *Layer) putPart(bucket, object, uploadID string, partID int, r io.Reader, md5Hex func() (string, error)) (objectlayer.PartInfo, error) {
+// defaultChecksumAlgorithm is the algorithm of the checksums of the objects and uploads that are
+// put without one, like S3's and miniogw's by default.
+const defaultChecksumAlgorithm = objectlayer.ChecksumAlgorithmCRC64NVME
+
+// putPart stores the data of the reader that newChecksum returns for the upload's checksums as a
+// part of the upload.
+func (l *Layer) putPart(bucket, object, uploadID string, partID int, md5Hex func() (string, error), newChecksum func(upload objectlayer.Checksum) (*objectlayer.PutChecksum, error)) (objectlayer.PartInfo, error) {
 	if partID < 1 || int64(partID) > math.MaxUint32 {
 		return objectlayer.PartInfo{}, objectlayer.InvalidArgument{Bucket: bucket, Object: object, Err: errors.New("partID is out of range")}
 	}
 	l.mu.Lock()
-	_, err := l.readUpload(bucket, object, uploadID)
+	upload, err := l.readUpload(bucket, object, uploadID)
 	l.mu.Unlock()
 	if err != nil {
 		return objectlayer.PartInfo{}, err
 	}
+	checksum, err := newChecksum(upload.Checksum)
+	if err != nil {
+		return objectlayer.PartInfo{}, err
+	}
 
-	tmp, size, err := l.writeTemp(bucket, r)
+	tmp, size, err := l.writeTemp(bucket, checksum.Reader())
 	if err != nil {
 		return objectlayer.PartInfo{}, err
 	}
 	etag, err := md5Hex()
+	if err != nil {
+		_ = os.Remove(tmp)
+		return objectlayer.PartInfo{}, err
+	}
+	partChecksum, err := checksum.Checksum()
 	if err != nil {
 		_ = os.Remove(tmp)
 		return objectlayer.PartInfo{}, err
@@ -1334,7 +1358,7 @@ func (l *Layer) putPart(bucket, object, uploadID string, partID int, r io.Reader
 		return objectlayer.PartInfo{}, err
 	}
 	dir := l.uploadDir(bucket, uploadID)
-	part := partMeta{Size: size, ETag: etag, ModTime: time.Now().UTC(), Data: randomID() + ".data"}
+	part := partMeta{Size: size, ETag: etag, ModTime: time.Now().UTC(), Data: randomID() + ".data", Checksum: partChecksum.Value}
 	if err := os.Rename(tmp, filepath.Join(dir, part.Data)); err != nil {
 		_ = os.Remove(tmp)
 		return objectlayer.PartInfo{}, err
@@ -1346,22 +1370,28 @@ func (l *Layer) putPart(bucket, object, uploadID string, partID int, r io.Reader
 	if err := writeJSON(filepath.Join(dir, "upload.json"), meta); err != nil {
 		return objectlayer.PartInfo{}, err
 	}
-	return partInfo(partID, part), nil
+	return partInfo(partID, part, meta.Checksum), nil
 }
 
-func partInfo(partID int, part partMeta) objectlayer.PartInfo {
-	return objectlayer.PartInfo{
+func partInfo(partID int, part partMeta, upload objectlayer.Checksum) objectlayer.PartInfo {
+	info := objectlayer.PartInfo{
 		PartNumber:   partID,
 		LastModified: part.ModTime,
 		ETag:         part.ETag,
 		Size:         part.Size,
 		ActualSize:   part.Size,
 	}
+	if part.Checksum != "" {
+		info.Checksum = objectlayer.Checksum{Algorithm: upload.Algorithm, Value: part.Checksum, Default: upload.Default}
+	}
+	return info
 }
 
 // PutObjectPart uploads a part.
 func (l *Layer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *objectlayer.PutObjReader, opts objectlayer.ObjectOptions) (objectlayer.PartInfo, error) {
-	return l.putPart(bucket, object, uploadID, partID, data, data.MD5HexString)
+	return l.putPart(bucket, object, uploadID, partID, data.MD5HexString, func(upload objectlayer.Checksum) (*objectlayer.PutChecksum, error) {
+		return objectlayer.NewPartChecksum(data, upload, opts.ChecksumAlgorithm)
+	})
 }
 
 // CopyObjectPart uploads a range of an object as a part. A negative length copies until the end.
@@ -1375,7 +1405,9 @@ func (l *Layer) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBuc
 		length = info.Size - startOffset
 	}
 	h := newMD5Reader(io.NewSectionReader(f, startOffset, length))
-	return l.putPart(dstBucket, dstObject, uploadID, partID, h, h.hexSum)
+	return l.putPart(dstBucket, dstObject, uploadID, partID, h.hexSum, func(upload objectlayer.Checksum) (*objectlayer.PutChecksum, error) {
+		return objectlayer.NewCopyChecksum(h, upload.Algorithm), nil
+	})
 }
 
 // ListObjectParts lists the parts of an upload after partNumberMarker.
@@ -1395,6 +1427,7 @@ func (l *Layer) ListObjectParts(ctx context.Context, bucket, object, uploadID st
 		PartNumberMarker:     partNumberMarker,
 		NextPartNumberMarker: partNumberMarker,
 		MaxParts:             maxParts,
+		Checksum:             meta.Checksum,
 	}
 	for _, id := range slices.Sorted(maps.Keys(meta.Parts)) {
 		if id <= partNumberMarker {
@@ -1404,7 +1437,7 @@ func (l *Layer) ListObjectParts(ctx context.Context, bucket, object, uploadID st
 			result.IsTruncated = true
 			break
 		}
-		result.Parts = append(result.Parts, partInfo(id, meta.Parts[id]))
+		result.Parts = append(result.Parts, partInfo(id, meta.Parts[id], meta.Checksum))
 		result.NextPartNumberMarker = id
 	}
 	return result, nil
@@ -1453,6 +1486,15 @@ func (l *Layer) CompleteMultipartUpload(ctx context.Context, bucket, object, upl
 		return objectlayer.ObjectInfo{}, objectlayer.InvalidPart{PartNumber: parts[len(ids)].PartNumber, GotETag: parts[len(ids)].ETag}
 	}
 
+	stored := make([]objectlayer.PartChecksum, len(ids))
+	for i, id := range ids {
+		stored[i] = objectlayer.PartChecksum{Value: meta.Parts[id].Checksum, Size: meta.Parts[id].Size}
+	}
+	checksum, err := objectlayer.CompleteChecksum(meta.Checksum, parts, stored, opts)
+	if err != nil {
+		return objectlayer.ObjectInfo{}, err
+	}
+
 	readers := make([]io.Reader, 0, len(ids))
 	defer func() {
 		for _, r := range readers {
@@ -1477,6 +1519,7 @@ func (l *Layer) CompleteMultipartUpload(ctx context.Context, bucket, object, upl
 		UserDefined: meta.UserDefined,
 		Retention:   meta.Retention,
 		LegalHold:   meta.LegalHold,
+		Checksum:    checksum,
 	}, opts.IfNoneMatch)
 	if err != nil {
 		return objectlayer.ObjectInfo{}, err

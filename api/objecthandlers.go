@@ -1951,7 +1951,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		opts.LegalHold = &legalHold.Status
 	}
 
-	uploadID, err := api.objectAPI.NewMultipartUpload(ctx, bucketName, objectKey, opts)
+	upload, err := api.objectAPI.NewMultipartUpload(ctx, bucketName, objectKey, opts)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
@@ -1960,7 +1960,7 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 	encodedResp, err := encodeResponse(cmd.InitiateMultipartUploadResponse{
 		Bucket:   bucketName,
 		Key:      objectKey,
-		UploadID: uploadID,
+		UploadID: upload.UploadID,
 	})
 	if err != nil {
 		api.writeErrorResponse(w, r, err)

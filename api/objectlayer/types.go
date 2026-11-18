@@ -83,10 +83,17 @@ type ObjectOptions struct {
 	CheckPrecondFn CheckPreconditionFn
 	// Quiet is whether only errors are reported, used by DeleteObjects.
 	Quiet bool
-	// ChecksumAlgorithm is the algorithm of the checksum that the object is put with, which the
-	// data computes, used by PutObject. CopyObject refuses a copy whose source has a checksum
-	// with another algorithm with ErrCopyChecksumAlgorithm.
+	// ChecksumAlgorithm is, for PutObject and PutObjectPart, the algorithm of the checksum that
+	// the data is put with, which the data computes. For NewMultipartUpload, it's the algorithm of
+	// the upload's checksums, and for CompleteMultipartUpload, ChecksumValue's. CopyObject refuses
+	// a copy whose source has a checksum with another algorithm with ErrCopyChecksumAlgorithm.
 	ChecksumAlgorithm ChecksumAlgorithm
+	// ChecksumType is the requested type of a multipart upload's checksum, used by
+	// NewMultipartUpload and CompleteMultipartUpload.
+	ChecksumType ChecksumType
+	// ChecksumValue is the base64-encoded checksum that the completed object must have, used by
+	// CompleteMultipartUpload.
+	ChecksumValue string
 }
 
 // PostPolicyForm is the policy of a POST upload.
@@ -187,6 +194,8 @@ type MultipartInfo struct {
 	UploadID    string
 	Initiated   time.Time
 	UserDefined map[string]string
+	// Checksum is the algorithm and type of the upload's checksums, without a value.
+	Checksum Checksum
 }
 
 // ListMultipartsInfo is a page of ListMultipartUploads.
@@ -203,6 +212,14 @@ type ListMultipartsInfo struct {
 	CommonPrefixes     []string
 }
 
+// NewMultipartUploadResult is a multipart upload started by NewMultipartUpload.
+type NewMultipartUploadResult struct {
+	UploadID string
+	// Checksum is the algorithm and type of the upload's checksums, without a value. It has no
+	// algorithm if the object layer doesn't keep the upload's checksums.
+	Checksum Checksum
+}
+
 // PartInfo describes a part of a multipart upload.
 type PartInfo struct {
 	PartNumber   int
@@ -212,6 +229,8 @@ type PartInfo struct {
 	Size int64
 	// ActualSize is the size of the part before any transformation, such as compression.
 	ActualSize int64
+	// Checksum is the part's checksum, with its upload's algorithm.
+	Checksum Checksum
 }
 
 // ListPartsInfo is a page of ListObjectParts.
@@ -226,12 +245,16 @@ type ListPartsInfo struct {
 	IsTruncated          bool
 	Parts                []PartInfo
 	UserDefined          map[string]string
+	// Checksum is the algorithm and type of the upload's checksums, without a value.
+	Checksum Checksum
 }
 
 // CompletePart is a part named in CompleteMultipartUpload.
 type CompletePart struct {
 	PartNumber int
 	ETag       string
+	// Checksum is the part's checksum that the request names, if it names one.
+	Checksum Checksum
 }
 
 // MultipartETag returns the ETag of an object completed from parts.

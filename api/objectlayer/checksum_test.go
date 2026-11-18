@@ -144,6 +144,195 @@ func TestCombineChecksumsOfLargeParts(t *testing.T) {
 	}
 }
 
+func TestNewUploadChecksum(t *testing.T) {
+	const (
+		none      = objectlayer.ChecksumAlgorithmNone
+		crc32     = objectlayer.ChecksumAlgorithmCRC32
+		crc64nvme = objectlayer.ChecksumAlgorithmCRC64NVME
+		sha256    = objectlayer.ChecksumAlgorithmSHA256
+	)
+	for _, tc := range []struct {
+		algorithm, defaultAlgorithm objectlayer.ChecksumAlgorithm
+		checksumType                objectlayer.ChecksumType
+		want                        objectlayer.Checksum
+	}{
+		{none, crc64nvme, objectlayer.ChecksumTypeNone, objectlayer.Checksum{Algorithm: crc64nvme, Default: true}},
+		{none, none, objectlayer.ChecksumTypeNone, objectlayer.Checksum{}},
+		{crc32, crc64nvme, objectlayer.ChecksumTypeNone, objectlayer.Checksum{Algorithm: crc32, Composite: true}},
+		{crc32, crc64nvme, objectlayer.ChecksumTypeFullObject, objectlayer.Checksum{Algorithm: crc32}},
+		{crc32, crc64nvme, objectlayer.ChecksumTypeComposite, objectlayer.Checksum{Algorithm: crc32, Composite: true}},
+		{sha256, none, objectlayer.ChecksumTypeNone, objectlayer.Checksum{Algorithm: sha256, Composite: true}},
+		{crc64nvme, none, objectlayer.ChecksumTypeNone, objectlayer.Checksum{Algorithm: crc64nvme}},
+	} {
+		assert.Equal(t, tc.want, objectlayer.NewUploadChecksum(tc.algorithm, tc.checksumType, tc.defaultAlgorithm), "%+v", tc)
+	}
+}
+
+func TestNewPartChecksum(t *testing.T) {
+	crc32Value := base64.StdEncoding.EncodeToString(binary.BigEndian.AppendUint32(nil, crc32.ChecksumIEEE([]byte("hello world"))))
+	newData := func() *objectlayer.PutObjReader {
+		sum, err := base64.StdEncoding.DecodeString(crc32Value)
+		require.NoError(t, err)
+		return objectlayer.NewPutObjReader(hashReader{
+			Reader: strings.NewReader("hello world"),
+			sums:   map[minioHash.Algorithm][]byte{minioHash.AlgorithmCRC32: sum},
+		})
+	}
+	read := func(t *testing.T, checksum *objectlayer.PutChecksum) objectlayer.Checksum {
+		_, err := io.ReadAll(checksum.Reader())
+		require.NoError(t, err)
+		got, err := checksum.Checksum()
+		require.NoError(t, err)
+		return got
+	}
+	composite := objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Composite: true}
+	full := objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC64NVME}
+
+	checksum, err := objectlayer.NewPartChecksum(newData(), composite, objectlayer.ChecksumAlgorithmCRC32)
+	require.NoError(t, err)
+	assert.Equal(t, objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC32, Value: crc32Value}, read(t, checksum))
+
+	_, err = objectlayer.NewPartChecksum(newData(), composite, objectlayer.ChecksumAlgorithmNone)
+	require.ErrorIs(t, err, objectlayer.PartChecksumAlgorithmMismatch{Expected: objectlayer.ChecksumAlgorithmCRC32, Actual: objectlayer.ChecksumAlgorithmNone})
+	_, err = objectlayer.NewPartChecksum(newData(), composite, objectlayer.ChecksumAlgorithmSHA256)
+	require.ErrorIs(t, err, objectlayer.PartChecksumAlgorithmMismatch{Expected: objectlayer.ChecksumAlgorithmCRC32, Actual: objectlayer.ChecksumAlgorithmSHA256})
+
+	// A part of an upload with full object checksums requested without one gets one computed.
+	checksum, err = objectlayer.NewPartChecksum(newData(), full, objectlayer.ChecksumAlgorithmNone)
+	require.NoError(t, err)
+	assert.Equal(t, objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC64NVME, Value: "jSnVw/bqjr4="}, read(t, checksum))
+	_, err = objectlayer.NewPartChecksum(newData(), full, objectlayer.ChecksumAlgorithmCRC32)
+	require.ErrorIs(t, err, objectlayer.PartChecksumAlgorithmMismatch{Expected: objectlayer.ChecksumAlgorithmCRC64NVME, Actual: objectlayer.ChecksumAlgorithmCRC32})
+
+	// A part of an upload with a default algorithm gets one computed, whatever it's requested with.
+	defaulted := objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC64NVME, Default: true}
+	for _, requested := range []objectlayer.ChecksumAlgorithm{objectlayer.ChecksumAlgorithmNone, objectlayer.ChecksumAlgorithmCRC32} {
+		checksum, err = objectlayer.NewPartChecksum(newData(), defaulted, requested)
+		require.NoError(t, err)
+		assert.Equal(t, objectlayer.Checksum{Algorithm: objectlayer.ChecksumAlgorithmCRC64NVME, Value: "jSnVw/bqjr4="}, read(t, checksum))
+	}
+
+	checksum, err = objectlayer.NewPartChecksum(newData(), objectlayer.Checksum{}, objectlayer.ChecksumAlgorithmCRC32)
+	require.NoError(t, err)
+	assert.Equal(t, objectlayer.Checksum{}, read(t, checksum))
+}
+
+// TestCompleteChecksum checks the answers of S3 to CompleteMultipartUpload requests for an upload
+// of 5 MiB of 'a' and then "hello world".
+func TestCompleteChecksum(t *testing.T) {
+	stored := []objectlayer.PartChecksum{{Value: "r/zBbw==", Size: 5 << 20}, {Value: "DUoRhQ==", Size: 11}}
+	named := func(algorithm objectlayer.ChecksumAlgorithm, values ...string) []objectlayer.CompletePart {
+		parts := make([]objectlayer.CompletePart, len(values))
+		for i, value := range values {
+			parts[i] = objectlayer.CompletePart{PartNumber: i + 1}
+			if value != "" {
+				parts[i].Checksum = objectlayer.Checksum{Algorithm: algorithm, Value: value}
+			}
+		}
+		return parts
+	}
+	const crc32 = objectlayer.ChecksumAlgorithmCRC32
+	composite := objectlayer.Checksum{Algorithm: crc32, Composite: true}
+	full := objectlayer.Checksum{Algorithm: crc32}
+	defaulted := objectlayer.Checksum{Algorithm: crc32, Default: true}
+	compositeWant := objectlayer.Checksum{Algorithm: crc32, Composite: true, Value: "NSvTHQ==-2"}
+	fullWant := objectlayer.Checksum{Algorithm: crc32, Value: "WrTTSg=="}
+
+	for _, tc := range []struct {
+		name   string
+		upload objectlayer.Checksum
+		parts  []objectlayer.CompletePart
+		opts   objectlayer.ObjectOptions
+		want   objectlayer.Checksum
+		err    error
+	}{
+		{name: "composite", upload: composite, parts: named(crc32, "r/zBbw==", "DUoRhQ=="), want: compositeWant},
+		{name: "composite without part checksums", upload: composite, parts: named(crc32, "", ""),
+			err: objectlayer.MissingPartChecksum{Algorithm: crc32, PartNumber: 1}},
+		{name: "composite wrong part checksum", upload: composite, parts: named(crc32, "yZRlqg==", "DUoRhQ=="), err: objectlayer.InvalidPart{PartNumber: 1}},
+		{name: "composite other algorithm part checksum", upload: composite, parts: named(objectlayer.ChecksumAlgorithmSHA256, "uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=", "x"),
+			err: objectlayer.PartChecksumMismatch{Algorithm: objectlayer.ChecksumAlgorithmSHA256, PartNumber: 1}},
+		{name: "composite type FULL_OBJECT", upload: composite, parts: named(crc32, "r/zBbw==", "DUoRhQ=="), opts: objectlayer.ObjectOptions{ChecksumType: objectlayer.ChecksumTypeFullObject},
+			err: objectlayer.ChecksumTypeMismatch{Upload: objectlayer.ChecksumTypeComposite}},
+		{name: "composite whole checksum", upload: composite, parts: named(crc32, "r/zBbw==", "DUoRhQ=="),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "NSvTHQ==-2"}, want: compositeWant},
+		{name: "composite whole checksum without part count", upload: composite, parts: named(crc32, "r/zBbw==", "DUoRhQ=="),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "NSvTHQ=="}, want: compositeWant},
+		{name: "composite whole checksum wrong part count", upload: composite, parts: named(crc32, "r/zBbw==", "DUoRhQ=="),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "NSvTHQ==-3"},
+			err:  objectlayer.ChecksumMismatch{Algorithm: crc32}},
+		{name: "full", upload: full, parts: named(crc32, "", ""), want: fullWant},
+		{name: "full with part checksums", upload: full, parts: named(crc32, "r/zBbw==", "DUoRhQ=="), want: fullWant},
+		{name: "full whole checksum", upload: full, parts: named(crc32, "", ""),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "WrTTSg==", ChecksumType: objectlayer.ChecksumTypeFullObject}, want: fullWant},
+		{name: "full wrong whole checksum", upload: full, parts: named(crc32, "", ""),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "DUoRhQ==", ChecksumType: objectlayer.ChecksumTypeFullObject},
+			err:  objectlayer.ChecksumMismatch{Algorithm: crc32}},
+		// Like S3, which refuses even the right one without the type.
+		{name: "full whole checksum without type", upload: full, parts: named(crc32, "", ""),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "WrTTSg=="},
+			err:  objectlayer.ChecksumMismatch{Algorithm: crc32}},
+		{name: "default", upload: defaulted, parts: named(crc32, "", ""), want: fullWant},
+		{name: "default whole checksum without type", upload: defaulted, parts: named(crc32, "", ""),
+			opts: objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "DUoRhQ=="}, want: fullWant},
+		{name: "default with part checksums", upload: defaulted, parts: named(crc32, "r/zBbw==", "DUoRhQ=="),
+			err: objectlayer.InvalidPart{PartNumber: 1}},
+		{name: "default type FULL_OBJECT", upload: defaulted, parts: named(crc32, "", ""), opts: objectlayer.ObjectOptions{ChecksumType: objectlayer.ChecksumTypeFullObject},
+			err: objectlayer.ChecksumTypeMismatch{Upload: objectlayer.ChecksumTypeNone}},
+		{name: "full type COMPOSITE", upload: full, parts: named(crc32, "", ""), opts: objectlayer.ObjectOptions{ChecksumType: objectlayer.ChecksumTypeComposite},
+			err: objectlayer.ChecksumTypeMismatch{Upload: objectlayer.ChecksumTypeFullObject}},
+		{name: "no checksums", upload: objectlayer.Checksum{}, parts: named(crc32, "x", "y"),
+			opts: objectlayer.ObjectOptions{ChecksumType: objectlayer.ChecksumTypeFullObject, ChecksumAlgorithm: crc32, ChecksumValue: "z"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := objectlayer.CompleteChecksum(tc.upload, tc.parts, stored, tc.opts)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	// A part stored without a checksum leaves the upload's checksums incomplete, so the object is
+	// completed without one, and the request's checksums aren't checked.
+	partial := []objectlayer.PartChecksum{stored[0], {Size: 11}}
+	for _, upload := range []objectlayer.Checksum{composite, full, defaulted} {
+		opts := objectlayer.ObjectOptions{ChecksumAlgorithm: crc32, ChecksumValue: "WrTTSg==", ChecksumType: objectlayer.ChecksumTypeFullObject}
+		got, err := objectlayer.CompleteChecksum(upload, named(crc32, "r/zBbw==", "DUoRhQ=="), partial, opts)
+		require.NoError(t, err, upload)
+		require.Equal(t, objectlayer.Checksum{}, got, upload)
+	}
+}
+
+// TestChecksumErrorMessages checks that the errors of multipart upload checksums have the messages
+// that S3 answers them with.
+func TestChecksumErrorMessages(t *testing.T) {
+	const (
+		none      = objectlayer.ChecksumAlgorithmNone
+		crc32     = objectlayer.ChecksumAlgorithmCRC32
+		crc64nvme = objectlayer.ChecksumAlgorithmCRC64NVME
+		sha256    = objectlayer.ChecksumAlgorithmSHA256
+	)
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{objectlayer.PartChecksumAlgorithmMismatch{Expected: crc32, Actual: none}, "Checksum Type mismatch occurred, expected checksum Type: crc32, actual checksum Type: null"},
+		{objectlayer.PartChecksumAlgorithmMismatch{Expected: crc32, Actual: sha256}, "Checksum Type mismatch occurred, expected checksum Type: crc32, actual checksum Type: sha256"},
+		{objectlayer.PartChecksumAlgorithmMismatch{Expected: crc64nvme, Actual: crc32}, "Checksum Type mismatch occurred, expected checksum Type: crc64nvme, actual checksum Type: crc32"},
+		{objectlayer.MissingPartChecksum{Algorithm: crc32, PartNumber: 1}, "The upload was created using a crc32 checksum. The complete request must include the checksum for each part. It was missing for part 1 in the request."},
+		{objectlayer.PartChecksumMismatch{Algorithm: sha256, PartNumber: 1}, "The sha256 you specified for part 1 did not match what we received."},
+		{objectlayer.ChecksumTypeMismatch{Upload: objectlayer.ChecksumTypeComposite}, "The upload was created using the COMPOSITE checksum mode. The complete request must use the same checksum mode."},
+		{objectlayer.ChecksumTypeMismatch{Upload: objectlayer.ChecksumTypeFullObject}, "The upload was created using the FULL_OBJECT checksum mode. The complete request must use the same checksum mode."},
+		{objectlayer.ChecksumTypeMismatch{Upload: objectlayer.ChecksumTypeNone}, "The upload was created using the null checksum mode. The complete request must use the same checksum mode."},
+		{objectlayer.ChecksumMismatch{Algorithm: crc32}, "The crc32 you specified did not match the calculated checksum."},
+	} {
+		assert.Equal(t, tc.want, tc.err.Error())
+	}
+}
+
 func TestParseChecksumAlgorithm(t *testing.T) {
 	for name, want := range map[string]objectlayer.ChecksumAlgorithm{
 		"":          objectlayer.ChecksumAlgorithmNone,

@@ -220,7 +220,8 @@ func (a *adapter) ListMultipartUploads(ctx context.Context, bucket, prefix, keyM
 }
 
 func (a *adapter) NewMultipartUpload(ctx context.Context, bucket, object string, opts minio.ObjectOptions) (string, error) {
-	return a.layer.NewMultipartUpload(ctx, bucket, object, fromMinioObjectOptions(opts))
+	result, err := a.layer.NewMultipartUpload(ctx, bucket, object, fromMinioObjectOptions(opts))
+	return result.UploadID, err
 }
 
 func (a *adapter) CopyObjectPart(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo minio.ObjectInfo, srcOpts, dstOpts minio.ObjectOptions) (minio.PartInfo, error) {

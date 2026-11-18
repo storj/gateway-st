@@ -148,24 +148,24 @@ func (layer *gatewayLayer) ListMultipartUploads(ctx context.Context, bucket, pre
 	}, nil
 }
 
-func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (uploadID string, err error) {
+func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (_ objectlayer.NewMultipartUploadResult, err error) {
 	defer mon.Task()(&ctx)(&err)
 
 	if err := ValidateBucket(ctx, bucket); err != nil {
-		return "", minio.BucketNameInvalid{Bucket: bucket}
+		return objectlayer.NewMultipartUploadResult{}, minio.BucketNameInvalid{Bucket: bucket}
 	}
 
 	if len(object) > memory.KiB.Int() { // https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
-		return "", minio.ObjectNameTooLong{Bucket: bucket, Object: object}
+		return objectlayer.NewMultipartUploadResult{}, minio.ObjectNameTooLong{Bucket: bucket, Object: object}
 	}
 
 	if storageClass, ok := opts.UserDefined[xhttp.AmzStorageClass]; ok && storageClass != storageclass.STANDARD {
-		return "", minio.NotImplemented{Message: "NewMultipartUpload (storage class)"}
+		return objectlayer.NewMultipartUploadResult{}, minio.NotImplemented{Message: "NewMultipartUpload (storage class)"}
 	}
 
 	project, err := projectFromContext(ctx)
 	if err != nil {
-		return "", err
+		return objectlayer.NewMultipartUploadResult{}, err
 	}
 
 	if tagsStr, ok := opts.UserDefined[xhttp.AmzObjectTagging]; ok {
@@ -175,14 +175,14 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 
 	e, err := parseTTL(opts.UserDefined)
 	if err != nil {
-		return "", ErrInvalidTTL
+		return objectlayer.NewMultipartUploadResult{}, ErrInvalidTTL
 	}
 
 	var retention metaclient.Retention
 	if opts.Retention != nil {
 		retMode, err := parseRetentionMode(opts.Retention.Mode)
 		if err != nil {
-			return "", err
+			return objectlayer.NewMultipartUploadResult{}, err
 		}
 
 		retention.Mode = retMode
@@ -192,7 +192,7 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 	if opts.LegalHold != nil {
 		legalHold, err = parseLegalHoldStatus(*opts.LegalHold)
 		if err != nil {
-			return "", convertMultipartError(err, bucket, object, uploadID)
+			return objectlayer.NewMultipartUploadResult{}, convertMultipartError(err, bucket, object, "")
 		}
 	}
 
@@ -205,10 +205,10 @@ func (layer *gatewayLayer) NewMultipartUpload(ctx context.Context, bucket, objec
 		LegalHold: legalHold,
 	})
 	if err != nil {
-		return "", convertMultipartError(err, bucket, object, "")
+		return objectlayer.NewMultipartUploadResult{}, convertMultipartError(err, bucket, object, "")
 	}
 
-	return info.UploadID, nil
+	return objectlayer.NewMultipartUploadResult{UploadID: info.UploadID}, nil
 }
 
 func (layer *gatewayLayer) PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *minio.PutObjReader, opts objectlayer.ObjectOptions) (info objectlayer.PartInfo, err error) {

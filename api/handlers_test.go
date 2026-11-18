@@ -71,7 +71,7 @@ type fakeObjectLayer struct {
 	deleteObjectTags        func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
 	deleteObjects           func(ctx context.Context, bucket string, objects []cmd.ObjectToDelete, opts objectlayer.ObjectOptions) ([]cmd.DeletedObject, []cmd.DeleteObjectsError, error)
 	copyObjectPart          func(ctx context.Context, srcBucket, srcObject, dstBucket, dstObject, uploadID string, partID int, startOffset, length int64, srcInfo objectlayer.ObjectInfo, srcOpts, dstOpts objectlayer.ObjectOptions) (objectlayer.PartInfo, error)
-	newMultipartUpload      func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (string, error)
+	newMultipartUpload      func(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error)
 	completeMultipartUpload func(ctx context.Context, bucket, object, uploadID string, parts []objectlayer.CompletePart, opts objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error)
 	abortMultipartUpload    func(ctx context.Context, bucket, object, uploadID string, opts objectlayer.ObjectOptions) error
 	listObjectParts         func(ctx context.Context, bucket, object, uploadID string, partNumberMarker, maxParts int, opts objectlayer.ObjectOptions) (objectlayer.ListPartsInfo, error)
@@ -174,9 +174,9 @@ func (f *fakeObjectLayer) CopyObjectPart(ctx context.Context, srcBucket, srcObje
 	return f.copyObjectPart(ctx, srcBucket, srcObject, dstBucket, dstObject, uploadID, partID, startOffset, length, srcInfo, srcOpts, dstOpts)
 }
 
-func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (string, error) {
+func (f *fakeObjectLayer) NewMultipartUpload(ctx context.Context, bucket, object string, opts objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
 	if err := f.record("NewMultipartUpload"); err != nil {
-		return "", err
+		return objectlayer.NewMultipartUploadResult{}, err
 	}
 	return f.newMultipartUpload(ctx, bucket, object, opts)
 }
@@ -1517,9 +1517,9 @@ func TestCopyPreconditionCondition(t *testing.T) {
 func TestCreateMultipartUpload(t *testing.T) {
 	var gotOpts objectlayer.ObjectOptions
 	objectAPI := &fakeObjectLayer{
-		newMultipartUpload: func(_ context.Context, _, _ string, opts objectlayer.ObjectOptions) (string, error) {
+		newMultipartUpload: func(_ context.Context, _, _ string, opts objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
 			gotOpts = opts
-			return "upload-id", nil
+			return objectlayer.NewMultipartUploadResult{UploadID: "upload-id"}, nil
 		},
 	}
 

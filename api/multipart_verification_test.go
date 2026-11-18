@@ -49,8 +49,8 @@ func TestCompleteMultipartUploadBodyVerification(t *testing.T) {
 
 func TestCreateMultipartUploadChecksumHeaders(t *testing.T) {
 	objectAPI := &fakeObjectLayer{
-		newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (string, error) {
-			return "upload-id", nil
+		newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
+			return objectlayer.NewMultipartUploadResult{UploadID: "upload-id"}, nil
 		},
 	}
 

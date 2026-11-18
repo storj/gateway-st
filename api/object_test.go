@@ -707,7 +707,9 @@ func (putObjectLayer) PutObject(_ context.Context, bucket, object string, _ *cmd
 // in a lowercase parameter, and ignores other casings.
 func TestStorageClassInQueryLikeS3(t *testing.T) {
 	objectAPI := putObjectLayer{&fakeObjectLayer{
-		newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (string, error) { return "id", nil },
+		newMultipartUpload: func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
+			return objectlayer.NewMultipartUploadResult{UploadID: "id"}, nil
+		},
 	}}
 
 	for _, target := range []string{"/bucket/key?", "/bucket/key?uploads&"} {
@@ -745,7 +747,9 @@ func TestServerSideEncryptionHeaders(t *testing.T) {
 		argument      = "<ArgumentName>x-amz-server-side-encryption</ArgumentName>"
 	)
 	objectAPI := putObjectLayer{singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", Size: 4, ETag: "etag"}, "data")}
-	objectAPI.newMultipartUpload = func(context.Context, string, string, objectlayer.ObjectOptions) (string, error) { return "id", nil }
+	objectAPI.newMultipartUpload = func(context.Context, string, string, objectlayer.ObjectOptions) (objectlayer.NewMultipartUploadResult, error) {
+		return objectlayer.NewMultipartUploadResult{UploadID: "id"}, nil
+	}
 	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
 		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "etag"}, nil
 	}
