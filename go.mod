@@ -17,11 +17,11 @@ require (
 	golang.org/x/sync v0.24.0
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	storj.io/common v0.0.0-20261110015124-599033c90265
+	storj.io/common v0.0.0-20261117144644-5dc55c8d899d
 	storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f
-	storj.io/minio v0.0.0-20261112114603-5349b4571cad
-	storj.io/picobuf v0.0.4
-	storj.io/uplink v1.14.6-0.20261112190731-173d950a6c8c
+	storj.io/minio v0.0.0-20261113105205-fed7ec058273
+	storj.io/picobuf v0.9.4
+	storj.io/uplink v1.14.6-0.20261118093113-14111e1f5c00
 )
 
 require (
@@ -206,7 +206,7 @@ require (
 	gopkg.in/jcmturner/gokrb5.v7 v7.5.0 // indirect
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	storj.io/drpc v1.0.0 // indirect
+	storj.io/drpc v1.1.0 // indirect
 	storj.io/infectious v1.0.1 // indirect
 	storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad // indirect
 )
