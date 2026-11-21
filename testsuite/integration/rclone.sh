@@ -53,13 +53,9 @@ rclone config create TestS3 s3 \
 git clone --branch "$RCLONE_VERSION" --depth 1 https://github.com/rclone/rclone
 cd rclone
 
-# only run "fs/sync" for the moment, as the other main test suite
-# "fs/operations" has modification time window test failures.
-# see https://github.com/storj/gateway-st/issues/46
 test_all \
     -backends s3 \
     -remotes TestS3: \
-    -tests "fs/sync" \
     -maxtries 1 \
     -verbose \
     -output "$SCRIPTDIR"/../../.build/rclone-integration-tests
