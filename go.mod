@@ -211,4 +211,4 @@ require (
 	storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad // indirect
 )
 
-replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261118012439-0a79b117006d
+replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261121085502-8ec5125d3680
