@@ -44,6 +44,7 @@ import (
 
 	"storj.io/gateway/api/apierr"
 	"storj.io/gateway/api/objectlayer"
+	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/tags"
@@ -454,12 +455,50 @@ func versionNotFound(err error, bucket, object, versionID string) error {
 	return err
 }
 
+// checkEncryptionHeaders refuses the server-side encryption requests of an object write that the
+// gateway can't honour, with S3's errors. SSE-S3 (AES256) is accepted without reporting it back,
+// because every object is encrypted anyway.
+func checkEncryptionHeaders(h http.Header) error {
+	values := h.Values(xhttp.AmzServerSideEncryption)
+	if len(values) > 1 {
+		return encryptionError(apierr.CodeInvalidEncryptionAlgorithm, h)
+	}
+	if len(values) == 1 {
+		switch strings.TrimSpace(values[0]) {
+		case xhttp.AmzEncryptionAES:
+		case xhttp.AmzEncryptionKMS, "aws:kms:dsse":
+			return apierr.CodeNotImplemented
+		default:
+			return encryptionError(apierr.CodeInvalidEncryptionMethod, h)
+		}
+		if crypto.SSEC.IsRequested(h) {
+			return encryptionError(apierr.CodeCustomerKeyWithEncryptionMethod, h)
+		}
+	}
+	if len(h.Values(xhttp.AmzServerSideEncryptionKmsID)) > 0 {
+		return encryptionError(apierr.CodeKMSKeyWithoutKMSEncryption, h)
+	}
+	if len(h.Values(xhttp.AmzServerSideEncryptionKmsContext)) > 0 || crypto.SSEC.IsRequested(h) {
+		return apierr.CodeNotImplemented
+	}
+	return nil
+}
+
+// encryptionError returns code's error naming the server-side encryption header and its value, if
+// any, like S3.
+func encryptionError(code apierr.Code, h http.Header) apierr.Response {
+	resp, _ := code.ToResponse()
+	resp.ArgumentName = strings.ToLower(xhttp.AmzServerSideEncryption)
+	resp.ArgumentValue = h.Get(xhttp.AmzServerSideEncryption)
+	return resp
+}
+
 // checkUploadPartHeaders refuses the headers that S3 doesn't accept on UploadPart and UploadPartCopy.
 // When several are present, S3 reports the server-side encryption header first, then the website
 // redirect location, then the headers that aren't valid in this context, and the metadata last.
 func checkUploadPartHeaders(h http.Header, isCopy bool) error {
 	if len(h.Values(xhttp.AmzServerSideEncryption)) > 0 {
-		return apierr.CodeServerSideEncryptionNotValidForPart
+		return encryptionError(apierr.CodeServerSideEncryptionNotValidForPart, h)
 	}
 	if len(h.Values("X-Amz-Website-Redirect-Location")) > 0 {
 		return apierr.CodeWebsiteRedirectNotValidForPart

@@ -830,7 +830,7 @@ func TestGetAndHeadObject(t *testing.T) {
 			target:    "/bucket/key",
 			header:    http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}},
 			expStatus: http.StatusBadRequest,
-			expCode:   "BadRequest",
+			expCode:   "InvalidArgument",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1328,7 +1328,7 @@ func TestCopyObject(t *testing.T) {
 		},
 		{
 			name:      "encryption requested",
-			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/other"}, "X-Amz-Server-Side-Encryption": {"AES256"}},
+			header:    http.Header{"X-Amz-Copy-Source": {"/bucket/other"}, "X-Amz-Server-Side-Encryption": {"aws:kms"}},
 			expStatus: http.StatusNotImplemented,
 			expCode:   "NotImplemented",
 		},
@@ -2414,7 +2414,7 @@ func TestDeleteObjectsLikeS3(t *testing.T) {
 }
 
 func TestUnauthenticatedRequestValidation(t *testing.T) {
-	sse := http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}}
+	sse := http.Header{"X-Amz-Server-Side-Encryption": {"AES128"}}
 	storageClass := http.Header{"X-Amz-Storage-Class": {"GLACIER"}}
 	for _, tt := range []struct {
 		method, target string
@@ -2422,14 +2422,14 @@ func TestUnauthenticatedRequestValidation(t *testing.T) {
 		body           string
 	}{
 		{http.MethodPut, "/bucket", http.Header{"X-Amz-Bucket-Object-Lock-Enabled": {"invalid"}}, ""},
-		{http.MethodPost, "/bucket", http.Header{"Content-Type": {"multipart/form-data; boundary=x"}, "X-Amz-Server-Side-Encryption": {"AES256"}},
+		{http.MethodPost, "/bucket", http.Header{"Content-Type": {"multipart/form-data; boundary=x"}, "X-Amz-Server-Side-Encryption": {"AES128"}},
 			"--x\r\nContent-Disposition: form-data; name=\"key\"\r\n\r\nkey\r\n" +
 				"--x\r\nContent-Disposition: form-data; name=\"file\"; filename=\"f\"\r\n\r\ndata\r\n--x--\r\n"},
 		{http.MethodPut, "/bucket/key", sse, ""},
 		{http.MethodPut, "/bucket/key", storageClass, ""},
 		{http.MethodPost, "/bucket/key?uploads", sse, ""},
 		{http.MethodPost, "/bucket/key?uploads", storageClass, ""},
-		{http.MethodPut, "/bucket/key", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Server-Side-Encryption": {"AES256"}}, ""},
+		{http.MethodPut, "/bucket/key", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Server-Side-Encryption": {"AES128"}}, ""},
 		{http.MethodPut, "/bucket/key?partNumber=1&uploadId=x", sse, ""},
 		{http.MethodPut, "/bucket/key?partNumber=1&uploadId=x", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}, "X-Amz-Server-Side-Encryption-Customer-Algorithm": {"AES256"}}, ""},
 		{http.MethodGet, "/bucket/key", sse, ""},

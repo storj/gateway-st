@@ -40,7 +40,6 @@ import (
 	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/config/storageclass"
-	"storj.io/minio/cmd/crypto"
 	xhttp "storj.io/minio/cmd/http"
 	objectlock "storj.io/minio/pkg/bucket/object/lock"
 	"storj.io/minio/pkg/bucket/versioning"
@@ -796,11 +795,11 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 			formHeader.Add(formKey, elem.Value)
 		}
 	}
-	_, headerRequested := crypto.IsRequested(r.Header)
-	_, formRequested := crypto.IsRequested(formHeader)
-	if headerRequested || formRequested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
-		return
+	for _, h := range []http.Header{r.Header, formHeader} {
+		if err := checkEncryptionHeaders(h); err != nil {
+			api.writeErrorResponse(w, r, err)
+			return
+		}
 	}
 
 	// The file is verified against the Content-MD5 header and the x-amz-checksum-* form fields.

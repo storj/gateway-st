@@ -333,6 +333,26 @@
   description: x-amz-server-side-encryption header is not supported for this operation.
   http_status: 400
 
+- name: InvalidEncryptionMethod
+  code: InvalidArgument
+  description: The encryption method specified is not supported
+  http_status: 400
+
+- name: InvalidEncryptionAlgorithm
+  code: InvalidEncryptionAlgorithmError
+  description: The Encryption request you specified is not valid. Only one encryption algorithm should be specified.
+  http_status: 400
+
+- name: KMSKeyWithoutKMSEncryption
+  code: InvalidArgument
+  description: "Server Side Encryption with AWS KMS managed key requires HTTP header x-amz-server-side-encryption : aws:kms"
+  http_status: 400
+
+- name: CustomerKeyWithEncryptionMethod
+  code: InvalidArgument
+  description: Server Side Encryption with Customer provided key is incompatible with the encryption method specified
+  http_status: 400
+
 - name: WebsiteRedirectNotValidForPart
   code: InvalidArgument
   description: x-amz-website-redirect-location header is not supported for this operation.

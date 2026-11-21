@@ -544,8 +544,8 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+	if err := checkEncryptionHeaders(r.Header); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 
@@ -982,6 +982,10 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(r.Header.Values(xhttp.AmzServerSideEncryption)) > 0 {
+		api.writeErrorResponse(w, r, encryptionError(apierr.CodeServerSideEncryptionNotValidForPart, r.Header))
+		return
+	}
 	if _, requested := crypto.IsRequested(r.Header); requested {
 		api.writeErrorResponse(w, r, apierr.CodeBadRequest)
 		return
@@ -1132,6 +1136,10 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(r.Header.Values(xhttp.AmzServerSideEncryption)) > 0 {
+		api.writeErrorResponseHeadersOnly(r, w, encryptionError(apierr.CodeServerSideEncryptionNotValidForPart, r.Header))
+		return
+	}
 	if _, requested := crypto.IsRequested(r.Header); requested {
 		api.writeErrorResponseHeadersOnly(r, w, apierr.CodeBadRequest)
 		return
@@ -1532,7 +1540,11 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, requested := crypto.IsRequested(r.Header); requested || crypto.SSECopy.IsRequested(r.Header) {
+	if err := checkEncryptionHeaders(r.Header); err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
+	}
+	if crypto.SSECopy.IsRequested(r.Header) {
 		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
 		return
 	}
@@ -1592,9 +1604,13 @@ func (api *API) CopyObjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Unlike S3, replacing only the tags makes copying an object onto itself valid, which the object
-	// layer handles by updating the tags in place, so clients can change tags with CopyObject.
+	// layer handles by updating the tags in place, so clients can change tags with CopyObject. Like
+	// S3, encryption headers make it valid too, so that encrypting objects in place succeeds, although
+	// the object stays as it was because it's already encrypted.
 	if srcBucket == dstBucket && srcObject == dstObject && srcVersionID == "" && storageClass == "" &&
-		metadataDirective != replaceDirective && tagDirective != replaceDirective {
+		metadataDirective != replaceDirective && tagDirective != replaceDirective &&
+		len(r.Header.Values(xhttp.AmzServerSideEncryption)) == 0 &&
+		len(r.Header.Values("X-Amz-Server-Side-Encryption-Bucket-Key-Enabled")) == 0 {
 		api.writeErrorResponse(w, r, apierr.CodeInvalidCopyDest)
 		return
 	}
@@ -1816,8 +1832,8 @@ func (api *API) CreateMultipartUploadHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if _, requested := crypto.IsRequested(r.Header); requested {
-		api.writeErrorResponse(w, r, apierr.CodeNotImplemented)
+	if err := checkEncryptionHeaders(r.Header); err != nil {
+		api.writeErrorResponse(w, r, err)
 		return
 	}
 

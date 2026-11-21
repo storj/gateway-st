@@ -24,6 +24,7 @@ const (
 	CodeCopyRangeInvalidForSize
 	CodeCopySourceDeleteMarker
 	CodeCopySourceTooLarge
+	CodeCustomerKeyWithEncryptionMethod
 	CodeDefaultRetentionPeriodNotPositive
 	CodeDefaultRetentionPeriodTooLarge
 	CodeDirectiveRepeated
@@ -51,6 +52,8 @@ const (
 	CodeInvalidCopySourceRange
 	CodeInvalidDateHeader
 	CodeInvalidEncodingMethod
+	CodeInvalidEncryptionAlgorithm
+	CodeInvalidEncryptionMethod
 	CodeInvalidForceDelete
 	CodeInvalidLegalHoldHeader
 	CodeInvalidMaxBuckets
@@ -79,6 +82,7 @@ const (
 	CodeInvalidTaggingHeader
 	CodeInvalidURI
 	CodeInvalidVersionID
+	CodeKMSKeyWithoutKMSEncryption
 	CodeKeyMustBeSpecified
 	CodeListObjectsContinuationToken
 	CodeListObjectsStartAfter
@@ -248,6 +252,11 @@ var codeToResponse = map[Code]Response{
 		Description:    "The specified copy source is larger than the maximum allowable size for a copy source: 5368709120",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
+	CodeCustomerKeyWithEncryptionMethod: {
+		Code:           "InvalidArgument",
+		Description:    "Server Side Encryption with Customer provided key is incompatible with the encryption method specified",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
 	CodeDefaultRetentionPeriodNotPositive: {
 		Code:           "InvalidArgument",
 		Description:    "Default retention period must be a positive integer value.",
@@ -381,6 +390,16 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidEncodingMethod: {
 		Code:           "InvalidArgument",
 		Description:    "Invalid Encoding Method specified in Request",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidEncryptionAlgorithm: {
+		Code:           "InvalidEncryptionAlgorithmError",
+		Description:    "The Encryption request you specified is not valid. Only one encryption algorithm should be specified.",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeInvalidEncryptionMethod: {
+		Code:           "InvalidArgument",
+		Description:    "The encryption method specified is not supported",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeInvalidForceDelete: {
@@ -521,6 +540,11 @@ var codeToResponse = map[Code]Response{
 	CodeInvalidVersionID: {
 		Code:           "InvalidArgument",
 		Description:    "Invalid version id specified",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	CodeKMSKeyWithoutKMSEncryption: {
+		Code:           "InvalidArgument",
+		Description:    "Server Side Encryption with AWS KMS managed key requires HTTP header x-amz-server-side-encryption : aws:kms",
 		HTTPStatusCode: http.StatusBadRequest,
 	},
 	CodeKeyMustBeSpecified: {

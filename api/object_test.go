@@ -733,6 +733,93 @@ func TestStorageClassInQueryLikeS3(t *testing.T) {
 	}
 }
 
+// TestServerSideEncryptionHeaders checks the encryption headers of object writes against S3's
+// answers. S3 accepts SSE-S3 alone or with a bucket key, trimming spaces around the value. The
+// gateway can't honour KMS or customer keys, which S3 would accept.
+func TestServerSideEncryptionHeaders(t *testing.T) {
+	const (
+		invalidMethod = "<Code>InvalidArgument</Code><Message>The encryption method specified is not supported</Message>"
+		twoAlgorithms = "<Code>InvalidEncryptionAlgorithmError</Code>"
+		kmsKey        = "<Message>Server Side Encryption with AWS KMS managed key requires HTTP header x-amz-server-side-encryption : aws:kms</Message>"
+		customerKey   = "<Message>Server Side Encryption with Customer provided key is incompatible with the encryption method specified</Message>"
+		argument      = "<ArgumentName>x-amz-server-side-encryption</ArgumentName>"
+	)
+	objectAPI := putObjectLayer{singleObjectLayer(objectlayer.ObjectInfo{Bucket: "bucket", Name: "src", Size: 4, ETag: "etag"}, "data")}
+	objectAPI.newMultipartUpload = func(context.Context, string, string, objectlayer.ObjectOptions) (string, error) { return "id", nil }
+	objectAPI.copyObject = func(_ context.Context, _, _, dstBucket, dstObject string, _ objectlayer.ObjectInfo, _, _ objectlayer.ObjectOptions) (objectlayer.ObjectInfo, error) {
+		return objectlayer.ObjectInfo{Bucket: dstBucket, Name: dstObject, ETag: "etag"}, nil
+	}
+
+	for _, tt := range []struct {
+		header http.Header
+		status int
+		want   string
+	}{
+		{http.Header{}, http.StatusOK, ""},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}}, http.StatusOK, ""},
+		{http.Header{"X-Amz-Server-Side-Encryption": {" AES256 "}}, http.StatusOK, ""},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}, "X-Amz-Server-Side-Encryption-Bucket-Key-Enabled": {"true"}}, http.StatusOK, ""},
+		{http.Header{"X-Amz-Server-Side-Encryption-Bucket-Key-Enabled": {"true"}}, http.StatusOK, ""},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"aes256"}}, http.StatusBadRequest, invalidMethod + "|" + argument + "<ArgumentValue>aes256</ArgumentValue>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {""}}, http.StatusBadRequest, invalidMethod + "|" + argument + "</Error>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES128"}}, http.StatusBadRequest, invalidMethod + "|" + argument + "<ArgumentValue>AES128</ArgumentValue>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES256", "AES256"}}, http.StatusBadRequest, twoAlgorithms + "|" + argument + "<ArgumentValue>AES256</ArgumentValue>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}, "X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id": {"alias/aws/s3"}}, http.StatusBadRequest, kmsKey + "|" + argument + "<ArgumentValue>AES256</ArgumentValue>"},
+		{http.Header{"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id": {"alias/aws/s3"}}, http.StatusBadRequest, kmsKey + "|" + argument + "</Error>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}, "X-Amz-Server-Side-Encryption-Customer-Algorithm": {"AES256"}}, http.StatusBadRequest, customerKey + "|" + argument + "<ArgumentValue>AES256</ArgumentValue>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"aws:kms"}}, http.StatusNotImplemented, "<Code>NotImplemented</Code>"},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"aws:kms:dsse"}}, http.StatusNotImplemented, "<Code>NotImplemented</Code>"},
+		{http.Header{"X-Amz-Server-Side-Encryption-Customer-Algorithm": {"AES256"}}, http.StatusNotImplemented, "<Code>NotImplemented</Code>"},
+	} {
+		for _, op := range []struct {
+			method, target string
+			header         http.Header
+		}{
+			{http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"0"}}},
+			{http.MethodPut, "/bucket/key", http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}},
+			{http.MethodPost, "/bucket/key?uploads", nil},
+		} {
+			header := op.header.Clone()
+			if header == nil {
+				header = http.Header{}
+			}
+			maps.Copy(header, tt.header)
+			resp := serve(t, objectAPI, op.method, op.target, header, nil)
+			require.Equal(t, tt.status, resp.StatusCode, "%s %s %v: %s", op.method, op.target, header, resp.Body)
+			for want := range strings.SplitSeq(tt.want, "|") {
+				require.Contains(t, resp.Body, want, "%s %s %v", op.method, op.target, header)
+			}
+			require.Empty(t, resp.Header.Get("X-Amz-Server-Side-Encryption"), "%s %s %v", op.method, op.target, header)
+		}
+	}
+
+	// Like S3, encryption headers make copying an object onto itself valid, but not a checksum
+	// algorithm.
+	for _, tt := range []struct {
+		header http.Header
+		status int
+	}{
+		{http.Header{}, http.StatusBadRequest},
+		{http.Header{"X-Amz-Checksum-Algorithm": {"CRC32"}}, http.StatusBadRequest},
+		{http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}}, http.StatusOK},
+		{http.Header{"X-Amz-Server-Side-Encryption-Bucket-Key-Enabled": {"true"}}, http.StatusOK},
+	} {
+		header := http.Header{"X-Amz-Copy-Source": {"/bucket/src"}}
+		maps.Copy(header, tt.header)
+		resp := serve(t, objectAPI, http.MethodPut, "/bucket/src", header, nil)
+		require.Equal(t, tt.status, resp.StatusCode, "%v: %s", tt.header, resp.Body)
+	}
+
+	// S3 refuses the header on reads.
+	header := http.Header{"X-Amz-Server-Side-Encryption": {"AES256"}}
+	resp := serve(t, objectAPI, http.MethodGet, "/bucket/src", header, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
+	require.Contains(t, resp.Body, "<Message>x-amz-server-side-encryption header is not supported for this operation.</Message>")
+	require.Contains(t, resp.Body, "<ArgumentName>x-amz-server-side-encryption</ArgumentName><ArgumentValue>AES256</ArgumentValue>")
+	resp = serve(t, objectAPI, http.MethodHead, "/bucket/src", header, nil)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
 func TestPutObjectVersionID(t *testing.T) {
 	resp := serve(t, putObjectLayer{&fakeObjectLayer{}}, http.MethodPut, "/bucket/key", http.Header{"Content-Length": {"3"}}, []byte("abc"))
 	require.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)

@@ -219,16 +219,28 @@ func TestPostObjectPolicyOnlyAuthenticatesPostObject(t *testing.T) {
 }
 
 func TestPostObjectEncryptionField(t *testing.T) {
-	objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
-	resp := postObject(t, objectAPI, "/bucket",
-		[]any{
-			map[string]string{"bucket": "bucket"},
-			map[string]string{"key": "photo.jpg"},
-			map[string]string{"x-amz-server-side-encryption": "aws:kms"},
-		},
-		[][2]string{{"key", "photo.jpg"}, {"x-amz-server-side-encryption", "aws:kms"}}, "data")
-	require.Equal(t, http.StatusNotImplemented, resp.StatusCode, resp.Body)
-	require.Empty(t, objectAPI.object)
+	for _, tt := range []struct {
+		value  string
+		status int
+	}{
+		{"AES256", http.StatusNoContent},
+		{"AES128", http.StatusBadRequest},
+		{"aws:kms", http.StatusNotImplemented},
+	} {
+		objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+		resp := postObject(t, objectAPI, "/bucket",
+			[]any{
+				map[string]string{"bucket": "bucket"},
+				map[string]string{"key": "photo.jpg"},
+				map[string]string{"x-amz-server-side-encryption": tt.value},
+			},
+			[][2]string{{"key", "photo.jpg"}, {"x-amz-server-side-encryption", tt.value}}, "data")
+		require.Equal(t, tt.status, resp.StatusCode, "%s: %s", tt.value, resp.Body)
+		require.Empty(t, resp.Header.Get("X-Amz-Server-Side-Encryption"), tt.value)
+		if tt.status != http.StatusNoContent {
+			require.Empty(t, objectAPI.object, tt.value)
+		}
+	}
 }
 
 func TestPostObjectInvalidKey(t *testing.T) {
