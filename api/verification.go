@@ -73,26 +73,38 @@ func (api *API) verifyWithBody(r *http.Request, requireChecksum bool) (awsig.Rea
 		return nil, apierr.CodeMissingContentMD5
 	}
 
-	return requestBody(vr.Reader(checksumReqs...))
+	return requestBody(r, vr, checksumReqs...)
 }
 
-// requestBody wraps the reader of a request's body so that a body ending before its declared
-// length can be told apart from an io.ErrUnexpectedEOF of the object layer.
-func requestBody(r awsig.Reader, err error) (awsig.Reader, error) {
+// requestBody returns the reader of r's body that vr verifies with reqs. It tells a body ending
+// before its declared length apart from an io.ErrUnexpectedEOF of the object layer, and answers an
+// invalid trailing checksum like S3.
+func requestBody(r *http.Request, vr awsig.VerifiedRequest[AuthData], reqs ...awsig.ChecksumRequest) (awsig.Reader, error) {
+	reader, err := vr.Reader(reqs...)
 	if err != nil {
 		return nil, err
 	}
-	return requestBodyReader{r}, nil
+	return requestBodyReader{Reader: reader, trailer: strings.ToLower(strings.TrimSpace(r.Header.Get("X-Amz-Trailer")))}, nil
 }
 
 type requestBodyReader struct {
 	awsig.Reader
+	trailer string
 }
 
 func (r requestBodyReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
-	if errors.Is(err, io.ErrUnexpectedEOF) {
+	switch {
+	case errors.Is(err, io.ErrUnexpectedEOF):
 		err = incompleteBodyError{err}
+	case errors.Is(err, awsig.ErrInvalidTrailingChecksum):
+		// awsig doesn't say which trailing header it refused, so like S3's message, it's the
+		// declared one.
+		err = apierr.Response{
+			Code:           "InvalidRequest",
+			Description:    "Value for " + r.trailer + " trailing header is invalid.",
+			HTTPStatusCode: http.StatusBadRequest,
+		}
 	}
 	return n, err
 }

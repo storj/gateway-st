@@ -112,6 +112,32 @@ func TestPutObjectChecksums(t *testing.T) {
 		require.Equal(t, crc32Base64(data), resp.Header.Get("X-Amz-Checksum-Crc32"))
 		require.Equal(t, data, objectAPI.data)
 	})
+
+	// Like S3, a malformed trailing checksum is an invalid request, and a wrong one a bad digest.
+	t.Run("invalid trailer", func(t *testing.T) {
+		for _, tt := range []struct{ name, value, code, message string }{
+			{"wrong", crc32Base64([]byte("other")), "BadDigest", "The CRC32 you specified did not match the calculated checksum."},
+			{"not base64", "!!!!!!!!", "InvalidRequest", "Value for x-amz-checksum-crc32 trailing header is invalid."},
+			{"empty", "", "InvalidRequest", "Value for x-amz-checksum-crc32 trailing header is invalid."},
+			{"another decoded size", "AAAAAAA=", "InvalidRequest", "Value for x-amz-checksum-crc32 trailing header is invalid."},
+			// NhCmhh== is crc32Base64(data), NhCmhg==, with non-zero padding bits.
+			{"non-zero padding bits", "NhCmhh==", "InvalidRequest", "Value for x-amz-checksum-crc32 trailing header is invalid."},
+		} {
+			objectAPI := &postObjectLayer{fakeObjectLayer: &fakeObjectLayer{}}
+			body := fmt.Appendf(nil, "%x\r\n%s\r\n0\r\nx-amz-checksum-crc32:%s\r\n\r\n", len(data), data, tt.value)
+			header := http.Header{
+				"X-Amz-Content-Sha256":         {"STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
+				"Content-Encoding":             {"aws-chunked"},
+				"X-Amz-Decoded-Content-Length": {strconv.Itoa(len(data))},
+				"X-Amz-Trailer":                {"x-amz-checksum-crc32"},
+				"Content-Length":               {strconv.Itoa(len(body))},
+			}
+			resp := serve(t, objectAPI, http.MethodPut, "/bucket/key", header, body)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode, tt.name)
+			require.Contains(t, resp.Body, "<Code>"+tt.code+"</Code><Message>"+tt.message+"</Message>", tt.name)
+			require.Nil(t, objectAPI.data, tt.name)
+		}
+	})
 }
 
 func TestDeleteObjectsWithChecksum(t *testing.T) {

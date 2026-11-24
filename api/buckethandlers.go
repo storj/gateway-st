@@ -820,7 +820,7 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	awsigReader, err := requestBody(vr.Reader(checksumReqs...))
+	awsigReader, err := requestBody(r, vr, checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

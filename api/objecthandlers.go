@@ -2033,7 +2033,7 @@ func (api *API) CompleteMultipartUploadHandler(w http.ResponseWriter, r *http.Re
 	if hasContentMD5 {
 		checksumReqs = append(checksumReqs, checksumReq)
 	}
-	body, err := requestBody(vr.Reader(checksumReqs...))
+	body, err := requestBody(r, vr, checksumReqs...)
 	if err != nil {
 		api.writeErrorResponse(w, r, err)
 		return

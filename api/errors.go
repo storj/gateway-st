@@ -61,8 +61,6 @@ import (
 // TODO: awsig answers some malformed aws-chunked bodies and signatures differently from S3.
 // S3's answers were checked in November 2026.
 //
-//   - Data follows the CRLF that ends a body without a trailer.
-//     S3: 400 IncompleteBody. awsig: 400 InvalidRequest.
 //   - An unsigned trailer ends after its header line, without the final blank line.
 //     S3: accepts it. awsig: 400 IncompleteBody.
 //   - Nothing follows the final chunk, or an unsigned trailer is a blank line or has a second

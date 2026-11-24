@@ -17,11 +17,11 @@ require (
 	golang.org/x/sync v0.24.0
 	golang.org/x/term v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	storj.io/common v0.0.0-20261117144644-5dc55c8d899d
+	storj.io/common v0.0.0-20261124135442-7652ceab0f0d
 	storj.io/eventkit v0.0.0-20260707062648-170ec15e6f3f
 	storj.io/minio v0.0.0-20261113105205-fed7ec058273
-	storj.io/picobuf v0.9.4
-	storj.io/uplink v1.14.6-0.20261118093113-14111e1f5c00
+	storj.io/picobuf v0.9.6
+	storj.io/uplink v1.14.6-0.20261124140257-e38bc6712e6d
 )
 
 require (
@@ -211,4 +211,4 @@ require (
 	storj.io/monkit-jaeger v0.0.0-20250523220404-454c1b072fad // indirect
 )
 
-replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261121085502-8ec5125d3680
+replace github.com/amwolff/awsig => github.com/storj/awsig v0.0.0-20261125001415-971085f10a79
