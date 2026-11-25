@@ -34,7 +34,7 @@ func newLegalHold(status *objectlayer.LegalHoldStatus) *bool {
 func applyObjectLock(bucket bucketMeta, version *versionMeta) error {
 	if !bucket.ObjectLock {
 		if version.Retention != nil || version.LegalHold != nil {
-			return errObjectLockNotEnabled
+			return ErrObjectLockNotEnabled
 		}
 		return nil
 	}
@@ -108,7 +108,7 @@ func (l *Layer) SetObjectLockConfig(ctx context.Context, bucket string, config *
 		return err
 	}
 	if meta.Versioning != objectlayer.VersioningEnabled {
-		return errInvalidBucketStateObjectLock
+		return ErrInvalidBucketStateObjectLock
 	}
 	meta.ObjectLock, meta.DefaultRetention = true, nil
 	if config.Rule != nil {
@@ -130,7 +130,7 @@ func (l *Layer) readLockedVersion(bucket, key, versionID string) (objectMeta, in
 		return objectMeta{}, 0, err
 	}
 	if !bucketMeta.ObjectLock {
-		return objectMeta{}, 0, errObjectLockNotEnabled
+		return objectMeta{}, 0, ErrObjectLockNotEnabled
 	}
 	return l.readVersion(bucket, key, versionID)
 }
@@ -151,7 +151,7 @@ func (l *Layer) SetObjectRetention(ctx context.Context, bucket, object, versionI
 	if current := version.Retention; current != nil && current.RetainUntil.After(time.Now()) {
 		weakened := retention == nil || retention.Mode != current.Mode || retention.RetainUntil.Before(current.RetainUntil)
 		if weakened && (current.Mode == objectlayer.RetentionCompliance || !opts.BypassGovernanceRetention) {
-			return errObjectProtected
+			return ErrObjectProtected
 		}
 	}
 	version.Retention = retention
@@ -169,7 +169,7 @@ func (l *Layer) GetObjectRetention(ctx context.Context, bucket, object, versionI
 	}
 	r := meta.Versions[i].Retention
 	if r == nil {
-		return nil, errRetentionNotFound
+		return nil, ErrRetentionNotFound
 	}
 	return &objectlayer.ObjectRetention{Mode: r.Mode, RetainUntilDate: objectlayer.RetentionDate{Time: r.RetainUntil}}, nil
 }

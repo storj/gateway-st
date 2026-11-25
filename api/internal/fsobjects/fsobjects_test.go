@@ -244,9 +244,9 @@ func TestObjectLock(t *testing.T) {
 
 	// Object lock needs versioning enabled.
 	err := layer.SetObjectLockConfig(ctx, "plain", &objectlayer.ObjectLockConfig{ObjectLockEnabled: "Enabled"})
-	require.ErrorContains(t, err, "versioning")
+	require.ErrorIs(t, err, fsobjects.ErrInvalidBucketStateObjectLock)
 	err = layer.SetBucketVersioning(ctx, "locked", &objectlayer.Versioning{Status: objectlayer.VersioningSuspended})
-	require.ErrorContains(t, err, "versioning")
+	require.ErrorIs(t, err, fsobjects.ErrInvalidBucketStateObjectLock)
 
 	future := objectlayer.RetentionDate{Time: time.Now().Add(time.Hour)}
 	governance := &objectlayer.ObjectRetention{Mode: objectlayer.RetentionGovernance, RetainUntilDate: future}
@@ -257,17 +257,17 @@ func TestObjectLock(t *testing.T) {
 	// A governance mode retention protects the version unless it's bypassed.
 	version := objectlayer.ObjectOptions{VersionID: info.VersionID}
 	_, err = layer.DeleteObject(ctx, "locked", "key", version)
-	require.ErrorContains(t, err, "protected")
+	require.ErrorIs(t, err, fsobjects.ErrObjectProtected)
 	shorter := &objectlayer.ObjectRetention{Mode: objectlayer.RetentionGovernance, RetainUntilDate: objectlayer.RetentionDate{Time: future.Add(-time.Minute)}}
 	err = layer.SetObjectRetention(ctx, "locked", "key", info.VersionID, objectlayer.ObjectOptions{Retention: shorter})
-	require.ErrorContains(t, err, "protected")
+	require.ErrorIs(t, err, fsobjects.ErrObjectProtected)
 	require.NoError(t, layer.SetObjectRetention(ctx, "locked", "key", info.VersionID, objectlayer.ObjectOptions{Retention: shorter, BypassGovernanceRetention: true}))
 
 	// A legal hold protects the version even with a bypass.
 	on := &objectlayer.ObjectLegalHold{Status: objectlayer.LegalHoldOn}
 	require.NoError(t, layer.SetObjectLegalHold(ctx, "locked", "key", info.VersionID, on))
 	_, err = layer.DeleteObject(ctx, "locked", "key", objectlayer.ObjectOptions{VersionID: info.VersionID, BypassGovernanceRetention: true})
-	require.ErrorContains(t, err, "protected")
+	require.ErrorIs(t, err, fsobjects.ErrObjectProtected)
 	require.NoError(t, layer.SetObjectLegalHold(ctx, "locked", "key", info.VersionID, &objectlayer.ObjectLegalHold{Status: objectlayer.LegalHoldOff}))
 	_, err = layer.DeleteObject(ctx, "locked", "key", objectlayer.ObjectOptions{VersionID: info.VersionID, BypassGovernanceRetention: true})
 	require.NoError(t, err)
@@ -276,7 +276,7 @@ func TestObjectLock(t *testing.T) {
 	compliance := &objectlayer.ObjectRetention{Mode: objectlayer.RetentionCompliance, RetainUntilDate: future}
 	info = put(t, layer, "locked", "key", objectlayer.ObjectOptions{Retention: compliance})
 	err = layer.SetObjectRetention(ctx, "locked", "key", info.VersionID, objectlayer.ObjectOptions{Retention: governance, BypassGovernanceRetention: true})
-	require.ErrorContains(t, err, "protected")
+	require.ErrorIs(t, err, fsobjects.ErrObjectProtected)
 	longer := &objectlayer.ObjectRetention{Mode: objectlayer.RetentionCompliance, RetainUntilDate: objectlayer.RetentionDate{Time: future.Add(time.Hour)}}
 	require.NoError(t, layer.SetObjectRetention(ctx, "locked", "key", info.VersionID, objectlayer.ObjectOptions{Retention: longer}))
 
@@ -297,9 +297,9 @@ func TestObjectLock(t *testing.T) {
 	// Object lock settings need object lock enabled.
 	put(t, layer, "plain", "key", objectlayer.ObjectOptions{})
 	_, err = layer.GetObjectRetention(ctx, "plain", "key", "")
-	require.ErrorContains(t, err, "Object Lock")
+	require.ErrorIs(t, err, fsobjects.ErrObjectLockNotEnabled)
 	r, err := hash.NewDefaultReader(strings.NewReader(""), 0, "", "", 0)
 	require.NoError(t, err)
 	_, err = layer.PutObject(ctx, "plain", "key", objectlayer.NewPutObjReader(r), objectlayer.ObjectOptions{Retention: governance})
-	require.ErrorContains(t, err, "Object Lock")
+	require.ErrorIs(t, err, fsobjects.ErrObjectLockNotEnabled)
 }

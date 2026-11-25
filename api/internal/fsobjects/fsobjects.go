@@ -53,22 +53,22 @@ const (
 
 // The object lock errors of miniogw.
 var (
-	errObjectLockNotEnabled = apierr.Response{
+	ErrObjectLockNotEnabled = apierr.Response{
 		Code:           "InvalidRequest",
 		Description:    "Bucket is missing Object Lock Configuration",
 		HTTPStatusCode: http.StatusBadRequest,
 	}
-	errInvalidBucketStateObjectLock = apierr.Response{
+	ErrInvalidBucketStateObjectLock = apierr.Response{
 		Code:           "InvalidBucketState",
 		Description:    "Object lock requires bucket versioning to be enabled",
 		HTTPStatusCode: http.StatusConflict,
 	}
-	errRetentionNotFound = apierr.Response{
+	ErrRetentionNotFound = apierr.Response{
 		Code:           "NoSuchObjectLockConfiguration",
 		Description:    "Object is missing retention configuration",
 		HTTPStatusCode: http.StatusNotFound,
 	}
-	errObjectProtected = apierr.Response{
+	ErrObjectProtected = apierr.Response{
 		Code:           "AccessDenied",
 		Description:    "Access Denied because object protected by object lock",
 		HTTPStatusCode: http.StatusForbidden,
@@ -816,7 +816,7 @@ func (l *Layer) SetBucketVersioning(ctx context.Context, bucket string, v *objec
 		return err
 	}
 	if v.Suspended() && meta.ObjectLock {
-		return errInvalidBucketStateObjectLock
+		return ErrInvalidBucketStateObjectLock
 	}
 	meta.Versioning = v.Status
 	return writeJSON(filepath.Join(l.bucketDir(bucket), "bucket.json"), meta)
@@ -1124,7 +1124,7 @@ func (l *Layer) deleteObject(bucket, object, versionID string, bypassGovernance 
 		}
 		removed := meta.Versions[i]
 		if isProtected(removed, bypassGovernance) {
-			return deleted{}, errObjectProtected
+			return deleted{}, ErrObjectProtected
 		}
 		l.removeVersions(bucket, &meta, func(v versionMeta) bool { return v.VersionID == removed.VersionID })
 		return deleted{removed: &removed}, l.writeObject(bucket, meta)
@@ -1336,7 +1336,7 @@ func (l *Layer) NewMultipartUpload(ctx context.Context, bucket, object string, o
 	}
 	retention, legalHold := newRetention(opts.Retention), newLegalHold(opts.LegalHold)
 	if (retention != nil || legalHold != nil) && !bucketMeta.ObjectLock {
-		return objectlayer.NewMultipartUploadResult{}, errObjectLockNotEnabled
+		return objectlayer.NewMultipartUploadResult{}, ErrObjectLockNotEnabled
 	}
 	uploadID := randomID()
 	dir := l.uploadDir(bucket, uploadID)

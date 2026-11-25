@@ -1626,7 +1626,7 @@ func TestGetObjectNInfo(t *testing.T) {
 			reader, err := layer.GetObjectNInfo(ctx, testBucket, testFile, tt.rangeSpec, nil, 0, minio.ObjectOptions{})
 
 			if tt.err {
-				require.EqualError(t, err, minio.InvalidRange{OffsetBegin: tt.rangeSpec.Start, OffsetEnd: tt.rangeSpec.End}.Error(), errTag)
+				require.ErrorIs(t, err, minio.InvalidRange{OffsetBegin: tt.rangeSpec.Start, OffsetEnd: tt.rangeSpec.End}, errTag)
 			} else if assert.NoError(t, err) {
 				data, err := io.ReadAll(reader)
 				require.NoError(t, err, errTag)
