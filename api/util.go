@@ -665,7 +665,8 @@ func multipartChecksumHeaders(h http.Header) (objectlayer.ChecksumAlgorithm, obj
 	default:
 		return invalid("Value for x-amz-checksum-type header is invalid.")
 	}
-	return objectChecksumAlgorithms[algorithm], checksumType, nil
+	objAlgorithm, err := objectChecksumAlgorithm(algorithm)
+	return objAlgorithm, checksumType, err
 }
 
 // completeChecksumHeaders returns the checksum type and the whole object's checksum that the
@@ -704,7 +705,11 @@ func completeChecksumHeaders(h http.Header) (checksumType objectlayer.ChecksumTy
 			HTTPStatusCode: http.StatusBadRequest,
 		}
 	}
-	return checksumType, objectChecksumAlgorithms[algorithms[0]], values[0], nil
+	objAlgorithm, err := objectChecksumAlgorithm(algorithms[0])
+	if err != nil {
+		return 0, 0, "", err
+	}
+	return checksumType, objAlgorithm, values[0], nil
 }
 
 // getChecksumRequests returns the checksum requests for verifying a request body: its
@@ -846,6 +851,24 @@ var objectChecksumAlgorithms = map[awsig.ChecksumAlgorithm]objectlayer.ChecksumA
 	awsig.AlgorithmSHA256:    objectlayer.ChecksumAlgorithmSHA256,
 }
 
+// objectChecksumAlgorithm returns the algorithm that objects store checksums of algorithm with.
+func objectChecksumAlgorithm(algorithm awsig.ChecksumAlgorithm) (objectlayer.ChecksumAlgorithm, error) {
+	if objAlgorithm, ok := objectChecksumAlgorithms[algorithm]; ok {
+		return objAlgorithm, nil
+	}
+	return objectlayer.ChecksumAlgorithmNone, apierr.CodeChecksumsUnsupported
+}
+
+// requestedObjectChecksumAlgorithm returns the algorithm of the checksum that requestedChecksum
+// finds in h for storing with an object, or ChecksumAlgorithmNone if there is none.
+func requestedObjectChecksumAlgorithm(h http.Header) (objectlayer.ChecksumAlgorithm, error) {
+	_, algorithm, ok := requestedChecksum(h)
+	if !ok {
+		return objectlayer.ChecksumAlgorithmNone, nil
+	}
+	return objectChecksumAlgorithm(algorithm)
+}
+
 // copyChecksumAlgorithm returns the algorithm that a CopyObject request asks the copy's checksum to
 // have with X-Amz-Checksum-Algorithm, or ChecksumAlgorithmNone for the source's. Like S3, the name
 // is trimmed and in any case.
@@ -871,7 +894,7 @@ func copyChecksumAlgorithm(h http.Header) (objectlayer.ChecksumAlgorithm, error)
 			HTTPStatusCode: http.StatusBadRequest,
 		}
 	}
-	return objectChecksumAlgorithms[algorithm], nil
+	return objectChecksumAlgorithm(algorithm)
 }
 
 // checksumMode returns whether a GetObject or HeadObject request asks for the object's checksum.

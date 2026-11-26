@@ -883,8 +883,10 @@ func (api *API) PostObjectHandler(w http.ResponseWriter, r *http.Request) {
 	opts := objectlayer.ObjectOptions{
 		UserDefined: metadata,
 	}
-	if _, algorithm, ok := requestedChecksum(checksumHeader); ok {
-		opts.ChecksumAlgorithm = objectChecksumAlgorithms[algorithm]
+	opts.ChecksumAlgorithm, err = requestedObjectChecksumAlgorithm(checksumHeader)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
 	}
 
 	for _, cond := range postPolicy.Conditions.Items {

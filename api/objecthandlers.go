@@ -375,8 +375,10 @@ func (api *API) UploadPartHandler(w http.ResponseWriter, r *http.Request) {
 
 	putObjReader := objectlayer.NewPutObjReader(hash.NewAwsigReader(body, size, size))
 	var opts objectlayer.ObjectOptions
-	if _, algorithm, ok := requestedChecksum(r.Header); ok {
-		opts.ChecksumAlgorithm = objectChecksumAlgorithms[algorithm]
+	opts.ChecksumAlgorithm, err = requestedObjectChecksumAlgorithm(r.Header)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
 	}
 	partInfo, err := api.objectAPI.PutObjectPart(ctx, bucketName, objectKey, uploadID, partNumber, putObjReader, opts)
 	if err != nil {
@@ -609,8 +611,10 @@ func (api *API) PutObjectHandler(w http.ResponseWriter, r *http.Request) {
 		IfNoneMatch: r.Header.Values(xhttp.IfNoneMatch),
 		UserDefined: metadata,
 	}
-	if _, algorithm, ok := requestedChecksum(r.Header); ok {
-		opts.ChecksumAlgorithm = objectChecksumAlgorithms[algorithm]
+	opts.ChecksumAlgorithm, err = requestedObjectChecksumAlgorithm(r.Header)
+	if err != nil {
+		api.writeErrorResponse(w, r, err)
+		return
 	}
 
 	retentionMode, retentionDate, legalHold, err := parseObjectLockHeaders(r.Header)
