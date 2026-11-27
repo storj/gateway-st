@@ -396,9 +396,6 @@ func (api *API) RegisterHandlers(router *mux.Router) {
 
 	// Storj's extensions, which are routed before ListBuckets because their keys aren't S3
 	// subresources.
-	// TODO: SigV2 doesn't sign the attribution and licenses parameters, which S3 doesn't have, so
-	// adding one to a presigned ListBuckets URL turns it into the operation below. Refuse SigV2
-	// for them.
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("attribution", "").HandlerFunc(api.ListBucketsWithAttributionHandler).Name("ListBucketsWithAttribution")
 	apiRouter.Methods(http.MethodGet).Path(cmd.SlashSeparator).MatcherFunc(notVirtualHosted).Queries("licenses", "").HandlerFunc(api.ListLicensesHandler).Name("ListLicenses")
 

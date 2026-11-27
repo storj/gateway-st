@@ -6,13 +6,16 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1179,6 +1182,53 @@ func TestListLicenses(t *testing.T) {
 	resp = serve(t, &fakeObjectLayer{err: cmd.BucketNameInvalid{}}, http.MethodGet, "/?licenses", nil, nil)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode, resp.Body)
 	require.Contains(t, resp.Body, "<Code>InvalidBucketName</Code>")
+}
+
+// TestExtensionsRefuseSigV2 checks that Storj's extensions refuse SigV2, which doesn't sign their
+// parameters, so that adding one to a SigV2 presigned ListBuckets URL doesn't change its operation.
+func TestExtensionsRefuseSigV2(t *testing.T) {
+	signature := func(stringToSign string) string {
+		mac := hmac.New(sha1.New, []byte(testSecretAccessKey))
+		mac.Write([]byte(stringToSign))
+		return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	}
+	expires := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	listBuckets := "/?" + url.Values{
+		"AWSAccessKeyId": {testAccessKeyID},
+		"Expires":        {expires},
+		"Signature":      {signature("GET\n\n\n" + expires + "\n/")},
+	}.Encode()
+
+	for _, target := range []string{"/?attribution", "/?licenses&bucket=b&licenseType=object-mount"} {
+		t.Run(target, func(t *testing.T) {
+			objectAPI := &fakeObjectLayer{}
+
+			date := time.Now().UTC().Format(http.TimeFormat)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+			req.Header.Set("Date", date)
+			req.Header.Set("Authorization", "AWS "+testAccessKeyID+":"+signature("GET\n\n\n"+date+"\n/"))
+			rec := httptest.NewRecorder()
+			newTestRouter(objectAPI).ServeHTTP(rec, req)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			require.Contains(t, rec.Body.String(), "<Code>InvalidRequest</Code>")
+
+			presigned := listBuckets + "&" + strings.TrimPrefix(target, "/?")
+			req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, presigned, nil)
+			rec = httptest.NewRecorder()
+			newTestRouter(objectAPI).ServeHTTP(rec, req)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			require.Contains(t, rec.Body.String(), "<Code>InvalidRequest</Code>")
+
+			require.Empty(t, objectAPI.Calls())
+		})
+	}
+
+	// The presigned ListBuckets URL itself is valid.
+	rec := httptest.NewRecorder()
+	newTestRouter(&fakeObjectLayer{
+		listBuckets: func(context.Context) ([]cmd.BucketInfo, error) { return nil, nil },
+	}).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, listBuckets, nil))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
 func TestHeadBucketRegionAndPolicyStatus(t *testing.T) {

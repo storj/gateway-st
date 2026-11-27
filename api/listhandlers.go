@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/amwolff/awsig"
 	"github.com/gorilla/mux"
 
 	"storj.io/gateway/api/apierr"
@@ -509,12 +510,34 @@ func (api *API) ListBucketsHandler(w http.ResponseWriter, r *http.Request) {
 	api.writeSuccessResponseXML(w, r, resp)
 }
 
+// errExtensionSigV2 refuses SigV2 for Storj's extensions. SigV2 only signs the query parameters
+// that are S3 subresources, so it signs none of theirs, and adding ?attribution to a SigV2
+// presigned ListBuckets URL would otherwise turn it into ListBucketsWithAttribution.
+var errExtensionSigV2 = apierr.Response{
+	Code:           "InvalidRequest",
+	Description:    "The authorization mechanism you have provided is not supported. Please use AWS4-HMAC-SHA256.",
+	HTTPStatusCode: http.StatusBadRequest,
+}
+
+// verifyExtension verifies the signature of a request for one of Storj's extensions, which must
+// be SigV4.
+func (api *API) verifyExtension(r *http.Request) error {
+	verified, err := api.verifier.Verify(r, getVirtualHostedBucket(r))
+	if err != nil {
+		return err
+	}
+	if _, ok := verified.(*awsig.V2VerifiedRequest[AuthData]); ok {
+		return errExtensionSigV2
+	}
+	return nil
+}
+
 // ListBucketsWithAttributionHandler is the HTTP handler for Storj's ListBucketsWithAttribution
 // extension, which lists the buckets owned by the requester with each bucket's attribution.
 func (api *API) ListBucketsWithAttributionHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w)
 
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+	if err := api.verifyExtension(r); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
@@ -540,7 +563,7 @@ func (api *API) ListBucketsWithAttributionHandler(w http.ResponseWriter, r *http
 func (api *API) ListLicensesHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w)
 
-	if _, err := api.verifier.Verify(r, getVirtualHostedBucket(r)); err != nil {
+	if err := api.verifyExtension(r); err != nil {
 		api.writeErrorResponse(w, r, err)
 		return
 	}
