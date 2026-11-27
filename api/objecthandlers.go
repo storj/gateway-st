@@ -1195,9 +1195,8 @@ func (api *API) GetObjectHandler(w http.ResponseWriter, r *http.Request) {
 	copyBufferPool.Put(buf)
 	switch {
 	case err != nil && isClientAbort(err):
-		// The client went away, so there is nobody to send an error to. It isn't a server fault,
-		// so it isn't logged either.
-		// TODO: log client aborts once Logger has a Debug level.
+		// The client went away, so there is nobody to send an error to. It isn't a server fault.
+		api.log.Debug(r, "client went away while receiving object data", err)
 	case dw.started:
 		if err != nil {
 			// Content-Length is set, so the client can detect the incomplete transfer.

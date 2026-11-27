@@ -9,15 +9,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
 	"storj.io/gateway/api"
 	"storj.io/gateway/api/apierr"
+	"storj.io/gateway/api/objectlayer"
 	"storj.io/minio/cmd"
 	"storj.io/minio/cmd/logger"
 )
@@ -45,6 +48,35 @@ func TestErrorLogsRequestID(t *testing.T) {
 		require.Equal(t, requestID, entry.ContextMap()["amz_request_id"], entry.Message)
 		require.Equal(t, "ListBuckets", entry.ContextMap()["operation"], entry.Message)
 	}
+}
+
+// TestClientAbortIsLoggedAtDebug checks that a client going away while receiving an object is
+// logged, but not as a failure of the server.
+func TestClientAbortIsLoggedAtDebug(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	objInfo := objectlayer.ObjectInfo{Bucket: "bucket", Name: "key", Size: 10, ETag: "etag"}
+	objectAPI := &fakeObjectLayer{
+		getObjectNInfo: func(_ context.Context, _, _ string, _ *cmd.HTTPRangeSpec, _ http.Header, _ cmd.LockType, opts objectlayer.ObjectOptions) (*objectlayer.GetObjectReader, error) {
+			return objectlayer.NewGetObjectReader(iotest.ErrReader(context.Canceled), objInfo, opts, func() {})
+		},
+	}
+	router := mux.NewRouter()
+	api.New(objectAPI, testCredentialsProvider{}, api.Config{}, api.WithLogger(api.NewZapLogger(zap.New(core)))).RegisterHandlers(router)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/bucket/key", nil)
+	signV4(req, nil, time.Now())
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	entries := logs.All()
+	require.Len(t, entries, 1)
+	require.Equal(t, zapcore.DebugLevel, entries[0].Level)
+	var logged error
+	for _, field := range entries[0].Context {
+		if field.Key == "error" {
+			logged, _ = field.Interface.(error)
+		}
+	}
+	require.ErrorIs(t, logged, context.Canceled)
 }
 
 // TestReqInfoIsShared checks that middleware outside the API can read what the handlers fill in of

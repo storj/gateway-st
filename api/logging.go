@@ -20,7 +20,11 @@ func WithLogger(log Logger) Option {
 
 // Logger logs events that occur during HTTP request handling.
 type Logger interface {
+	// Error logs a failure of the server.
 	Error(r *http.Request, msg string, errs ...error)
+	// Debug logs an event that isn't a failure of the server but helps debugging, such as a
+	// client going away.
+	Debug(r *http.Request, msg string, errs ...error)
 }
 
 type zapLogger struct {
@@ -34,6 +38,15 @@ func NewZapLogger(log *zap.Logger) Logger {
 
 // Error logs one or more errors that occurred during the processing of an HTTP request.
 func (log *zapLogger) Error(r *http.Request, msg string, errs ...error) {
+	log.log.Error(msg, log.fields(r, errs)...)
+}
+
+// Debug logs an event with its errors that occurred during the processing of an HTTP request.
+func (log *zapLogger) Debug(r *http.Request, msg string, errs ...error) {
+	log.log.Debug(msg, log.fields(r, errs)...)
+}
+
+func (log *zapLogger) fields(r *http.Request, errs []error) []zap.Field {
 	fields := log.getCommonFields(r)
 	switch len(errs) {
 	case 0:
@@ -42,7 +55,7 @@ func (log *zapLogger) Error(r *http.Request, msg string, errs ...error) {
 	default:
 		fields = append(fields, zap.Errors("errors", errs))
 	}
-	log.log.Error(msg, fields...)
+	return fields
 }
 
 func (log *zapLogger) getCommonFields(r *http.Request) []zap.Field {
@@ -61,3 +74,6 @@ type nopLogger struct{}
 
 // Error is a no-op and implements the Logger interface.
 func (log nopLogger) Error(r *http.Request, msg string, errs ...error) {}
+
+// Debug is a no-op and implements the Logger interface.
+func (log nopLogger) Debug(r *http.Request, msg string, errs ...error) {}
