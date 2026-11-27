@@ -109,7 +109,9 @@ func setMetadataDefaults(metadata map[string]string) {
 	}
 }
 
-// ExtractMetadataFromQuery extracts object metadata from a URL's query string.
+// ExtractMetadataFromQuery extracts object metadata from a URL's query string. Like S3, presigned
+// or not, it extracts only user-defined metadata and a lowercase x-amz-storage-class, never
+// headers such as Content-Type or Expires. In a SigV2 presigned URL, Expires is the URL's expiry.
 func ExtractMetadataFromQuery(reqURL *url.URL, metadata map[string]string) {
 	// S3 only extracts the values of query parameters whose key matches the casing of the last
 	// instance of that key. Those values are then joined with a comma. For example:
@@ -130,10 +132,6 @@ func ExtractMetadataFromQuery(reqURL *url.URL, metadata map[string]string) {
 	// containing the values associated with that casing.
 	exactKeyValues := make(map[string][]string)
 
-	// TODO: This strategy is unreliable. Non-presigned requests may have these query parameters set.
-	// This information should be provided to us by awsig.
-	isPresigned := queryValues.Has(xhttp.AmzAlgorithm) || queryValues.Has(xhttp.AmzAccessKeyID)
-
 	trackKey := func(key, canonKey string) {
 		canonicalKeyToExact[canonKey] = key
 		if _, seen := exactKeyValues[key]; !seen {
@@ -143,25 +141,11 @@ func ExtractMetadataFromQuery(reqURL *url.URL, metadata map[string]string) {
 
 	for _, key := range queryKeys {
 		canonKey := http.CanonicalHeaderKey(key)
-
-		var tracked bool
-		if isPresigned {
-			for _, metadataHeaderKey := range metadataHeaders {
-				if canonKey == metadataHeaderKey {
-					trackKey(key, canonKey)
-					tracked = true
-				}
-			}
-		} else if key == "x-amz-storage-class" {
-			// Without a presigned URL, S3 ignores the storage class in any other casing.
+		// S3 ignores the storage class in any other casing.
+		if key == "x-amz-storage-class" {
 			trackKey(key, canonKey)
-			tracked = true
-		}
-
-		if tracked {
 			continue
 		}
-
 		for _, prefix := range userMetadataKeyPrefixes {
 			if strings.HasPrefix(canonKey, prefix) {
 				trackKey(key, canonKey)

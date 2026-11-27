@@ -17,6 +17,10 @@ import (
 	"storj.io/gateway/api"
 )
 
+// TestExtractMetadataFromQuery checks that, like S3, a query only sets user-defined metadata and a
+// lowercase storage class. S3 ignores headers such as Content-Type, Cache-Control and Expires in
+// the query of presigned URLs too, in any casing and for CreateMultipartUpload and CopyObject as
+// well as PutObject.
 func TestExtractMetadataFromQuery(t *testing.T) {
 	fullMetaQuery := "Cache-Control=max-age%3D60" +
 		"&Content-Encoding=gzip" +
@@ -24,20 +28,15 @@ func TestExtractMetadataFromQuery(t *testing.T) {
 		"&Content-Language=en-US" +
 		"&Content-Type=image%2Fpng" +
 		"&Expires=%2B2h" +
+		"&cache-control=no-store" +
+		"&content-type=text%2Fhtml" +
 		"&X-Amz-Storage-Class=STANDARD" +
 		"&x-amz-meta-key=amzMeta" +
 		"&x-minio-meta-key=minioMeta"
 
-	fullMeta := map[string]string{
-		"Content-Type":        "image/png",
-		"Cache-Control":       "max-age=60",
-		"Content-Language":    "en-US",
-		"Content-Encoding":    "gzip",
-		"Content-Disposition": "inline",
-		"Expires":             "+2h",
-		"X-Amz-Storage-Class": "STANDARD",
-		"X-Amz-Meta-Key":      "amzMeta",
-		"X-Minio-Meta-Key":    "minioMeta",
+	userMeta := map[string]string{
+		"X-Amz-Meta-Key":   "amzMeta",
+		"X-Minio-Meta-Key": "minioMeta",
 	}
 
 	for _, tt := range []struct {
@@ -46,27 +45,39 @@ func TestExtractMetadataFromQuery(t *testing.T) {
 		expectedMeta map[string]string
 	}{
 		{
-			name:         "Presigned (SigV4): all metadata headers extracted",
+			name:         "Presigned (SigV4): only user metadata extracted",
 			query:        "X-Amz-Algorithm=AWS4-HMAC-SHA256&" + fullMetaQuery,
-			expectedMeta: fullMeta,
+			expectedMeta: userMeta,
 		},
 		{
-			name:         "Presigned (SigV2): all metadata headers extracted",
+			name:         "Presigned (SigV2): only user metadata extracted",
 			query:        "AWSAccessKeyId=AKIDEXAMPLE&" + fullMetaQuery,
-			expectedMeta: fullMeta,
+			expectedMeta: userMeta,
 		},
 		{
-			name:  "Non-presigned: only user metadata and a lowercase storage class extracted",
-			query: fullMetaQuery,
-			expectedMeta: map[string]string{
-				"X-Amz-Meta-Key":   "amzMeta",
-				"X-Minio-Meta-Key": "minioMeta",
-			},
+			name:         "Presigned (SigV2): the URL's expiry isn't metadata",
+			query:        "AWSAccessKeyId=AKIDEXAMPLE&Expires=1796412512&Signature=c2lnbmF0dXJl",
+			expectedMeta: map[string]string{},
 		},
 		{
-			name:         "Non-presigned: lowercase storage class extracted, other casings ignored",
+			name:         "Not presigned: only user metadata extracted",
+			query:        fullMetaQuery,
+			expectedMeta: userMeta,
+		},
+		{
+			name:         "Presigned (SigV4): lowercase storage class extracted, other casings ignored",
+			query:        "X-Amz-Algorithm=AWS4-HMAC-SHA256&x-amz-storage-class=BOGUS&X-Amz-Storage-Class=STANDARD&X-AMZ-STORAGE-CLASS=STANDARD",
+			expectedMeta: map[string]string{"X-Amz-Storage-Class": "BOGUS"},
+		},
+		{
+			name:         "Not presigned: lowercase storage class extracted, other casings ignored",
 			query:        "x-amz-storage-class=BOGUS&X-Amz-Storage-Class=STANDARD&X-AMZ-STORAGE-CLASS=STANDARD",
 			expectedMeta: map[string]string{"X-Amz-Storage-Class": "BOGUS"},
+		},
+		{
+			name:         "User metadata extracted in any casing",
+			query:        "X-AMZ-META-FOO=bar",
+			expectedMeta: map[string]string{"X-Amz-Meta-Foo": "bar"},
 		},
 		{
 			name:         "Duplicate keys, same casing: values joined with comma",
