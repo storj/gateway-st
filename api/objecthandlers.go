@@ -1286,10 +1286,21 @@ func (api *API) HeadObjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unlike GetObject, HeadObject checks the mode once the object is found, like S3.
-	// TODO: S3 reports an unsatisfiable range before an invalid mode.
+	// Unlike GetObject, HeadObject checks the mode once the object is found, like S3. When the
+	// conditions pass, S3 reports a range or part number that the object can't satisfy before an
+	// invalid mode. When they fail, it reports the mode.
 	checksumEnabled, err := checksumMode(r.Header)
 	if err != nil {
+		conditionsPass := evaluatePreconditions(objInfo, r.Header,
+			xhttp.IfMatch, xhttp.IfUnmodifiedSince, xhttp.IfNoneMatch, xhttp.IfModifiedSince) == 0
+		if conditionsPass && rangeSpec != nil && ifRangeMatches(objInfo, r.Header) {
+			if _, _, rangeErr := rangeOffsetLength(rangeSpec, objInfo.Size); rangeErr != nil {
+				err = rangeErr
+			}
+		}
+		if conditionsPass && opts.PartNumber > 0 && !hasPart(objInfo, opts.PartNumber) {
+			err = apierr.CodeInvalidPartNumber
+		}
 		api.writeErrorResponseHeadersOnly(r, w, err)
 		return
 	}
@@ -1400,20 +1411,22 @@ func (api *API) checkPreconditions(w http.ResponseWriter, r *http.Request, objIn
 		return true
 	}
 
-	// Like S3, the conditions are evaluated before the part number. Part 1 of an object that
-	// wasn't uploaded in parts is the entire object.
-	if opts.PartNumber > 0 {
-		hasPart := opts.PartNumber == 1
-		if objInfo.PartsCount > 0 {
-			hasPart = len(objInfo.Parts) == 1 && objInfo.Parts[0].PartNumber == opts.PartNumber
-		}
-		if !hasPart {
-			writeError(apierr.CodeInvalidPartNumber)
-			return true
-		}
+	// Like S3, the conditions are evaluated before the part number.
+	if opts.PartNumber > 0 && !hasPart(objInfo, opts.PartNumber) {
+		writeError(apierr.CodeInvalidPartNumber)
+		return true
 	}
 
 	return false
+}
+
+// hasPart returns whether an object read with ObjectOptions.PartNumber has that part. Part 1 of
+// an object that wasn't uploaded in parts is the entire object.
+func hasPart(objInfo objectlayer.ObjectInfo, partNumber int) bool {
+	if objInfo.PartsCount > 0 {
+		return len(objInfo.Parts) == 1 && objInfo.Parts[0].PartNumber == partNumber
+	}
+	return partNumber == 1
 }
 
 // validModTime returns whether an object has a modification time that is not obviously garbage.

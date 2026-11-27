@@ -505,6 +505,14 @@ func TestObjectChecksums(t *testing.T) {
 		{"HEAD mode empty", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {""}}, http.StatusBadRequest, false},
 		{"HEAD mode DISABLED missing key", http.MethodHead, "/bucket/missing", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}}, http.StatusNotFound, false},
 		{"HEAD mode DISABLED If-None-Match match", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "If-None-Match": {`"5eb63bbbe01eeed093cb22bb8f5acdc3"`}}, http.StatusBadRequest, false},
+		// When the conditions pass, S3 reports a range or part number that the object can't
+		// satisfy before an invalid mode. When they fail, it reports the mode.
+		{"HEAD mode DISABLED unsatisfiable range", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "Range": {"bytes=100-"}}, http.StatusRequestedRangeNotSatisfiable, false},
+		{"HEAD mode DISABLED partNumber=2", http.MethodHead, "/bucket/crc32?partNumber=2", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}}, http.StatusRequestedRangeNotSatisfiable, false},
+		{"HEAD mode DISABLED If-Match fail", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "If-Match": {`"nope"`}}, http.StatusBadRequest, false},
+		{"HEAD mode DISABLED unsatisfiable range If-Match fail", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "Range": {"bytes=100-"}, "If-Match": {`"nope"`}}, http.StatusBadRequest, false},
+		{"HEAD mode DISABLED partNumber=2 If-None-Match match", http.MethodHead, "/bucket/crc32?partNumber=2", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "If-None-Match": {`"5eb63bbbe01eeed093cb22bb8f5acdc3"`}}, http.StatusBadRequest, false},
+		{"HEAD mode DISABLED unsatisfiable range If-Range mismatch", http.MethodHead, "/bucket/crc32", http.Header{"X-Amz-Checksum-Mode": {"DISABLED"}, "Range": {"bytes=100-"}, "If-Range": {`"other"`}}, http.StatusBadRequest, false},
 		{"HEAD range from 1", http.MethodHead, "/bucket/crc32", with(enabled, "Range", "bytes=1-"), http.StatusPartialContent, false},
 		{"HEAD range exact length", http.MethodHead, "/bucket/crc32", with(enabled, "Range", "bytes=0-10"), http.StatusPartialContent, true},
 		{"HEAD partNumber=1", http.MethodHead, "/bucket/crc32?partNumber=1", enabled, http.StatusPartialContent, true},
